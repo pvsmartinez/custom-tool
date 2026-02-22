@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { listen } from '@tauri-apps/api/event';
 import './UpdateModal.css';
 
@@ -63,7 +64,7 @@ export default function UpdateModal({ open, onClose }: UpdateModalProps) {
 
   if (!open) return null;
 
-  return (
+  return createPortal(
     <div className="um-overlay">
       <div className="um-modal">
 
@@ -109,6 +110,7 @@ export default function UpdateModal({ open, onClose }: UpdateModalProps) {
         </div>
 
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
