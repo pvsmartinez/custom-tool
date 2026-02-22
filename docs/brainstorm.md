@@ -219,21 +219,140 @@ Replace Tauri with **Flutter** — accept the trade-offs on web/Grammarly SDK in
 
 ---
 
-## 9. Open Questions to Decide
+## 9. Decisions Made (2026-02-22)
 
-- [ ] Should the V1 be Mac-only (SwiftUI or Tauri, ship fast) or cross-platform from day 1?
-- [ ] VS Code extension as a Phase 1 MVP (lowest friction, use existing Copilot UI), then standalone app as Phase 2?
-- [ ] Self-hosted AI (Ollama/local models) a requirement, or cloud-only is fine?
-- [ ] Google account required, or Google Slides is optional/later?
-- [ ] Grammarly subscription required for users, or is basic spellcheck enough for V1?
-- [ ] Mobile: can it wait until desktop is solid, or is it required at launch?
+| Question | Decision |
+|---|---|
+| Platform scope | Mac-primary + Windows, cross-platform from day 1 via Tauri v2 |
+| Backend | **No backend** — pure client, call services directly (git local, Google APIs, AI APIs) |
+| AI provider | **Cloud-only** — Anthropic (Claude) as primary; self-hosting later if needed |
+| Google Slides | **Required** — humans edit directly in Google Slides (drag/drop, fonts, etc.); app manages content via Slides API |
+| Mobile scope | **View-only + voice control** — see projects/slides/PDFs; voice input → AI commands; no editing UI needed |
+| Voice control | **Must-have** — Web Speech API in WebView covers desktop + mobile |
+| Primary user | Personal use; architecture kept clean enough to commercialize later |
+| VS Code extension | Not the app — too constrained for non-coders. Copilot integration via GitHub App + direct API. |
 
 ---
 
-## 10. Suggested Next Steps
+## 10. Stack Decision — Final
 
-1. **Answer the open questions above** — shapes the phase 1 scope dramatically
-2. **Define Phase 1 MVP** — likely: Tauri + React + Markdown editor + git + AI (one model) + basic AI/human tracking
-3. **Scaffold the Tauri project** in this repo
-4. **Prototype the content editor** with CodeMirror + Grammarly SDK
-5. **Wire up one AI provider** (Anthropic or OpenAI) with a simple prompt interface
+### ✅ Tauri v2 + React + TypeScript
+
+**Why Tauri beats the alternatives:**
+
+**vs. Electron:**  
+Electron is what VS Code and Cursor are built on. Cursor specifically is a *fork of VS Code itself* — they didn't build an extension, they took the entire VS Code source code, modified its internals deeply (added inline AI, changed the editor core), and ship it as a separate app. That's a massive undertaking and requires maintaining a fork of millions of lines of code. We don't need that. Tauri gives us the same "web tech + native shell" model but ~10 MB vs ~150 MB, lower memory, and we own the whole thing cleanly.
+
+**vs. Flutter:**  
+Flutter is excellent for mobile-first apps. But its web output is weaker, and the Google Slides embed + Grammarly SDK are JS-native — they work in a WebView natively in Tauri. In Flutter you'd need to add a WebView widget on top anyway, negating the main advantage. Dart also has far less AI tooling muscle behind it.
+
+**vs. VS Code Extension:**  
+Too constrained for a general user. Can't build a real document editor, can't embed Google Slides, can't do a mobile app. Fine as a developer productivity add-on, not right for this tool.
+
+**Why Tauri fits perfectly:**
+- **No backend needed** — Tauri's Rust core calls git directly via `git2` crate (local, no server). AI calls go to Anthropic/OpenAI REST APIs from the frontend. Google APIs are OAuth + REST, same.
+- **Google Slides** — app generates content → pushes via Slides API → user opens Google Slides in their browser to edit manually → app can embed a read-only view via `<webview>`
+- **Voice control** — Web Speech API (`SpeechRecognition`) works in Tauri's WKWebView on macOS and in mobile WebView. No extra library needed.
+- **Mobile (Phase 2)** — Tauri v2 has iOS + Android support (beta, but stable enough for view-only + voice). Perfect fit since we're not building a full mobile editor.
+- **Grammarly** — Text Editor SDK works in the WebView (it's a JS library, drops into any `contenteditable`)
+- **React/TypeScript** — largest ecosystem, best AI tool support, easiest to maintain
+
+### Architecture (No Backend)
+
+```
+┌─────────────────────────────────────────────────────┐
+│                  Tauri v2 App Shell                  │
+│  ┌───────────────────────────────────────────────┐  │
+│  │         React + TypeScript Frontend            │  │
+│  │  ┌──────────────┐  ┌────────────────────────┐ │  │
+│  │  │ Markdown     │  │ Google Slides          │ │  │
+│  │  │ Editor       │  │ Embed / API bridge     │ │  │
+│  │  │ (CodeMirror) │  │                        │ │  │
+│  │  │ + Grammarly  │  └────────────────────────┘ │  │
+│  │  │ SDK          │                              │  │
+│  │  └──────────────┘  ┌────────────────────────┐ │  │
+│  │                    │ Voice Input            │ │  │
+│  │                    │ (Web Speech API)       │ │  │
+│  │                    └────────────────────────┘ │  │
+│  └───────────────────────────────────────────────┘  │
+│  ┌───────────────────────────────────────────────┐  │
+│  │              Rust (Tauri) Backend              │  │
+│  │  • git2 crate — local git per project         │  │
+│  │  • File system access (MD files, exports)     │  │
+│  │  • Pandoc subprocess (PDF / DOCX export)     │  │
+│  └───────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────┘
+         │                    │                │
+         ▼                    ▼                ▼
+  Anthropic API        Google APIs         (no server)
+  (Claude — direct)   (Slides, Drive,
+                        OAuth 2.0)
+```
+
+---
+
+## 11. Google Slides Integration Model
+
+Since users want to edit slides directly in Google Slides (drag/drop, fonts, etc.), the flow is:
+
+1. **Generate:** AI creates structured content (outline, bullet points) in the app
+2. **Push:** App calls Google Slides API → creates/updates the presentation
+3. **Edit:** User opens Google Slides in browser — edits freely, no app involved
+4. **View:** App embeds a read-only preview via iframe (Google Slides publish embed)
+5. **AI/Human tracking:** Slide-level metadata stored in our YAML/JSON sidecar — "this slide was AI-generated, not yet reviewed"
+
+This means **we don't build a slide editor** — Google Slides is the slide editor. We're the AI that creates and organizes the content, and Google Slides is the canvas.
+
+---
+
+## 12. Mobile Strategy
+
+| Feature | Desktop | Mobile |
+|---|---|---|
+| Write / edit content | ✅ Full editor | ❌ Not needed |
+| View slides / PDFs | ✅ | ✅ Embed/WebView |
+| Voice → AI command | ✅ | ✅ Web Speech API |
+| AI generates content | ✅ | ✅ (same API calls) |
+| Mark blocks as reviewed | ✅ | ✅ Simple tap |
+| Git sync | ✅ Full | 🔄 Read-only / manual sync |
+
+Mobile is essentially a **companion viewer + voice interface**. Tauri v2's mobile target handles this well.
+
+---
+
+## 13. Phase Plan
+
+### Phase 1 — Mac Desktop MVP
+- Tauri v2 + React/TS scaffolding
+- Markdown editor (CodeMirror) + Grammarly SDK
+- One AI provider (Anthropic / Claude) wired up
+- Git per project (init, auto-commit, sync script)
+- AI/Human block tracking (basic YAML metadata)
+- Export to PDF (Pandoc) and DOCX
+
+### Phase 2 — Google Integration
+- Google OAuth 2.0
+- Google Slides API: create presentations from content
+- Google Drive API: backup/sync projects
+- Slides embed in-app viewer
+
+### Phase 3 — Mobile
+- Tauri v2 iOS/Android build
+- View projects, slides, PDFs
+- Voice input → AI text generation
+- Review/approve blocks on mobile
+
+### Phase 4 — Polish / Multi-user (if commercializing)
+- Multi-model support (OpenAI, Gemini, local via Ollama)
+- Grammarly deep integration
+- Team sharing / collaboration features
+
+---
+
+## 14. Suggested Next Steps
+
+1. **Scaffold Tauri v2 + React/TS project** in this repo
+2. **Get a Markdown editor running** (CodeMirror 6)
+3. **Wire up Anthropic API** — simple prompt → response in the editor
+4. **Add git auto-init** per project using Tauri's Rust commands + `git2`
+5. **Add AI/Human block tracking** — YAML frontmatter schema + basic UI indicator

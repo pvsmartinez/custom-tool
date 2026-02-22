@@ -34,10 +34,17 @@ A general-purpose AI-assisted productivity tool, inspired by how Pedro uses VS C
 
 ## Technical Direction
 
-- macOS-first native experience (likely Swift / SwiftUI or Electron)
-- Web version as a secondary surface
-- AI integration at the core (OpenAI / Anthropic / local models TBD)
-- VS Code Copilot-style UX adapted for general-purpose workflows
+- **Framework:** Tauri v2 (Rust backend + React/TypeScript frontend)
+- **No backend server** — pure client; talks directly to Anthropic API, Google APIs, local git
+- **AI:** Anthropic (Claude) cloud API — model abstraction layer for future swapping
+- **Documents:** Markdown + YAML frontmatter (git-friendly, exportable)
+- **Slides:** Google Slides API — app generates content, users edit in Google Slides natively
+- **Export:** Pandoc (MD → PDF, DOCX)
+- **Grammar:** Grammarly Text Editor SDK (WebView, JS)
+- **Voice:** Web Speech API — desktop and mobile
+- **Version control:** git per project, `git2` Rust crate, auto-commit
+- **AI/Human tracking:** YAML block metadata — `ai-generated` → `human-edited` → `reviewed`
+- **Mobile:** View-only + voice control (Tauri v2 iOS/Android, Phase 3)
 
 ---
 
@@ -59,5 +66,6 @@ custom-tool/
 
 _Add notes here as work progresses across sessions to maintain continuity._
 
-- **2026-02-22 (init)** — Project initialized. Repo created on GitHub. Core infrastructure (git, scripts, AGENT.md) in place. Vision: AI productivity tool beyond coding.
-- **2026-02-22 (brainstorm)** — Full capability & stack brainstorm completed. See `docs/brainstorm.md`. Leading stack candidate: **Tauri v2 + React/TypeScript** for the standalone app. Key capabilities: Markdown-native writing, PDF/DOCX export, Grammarly SDK, AI model abstraction layer (swap providers freely), MCP bridges, Google Slides API, git-per-project, AI vs. Human content tracking. Open questions logged in brainstorm — need decisions on: V1 platform scope, VS Code extension as MVP vs. standalone, mobile priority.
+- **2026-02-22 (init)** — Project initialized. Repo created on GitHub. Core infrastructure (git, scripts, AGENT.md) in place.
+- **2026-02-22 (brainstorm)** — Full capability & stack brainstorm. See `docs/brainstorm.md`.
+- **2026-02-22 (decision)** — Stack decided: **Tauri v2 + React/TypeScript**. No backend. Claude (Anthropic) as primary AI. Google Slides for presentations (users edit there directly). Mobile = view + voice only. Voice via Web Speech API. git per project via Rust git2 crate. Next step: scaffold Tauri v2 project.
