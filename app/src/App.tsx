@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import Editor from './components/Editor';
 import AIPanel from './components/AIPanel';
 import WorkspacePicker from './components/WorkspacePicker';
@@ -19,7 +20,23 @@ export default function App() {
   const [aiOpen, setAiOpen] = useState(false);
   const [aiInitialPrompt, setAiInitialPrompt] = useState('');
   const [wordCount, setWordCount] = useState(0);
+  const [updating, setUpdating] = useState<'idle' | 'building' | 'error'>('idle');
+  const [updateError, setUpdateError] = useState<string | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── In-app update ───────────────────────────────────────────
+  async function handleUpdate() {
+    setUpdating('building');
+    setUpdateError(null);
+    try {
+      // __PROJECT_ROOT__ is embedded by vite.config.ts at build time
+      await invoke('update_app', { projectRoot: __PROJECT_ROOT__ });
+      // process exits inside the Rust command — we never reach here
+    } catch (err) {
+      setUpdating('error');
+      setUpdateError(String(err));
+    }
+  }
 
   // ── Word count ───────────────────────────────────────────────
   useEffect(() => {
@@ -144,6 +161,20 @@ export default function App() {
         </div>
         <div className="app-header-right">
           <span className="app-wordcount">{wordCount.toLocaleString()} words</span>
+          {updating === 'building' && (
+            <span className="app-updating">⟳ Building update…</span>
+          )}
+          {updating === 'error' && updateError && (
+            <span className="app-update-error" title={updateError}>⚠ Update failed</span>
+          )}
+          <button
+            className="app-update-btn"
+            onClick={handleUpdate}
+            disabled={updating === 'building'}
+            title="Rebuild and reinstall the app"
+          >
+            {updating === 'building' ? '…' : '↑ Update'}
+          </button>
           <button
             className={`app-ai-toggle ${aiOpen ? 'active' : ''}`}
             onClick={() => setAiOpen((v) => !v)}

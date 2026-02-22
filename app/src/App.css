@@ -80,6 +80,44 @@ body {
   border: 1px solid #3e4451;
 }
 
+.app-update-btn {
+  background: none;
+  border: 1px solid #3e4451;
+  color: #636d83;
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.app-update-btn:hover:not(:disabled) {
+  border-color: #98c379;
+  color: #98c379;
+}
+
+.app-update-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.app-updating {
+  font-size: 12px;
+  color: #e5c07b;
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+.app-update-error {
+  font-size: 12px;
+  color: #e06c75;
+  cursor: help;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
+}
+
 .app-ai-toggle {
   background: none;
   border: 1px solid #3e4451;

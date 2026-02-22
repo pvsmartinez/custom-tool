@@ -3,8 +3,8 @@
 # update-app.sh  —  Incrementally rebuild custom-tool and replace the running app
 #
 # Usage:
-#   ./scripts/update-app.sh            # rebuild → replace in /Applications → relaunch
-#   ./scripts/update-app.sh --no-launch  # same but don't relaunch after update
+#   ./scripts/update-app.sh              # rebuild → replace in ~/Applications → relaunch
+#   ./scripts/update-app.sh --no-launch  # same but don’t relaunch after update
 #
 # Subsequent builds are fast because Rust recompiles only changed modules:
 #   • Frontend (React/CSS) only changed  →  ~15–30 seconds
@@ -16,7 +16,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_DIR="$(dirname "$SCRIPT_DIR")/app"
 APP_NAME="custom-tool"
-INSTALL_PATH="/Applications/${APP_NAME}.app"
+INSTALL_DIR="$HOME/Applications"
+INSTALL_PATH="${INSTALL_DIR}/${APP_NAME}.app"
 BUNDLE_DIR="${APP_DIR}/src-tauri/target/release/bundle/macos"
 
 RELAUNCH=true
@@ -51,9 +52,9 @@ fi
 
 # ── Incremental build ────────────────────────────────────────────────────────
 echo ""
-echo "▸ Building (incremental)…"
+echo "▸ Building (incremental, app bundle only)…"
 cd "$APP_DIR"
-npm run tauri build
+npm run tauri build -- --bundles app
 
 # ── Locate the fresh bundle ──────────────────────────────────────────────────
 NEW_APP=""
@@ -70,9 +71,10 @@ fi
 
 # ── Replace installed copy ───────────────────────────────────────────────────
 echo ""
-echo "▸ Installing to /Applications (may ask for your password)…"
-sudo rm -rf "$INSTALL_PATH"
-sudo cp -R "$NEW_APP" "$INSTALL_PATH"
+echo "▸ Installing to ~/Applications (no password needed)…"
+mkdir -p "$INSTALL_DIR"
+rm -rf "$INSTALL_PATH"
+cp -R "$NEW_APP" "$INSTALL_PATH"
 echo "✓  Updated: $INSTALL_PATH"
 
 # Print a quick diff summary of what changed vs git

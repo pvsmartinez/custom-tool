@@ -1,12 +1,22 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import path from "path";
 
 // @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
+// Project root (parent of this app/ dir) — embedded at build time so the
+// in-app Update button knows where to find the source.
+// @ts-expect-error process is a nodejs global
+const projectRoot = path.resolve(process.cwd(), "..");
 
 // https://vite.dev/config/
 export default defineConfig(async () => ({
   plugins: [react()],
+
+  define: {
+    // Makes __PROJECT_ROOT__ available in all frontend files
+    __PROJECT_ROOT__: JSON.stringify(projectRoot),
+  },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //

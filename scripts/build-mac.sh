@@ -2,8 +2,8 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # build-mac.sh   –   Build custom-tool as a native macOS .app bundle
 # Usage:
-#   ./scripts/build-mac.sh           # build only
-#   ./scripts/build-mac.sh --install # build + copy to /Applications
+#   ./scripts/build-mac.sh           # build only (opens in Finder)
+#   ./scripts/build-mac.sh --install # build + install to ~/Applications
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
@@ -34,8 +34,8 @@ echo "▸ Installing npm dependencies…"
 npm install --legacy-peer-deps
 
 echo ""
-echo "▸ Running Tauri production build…"
-npm run tauri build
+echo "▸ Running Tauri production build (app bundle only)…"
+npm run tauri build -- --bundles app
 
 # ── Locate the built bundle ──────────────────────────────────────────────────
 BUNDLE_DIR="$APP_DIR/src-tauri/target/release/bundle/macos"
@@ -62,14 +62,18 @@ echo ""
 echo "✓  Build successful!"
 echo "   Bundle: $APP_PATH"
 
-# ── Optionally install into /Applications ───────────────────────────────────
+# ── Optionally install into ~/Applications (no sudo needed) ─────────────────
 if [[ "${1:-}" == "--install" ]]; then
+  INSTALL_DIR="$HOME/Applications"
+  mkdir -p "$INSTALL_DIR"
+  DEST="$INSTALL_DIR/$(basename "$APP_PATH")"
   echo ""
-  echo "▸ Copying to /Applications (may require your password)…"
-  sudo cp -R "$APP_PATH" /Applications/
-  echo "✓  Installed to /Applications/$(basename "$APP_PATH")"
+  echo "▸ Installing to ~/Applications…"
+  rm -rf "$DEST"
+  cp -R "$APP_PATH" "$DEST"
+  echo "✓  Installed to $DEST"
   echo ""
-  echo "   Launch it:  open /Applications/$(basename "$APP_PATH")"
+  echo "   Launch it:  open \"$DEST\""
 else
   echo ""
   echo "   To install:   ./scripts/build-mac.sh --install"
