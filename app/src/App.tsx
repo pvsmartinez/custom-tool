@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import Editor from './components/Editor';
 import AIPanel from './components/AIPanel';
 import WorkspacePicker from './components/WorkspacePicker';
@@ -29,14 +30,19 @@ export default function App() {
     setUpdating('building');
     setUpdateError(null);
     try {
-      // __PROJECT_ROOT__ is embedded by vite.config.ts at build time
       await invoke('update_app', { projectRoot: __PROJECT_ROOT__ });
-      // process exits inside the Rust command — we never reach here
     } catch (err) {
       setUpdating('error');
       setUpdateError(String(err));
     }
   }
+
+  // Listen for the native menu "Update custom-tool…" event
+  useEffect(() => {
+    const unlisten = listen('menu-update-app', () => handleUpdate());
+    return () => { unlisten.then((fn) => fn()); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── Word count ───────────────────────────────────────────────
   useEffect(() => {
@@ -161,20 +167,6 @@ export default function App() {
         </div>
         <div className="app-header-right">
           <span className="app-wordcount">{wordCount.toLocaleString()} words</span>
-          {updating === 'building' && (
-            <span className="app-updating">⟳ Building update…</span>
-          )}
-          {updating === 'error' && updateError && (
-            <span className="app-update-error" title={updateError}>⚠ Update failed</span>
-          )}
-          <button
-            className="app-update-btn"
-            onClick={handleUpdate}
-            disabled={updating === 'building'}
-            title="Rebuild and reinstall the app"
-          >
-            {updating === 'building' ? '…' : '↑ Update'}
-          </button>
           <button
             className={`app-ai-toggle ${aiOpen ? 'active' : ''}`}
             onClick={() => setAiOpen((v) => !v)}
@@ -193,6 +185,9 @@ export default function App() {
           onFileSelect={handleOpenFile}
           onWorkspaceChange={handleWorkspaceChange}
           onFilesChange={handleFilesChange}
+          onUpdate={handleUpdate}
+          updating={updating}
+          updateError={updateError}
         />
 
         <Editor

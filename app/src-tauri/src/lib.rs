@@ -1,5 +1,7 @@
 use std::path::Path;
 use std::process::Command;
+use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
+use tauri::Emitter;
 
 /// Initialize a git repository at the given path (no-op if already a repo).
 #[tauri::command]
@@ -103,6 +105,47 @@ async fn update_app(project_root: String) -> Result<String, String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .setup(|app| {
+            // ── Native macOS menu bar ───────────────────────────────
+            let update_item = MenuItem::with_id(
+                app, "update_app", "Update custom-tool\u{2026}", true, Some("cmd+shift+u")
+            )?;
+            let separator = PredefinedMenuItem::separator(app)?;
+            let hide      = PredefinedMenuItem::hide(app, None)?;
+            let hide_others = PredefinedMenuItem::hide_others(app, None)?;
+            let quit      = PredefinedMenuItem::quit(app, Some("Quit custom-tool"))?;
+
+            let app_menu = Submenu::with_items(
+                app, "custom-tool", true,
+                &[&update_item, &separator, &hide, &hide_others, &separator, &quit],
+            )?;
+
+            // Standard Edit menu so copy/paste/undo work normally
+            let undo       = PredefinedMenuItem::undo(app, None)?;
+            let redo       = PredefinedMenuItem::redo(app, None)?;
+            let sep2       = PredefinedMenuItem::separator(app)?;
+            let cut        = PredefinedMenuItem::cut(app, None)?;
+            let copy       = PredefinedMenuItem::copy(app, None)?;
+            let paste      = PredefinedMenuItem::paste(app, None)?;
+            let select_all = PredefinedMenuItem::select_all(app, None)?;
+            let edit_menu  = Submenu::with_items(
+                app, "Edit", true,
+                &[&undo, &redo, &sep2, &cut, &copy, &paste, &select_all],
+            )?;
+
+            let menu = Menu::with_items(app, &[&app_menu, &edit_menu])?;
+            app.set_menu(menu)?;
+
+            // Emit to the webview so the frontend can respond
+            let handle = app.handle().clone();
+            app.on_menu_event(move |_app, event| {
+                if event.id().as_ref() == "update_app" {
+                    let _ = handle.emit("menu-update-app", ());
+                }
+            });
+
+            Ok(())
+        })
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())

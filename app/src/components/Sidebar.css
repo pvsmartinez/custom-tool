@@ -118,6 +118,36 @@
   color: #4b5263;
 }
 
+.sidebar-btn-folder:hover {
+  color: #abb2bf;
+}
+
+.sidebar-btn-update {
+  color: #4b5263;
+  border-top: 1px solid #2c313a;
+  margin-top: 2px;
+  padding-top: 8px;
+}
+
+.sidebar-btn-update:hover:not(:disabled) {
+  color: #98c379;
+}
+
+.sidebar-btn-update:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.sidebar-btn-update.loading {
+  color: #e5c07b;
+  animation: sidebar-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes sidebar-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.45; }
+}
+
 .sidebar-new-file-form {
   display: flex;
   gap: 4px;

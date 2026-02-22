@@ -9,6 +9,9 @@ interface SidebarProps {
   onFileSelect: (filename: string) => void;
   onWorkspaceChange: (workspace: Workspace) => void;
   onFilesChange: (files: string[]) => void;
+  onUpdate: () => void;
+  updating: 'idle' | 'building' | 'error';
+  updateError: string | null;
 }
 
 export default function Sidebar({
@@ -17,6 +20,9 @@ export default function Sidebar({
   onFileSelect,
   onWorkspaceChange,
   onFilesChange,
+  onUpdate,
+  updating,
+  updateError,
 }: SidebarProps) {
   const [creating, setCreating] = useState(false);
   const [newFileName, setNewFileName] = useState('');
@@ -92,6 +98,14 @@ export default function Sidebar({
         )}
         <button className="sidebar-btn sidebar-btn-folder" onClick={handleOpenWorkspace}>
           ⊘ Switch workspace
+        </button>
+        <button
+          className={`sidebar-btn sidebar-btn-update ${updating === 'building' ? 'loading' : ''}`}
+          onClick={onUpdate}
+          disabled={updating === 'building'}
+          title={updateError ?? 'Rebuild and reinstall the app (⌘⇧U)'}
+        >
+          {updating === 'building' ? '⟳ Building…' : updating === 'error' ? '⚠ Update failed' : '↑ Update app'}
         </button>
       </div>
     </aside>
