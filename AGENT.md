@@ -52,12 +52,28 @@ A general-purpose AI-assisted productivity tool, inspired by how Pedro uses VS C
 
 ```
 custom-tool/
+├── app/                  # Tauri v2 + React/TypeScript app
+│   ├── src/
+│   │   ├── components/
+│   │   │   ├── Editor.tsx      # CodeMirror 6 Markdown editor
+│   │   │   ├── Editor.css
+│   │   │   ├── AIPanel.tsx     # Copilot chat panel (⌘K)
+│   │   │   └── AIPanel.css
+│   │   ├── services/
+│   │   │   └── copilot.ts      # GitHub Copilot API integration (streaming)
+│   │   ├── types/
+│   │   │   └── index.ts        # TypeScript interfaces
+│   │   ├── App.tsx             # Main shell (header + editor + AI panel)
+│   │   └── App.css
+│   ├── src-tauri/              # Rust/Tauri backend
+│   ├── .env.example            # Template for secrets — copy to .env
+│   └── .env                    # Local secrets (gitignored)
 ├── docs/
-│   └── brainstorm.md # Capability & stack brainstorm (session 2026-02-22)
-├── scripts/          # Utility shell scripts
-│   └── sync.sh       # Quick git add-all → commit → push
-├── AGENT.md          # This file — AI session context
-└── README.md         # Human-facing project overview
+│   └── brainstorm.md           # Capability & stack brainstorm
+├── scripts/
+│   └── sync.sh                 # Quick git add-all → commit → push
+├── AGENT.md
+└── README.md
 ```
 
 ---
@@ -68,4 +84,5 @@ _Add notes here as work progresses across sessions to maintain continuity._
 
 - **2026-02-22 (init)** — Project initialized. Repo created on GitHub. Core infrastructure (git, scripts, AGENT.md) in place.
 - **2026-02-22 (brainstorm)** — Full capability & stack brainstorm. See `docs/brainstorm.md`.
-- **2026-02-22 (decision)** — Stack decided: **Tauri v2 + React/TypeScript**. No backend. Claude (Anthropic) as primary AI. Google Slides for presentations (users edit there directly). Mobile = view + voice only. Voice via Web Speech API. git per project via Rust git2 crate. Next step: scaffold Tauri v2 project.
+- **2026-02-22 (decision)** — Stack decided: Tauri v2 + React/TypeScript. No backend. Claude (Anthropic) as primary AI. Google Slides for presentations. Mobile = view + voice only.
+- **2026-02-22 (phase1-scaffold)** — Phase 1 MVP scaffolded: Tauri v2 app in `app/`, CodeMirror 6 Markdown editor, GitHub Copilot API streaming integration (`app/src/services/copilot.ts`), AI panel (⌘K), `.env` setup. App window opens on `npm run tauri dev` from the `app/` directory. Next: add VITE_GITHUB_TOKEN to `app/.env`, then build file management (open/save .md files via Tauri FS plugin).

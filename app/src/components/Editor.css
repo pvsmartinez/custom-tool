@@ -1,0 +1,17 @@
+.editor-wrapper {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: #1e2127;
+}
+
+.editor-wrapper .cm-editor {
+  height: 100%;
+  background: #1e2127;
+}
+
+/* Markdown heading styles inside CodeMirror */
+.editor-wrapper .cm-header-1 { font-size: 1.6em; font-weight: 700; }
+.editor-wrapper .cm-header-2 { font-size: 1.35em; font-weight: 700; }
+.editor-wrapper .cm-header-3 { font-size: 1.15em; font-weight: 600; }

@@ -8,10 +8,14 @@
 !.vscode/settings.json
 !.vscode/extensions.json
 
-# Node / npm (if needed later)
+# Node / npm
 node_modules/
 dist/
 build/
+
+# App secrets
+app/.env
+app/.env.local
 
 # Python (if needed later)
 __pycache__/
