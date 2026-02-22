@@ -45,6 +45,8 @@ A general-purpose AI-assisted productivity tool, inspired by how Pedro uses VS C
 
 ```
 custom-tool/
+├── docs/
+│   └── brainstorm.md # Capability & stack brainstorm (session 2026-02-22)
 ├── scripts/          # Utility shell scripts
 │   └── sync.sh       # Quick git add-all → commit → push
 ├── AGENT.md          # This file — AI session context
@@ -57,4 +59,5 @@ custom-tool/
 
 _Add notes here as work progresses across sessions to maintain continuity._
 
-- **2026-02-22** — Project initialized. Repo created on GitHub. Core infrastructure (git, scripts, AGENT.md) in place. Vision: AI productivity tool beyond coding.
+- **2026-02-22 (init)** — Project initialized. Repo created on GitHub. Core infrastructure (git, scripts, AGENT.md) in place. Vision: AI productivity tool beyond coding.
+- **2026-02-22 (brainstorm)** — Full capability & stack brainstorm completed. See `docs/brainstorm.md`. Leading stack candidate: **Tauri v2 + React/TypeScript** for the standalone app. Key capabilities: Markdown-native writing, PDF/DOCX export, Grammarly SDK, AI model abstraction layer (swap providers freely), MCP bridges, Google Slides API, git-per-project, AI vs. Human content tracking. Open questions logged in brainstorm — need decisions on: V1 platform scope, VS Code extension as MVP vs. standalone, mobile priority.
