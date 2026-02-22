@@ -1,9 +1,11 @@
 .ai-panel {
   display: flex;
   flex-direction: column;
-  height: 340px;
+  width: 340px;
+  min-width: 300px;
+  height: 100%;
   background: #21252b;
-  border-top: 1px solid #3e4451;
+  border-left: 1px solid #3e4451;
   flex-shrink: 0;
 }
 
@@ -28,6 +30,29 @@
   display: flex;
   gap: 8px;
   align-items: center;
+}
+
+/* model selector */
+.ai-panel-header-right {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.ai-model-select {
+  background: #2c313a;
+  color: #abb2bf;
+  border: 1px solid #3e4451;
+  border-radius: 4px;
+  font-size: 11px;
+  padding: 2px 6px;
+  cursor: pointer;
+  max-width: 130px;
+}
+
+.ai-model-select:focus {
+  outline: none;
+  border-color: #61afef;
 }
 
 .ai-btn-ghost {
@@ -139,12 +164,19 @@
 
 .ai-input-row {
   display: flex;
-  align-items: flex-end;
-  gap: 8px;
+  flex-direction: column;
+  gap: 6px;
   padding: 10px 12px;
   border-top: 1px solid #3e4451;
   background: #21252b;
   flex-shrink: 0;
+}
+
+.ai-input-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+  align-items: center;
 }
 
 .ai-input {
@@ -172,27 +204,55 @@
 
 .ai-btn-send {
   background: #61afef;
-  border: none;
   color: #1e2127;
+  border: none;
+  border-radius: 6px;
   font-size: 16px;
   font-weight: 700;
-  width: 36px;
-  height: 36px;
-  border-radius: 6px;
+  padding: 4px 12px;
   cursor: pointer;
   flex-shrink: 0;
   transition: background 0.15s;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  align-self: flex-end;
 }
 
 .ai-btn-send:hover:not(:disabled) {
-  background: #7cc4ff;
+  background: #528bbc;
 }
 
 .ai-btn-send:disabled {
-  background: #3e4451;
-  color: #636d83;
+  opacity: 0.4;
   cursor: not-allowed;
+}
+
+/* microphone button */
+.ai-btn-mic {
+  background: transparent;
+  border: 1px solid #3e4451;
+  color: #636d83;
+  border-radius: 6px;
+  font-size: 15px;
+  padding: 4px 8px;
+  cursor: pointer;
+  transition: all 0.15s;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.ai-btn-mic:hover {
+  border-color: #61afef;
+  color: #61afef;
+}
+
+.ai-btn-mic.listening {
+  border-color: #e06c75;
+  color: #e06c75;
+  background: rgba(224, 108, 117, 0.1);
+  animation: mic-pulse 1s infinite;
+}
+
+@keyframes mic-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(224,108,117,0.4); }
+  70%  { box-shadow: 0 0 0 6px rgba(224,108,117,0); }
+  100% { box-shadow: 0 0 0 0 rgba(224,108,117,0); }
 }

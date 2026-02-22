@@ -1,41 +1,33 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import Editor from './components/Editor';
 import AIPanel from './components/AIPanel';
+import WorkspacePicker from './components/WorkspacePicker';
+import Sidebar from './components/Sidebar';
+import {
+  readFile,
+  writeFile,
+} from './services/workspace';
+import type { Workspace } from './types';
 import './App.css';
 
-const STORAGE_KEY = 'custom-tool-doc';
-
-const DEFAULT_CONTENT = `# Welcome to custom-tool
-
-Start writing here. This is your Markdown editor.
-
-## Tips
-
-- Press **⌘K** (or **Ctrl+K**) to open Copilot and ask for help
-- Your work is saved automatically in this session
-- Markdown is fully supported: **bold**, *italic*, \`code\`, headings, lists
-
----
-
-Start your first class, chapter, or article below.
-`;
+const FALLBACK_CONTENT = `# Untitled Document\n\nStart writing here…\n`;
 
 export default function App() {
-  const [content, setContent] = useState<string>(
-    () => localStorage.getItem(STORAGE_KEY) ?? DEFAULT_CONTENT
-  );
+  const [workspace, setWorkspace] = useState<Workspace | null>(null);
+  const [activeFile, setActiveFile] = useState<string | null>(null);
+  const [content, setContent] = useState<string>(FALLBACK_CONTENT);
   const [aiOpen, setAiOpen] = useState(false);
   const [aiInitialPrompt, setAiInitialPrompt] = useState('');
   const [wordCount, setWordCount] = useState(0);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Persist to localStorage on every change
+  // ── Word count ───────────────────────────────────────────────
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, content);
     const words = content.trim().split(/\s+/).filter(Boolean).length;
     setWordCount(words);
   }, [content]);
 
-  // Cmd/Ctrl+K at the app level (fallback)
+  // ── Keyboard shortcuts ───────────────────────────────────────
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
@@ -43,37 +35,112 @@ export default function App() {
         setAiInitialPrompt('');
         setAiOpen(true);
       }
-      if (e.key === 'Escape' && aiOpen) {
-        setAiOpen(false);
-      }
+      if (e.key === 'Escape' && aiOpen) setAiOpen(false);
     }
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [aiOpen]);
 
+  // ── File open ────────────────────────────────────────────────
+  async function handleOpenFile(filename: string) {
+    if (!workspace) return;
+    try {
+      const text = await readFile(workspace, filename);
+      setContent(text);
+      setActiveFile(filename);
+    } catch (err) {
+      console.error('Failed to open file:', err);
+    }
+  }
+
+  // ── File create (delegated to Sidebar) ────────────────────────────────────
+  function handleFilesChange(files: string[]) {
+    setWorkspace((prev) => prev ? { ...prev, files } : null);
+  }
+
+  function handleWorkspaceChange(ws: Workspace) {
+    setWorkspace(ws);
+    const target = ws.config.lastOpenedFile ?? ws.files[0] ?? null;
+    if (target) {
+      readFile(ws, target)
+        .then((text) => { setContent(text); setActiveFile(target); })
+        .catch(() => { setContent(FALLBACK_CONTENT); setActiveFile(null); });
+    } else {
+      setContent(FALLBACK_CONTENT);
+      setActiveFile(null);
+    }
+  }
+
+  // ── Auto-save (debounced 1s) ─────────────────────────────────
+  const handleContentChange = useCallback(
+    (newContent: string) => {
+      setContent(newContent);
+      if (!workspace || !activeFile) return;
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = setTimeout(async () => {
+        try {
+          await writeFile(workspace, activeFile, newContent);
+        } catch (err) {
+          console.error('Auto-save failed:', err);
+        }
+      }, 1000);
+    },
+    [workspace, activeFile]
+  );
+
+  // ── AI request from editor (⌘K selection) ───────────────────
   const handleAIRequest = useCallback((selectedText: string) => {
     setAiInitialPrompt(
-      selectedText ? `Help me with the following text:\n\n${selectedText}` : ''
+      selectedText ? `Help me improve this:\n\n${selectedText}` : ''
     );
     setAiOpen(true);
   }, []);
 
+  // ── Insert from AI ───────────────────────────────────────────
   const handleInsert = useCallback((text: string) => {
     setContent((prev) => {
-      const separator = prev.endsWith('\n') ? '\n' : '\n\n';
-      return prev + separator + text;
+      const sep = prev.endsWith('\n') ? '\n' : '\n\n';
+      return prev + sep + text;
     });
   }, []);
 
-  // Extract a title from the first H1 in the document
-  const title = content.match(/^#\s+(.+)$/m)?.[1] ?? 'Untitled';
+  // ── Workspace loaded ─────────────────────────────────────────
+  async function handleWorkspaceLoaded(ws: Workspace) {
+    setWorkspace(ws);
+    // Open the last opened file, or the first .md file
+    const target = ws.config.lastOpenedFile ?? ws.files[0] ?? null;
+    if (target) {
+      try {
+        const text = await readFile(ws, target);
+        setContent(text);
+        setActiveFile(target);
+      } catch {
+        setContent(FALLBACK_CONTENT);
+        setActiveFile(null);
+      }
+    } else {
+      setContent(FALLBACK_CONTENT);
+      setActiveFile(null);
+    }
+  }
+
+  const title = content.match(/^#\s+(.+)$/m)?.[1] ?? activeFile ?? 'Untitled';
+
+  // ── No workspace yet — show picker ──────────────────────────
+  if (!workspace) {
+    return <WorkspacePicker onOpen={handleWorkspaceLoaded} />;
+  }
 
   return (
     <div className="app">
+      {/* Header */}
       <header className="app-header">
         <div className="app-header-left">
           <span className="app-logo">✦</span>
           <span className="app-title">{title}</span>
+          {workspace.config.name && (
+            <span className="app-workspace-name">{workspace.config.name}</span>
+          )}
         </div>
         <div className="app-header-right">
           <span className="app-wordcount">{wordCount.toLocaleString()} words</span>
@@ -87,20 +154,32 @@ export default function App() {
         </div>
       </header>
 
+      {/* Main 3-column body */}
       <div className="app-body">
+        <Sidebar
+          workspace={workspace}
+          activeFile={activeFile}
+          onFileSelect={handleOpenFile}
+          onWorkspaceChange={handleWorkspaceChange}
+          onFilesChange={handleFilesChange}
+        />
+
         <Editor
           content={content}
-          onChange={setContent}
+          onChange={handleContentChange}
           onAIRequest={handleAIRequest}
         />
+
         <AIPanel
           isOpen={aiOpen}
           onClose={() => setAiOpen(false)}
           initialPrompt={aiInitialPrompt}
           onInsert={handleInsert}
           documentContext={content}
+          agentContext={workspace.agentContext}
         />
       </div>
     </div>
   );
 }
+

@@ -1,9 +1,11 @@
-import type { ChatMessage, CopilotStreamChunk } from '../types';
+import type { ChatMessage, CopilotStreamChunk, CopilotModel } from '../types';
 
 // GitHub Copilot API — OpenAI-compatible endpoint.
 // Requires a GitHub Personal Access Token with `copilot` scope.
 // Set VITE_GITHUB_TOKEN in your .env file.
 const COPILOT_API_URL = 'https://api.githubcopilot.com/chat/completions';
+
+export const DEFAULT_MODEL: CopilotModel = 'gpt-4o';
 
 function getToken(): string {
   const token = import.meta.env.VITE_GITHUB_TOKEN;
@@ -21,7 +23,7 @@ export async function streamCopilotChat(
   onChunk: (text: string) => void,
   onDone: () => void,
   onError: (err: Error) => void,
-  model = 'gpt-4o'
+  model: CopilotModel = DEFAULT_MODEL
 ): Promise<void> {
   try {
     const response = await fetch(COPILOT_API_URL, {
@@ -85,11 +87,11 @@ export async function streamCopilotChat(
 }
 
 /**
- * Helper: get a one-shot (non-streamed) completion for internal use (e.g. titles, summaries).
+ * Helper: get a one-shot (non-streamed) completion for internal use.
  */
 export async function copilotComplete(
   messages: ChatMessage[],
-  model = 'gpt-4o'
+  model: CopilotModel = DEFAULT_MODEL
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     let result = '';

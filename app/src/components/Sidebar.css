@@ -1,0 +1,153 @@
+.sidebar {
+  width: 200px;
+  background: #21252b;
+  border-right: 1px solid #2c313a;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 12px 8px;
+  gap: 6px;
+  border-bottom: 1px solid #2c313a;
+  flex-shrink: 0;
+}
+
+.sidebar-workspace-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: #abb2bf;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.sidebar-agent-badge {
+  color: #61afef;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.sidebar-files {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px 0;
+}
+
+.sidebar-empty {
+  font-size: 12px;
+  color: #4b5263;
+  padding: 12px;
+  text-align: center;
+}
+
+.sidebar-file {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 12px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  color: #636d83;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: background 0.12s, color 0.12s;
+  border-radius: 0;
+}
+
+.sidebar-file:hover {
+  background: #2c313a;
+  color: #abb2bf;
+}
+
+.sidebar-file.active {
+  background: rgba(97, 175, 239, 0.12);
+  color: #61afef;
+}
+
+.sidebar-file-icon {
+  font-size: 10px;
+  flex-shrink: 0;
+  opacity: 0.5;
+}
+
+.sidebar-file.active .sidebar-file-icon {
+  opacity: 1;
+}
+
+.sidebar-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 8px;
+  border-top: 1px solid #2c313a;
+  flex-shrink: 0;
+}
+
+.sidebar-btn {
+  background: none;
+  border: none;
+  color: #4b5263;
+  font-size: 12px;
+  padding: 6px 8px;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 5px;
+  transition: color 0.12s, background 0.12s;
+}
+
+.sidebar-btn:hover {
+  color: #abb2bf;
+  background: #2c313a;
+}
+
+.sidebar-btn-folder {
+  color: #4b5263;
+}
+
+.sidebar-new-file-form {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.sidebar-new-file-input {
+  flex: 1;
+  background: #2c313a;
+  border: 1px solid #3e4451;
+  border-radius: 4px;
+  color: #abb2bf;
+  font-size: 12px;
+  padding: 5px 7px;
+  outline: none;
+}
+
+.sidebar-new-file-input:focus {
+  border-color: #61afef;
+}
+
+.sidebar-btn-confirm {
+  background: #61afef;
+  border: none;
+  border-radius: 4px;
+  color: #1e2127;
+  font-weight: 700;
+  width: 26px;
+  height: 26px;
+  cursor: pointer;
+  font-size: 13px;
+  flex-shrink: 0;
+}
