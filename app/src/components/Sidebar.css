@@ -1,5 +1,5 @@
 .sidebar {
-  width: 200px;
+  width: 220px;
   background: #21252b;
   border-right: 1px solid #2c313a;
   display: flex;
@@ -180,4 +180,138 @@
   cursor: pointer;
   font-size: 13px;
   flex-shrink: 0;
+}
+
+/* ── Explorer label ───────────────────────────────────────────── */
+.sidebar-explorer-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: #4b5263;
+  padding: 6px 12px 4px;
+  flex-shrink: 0;
+}
+
+/* ── Tree rows ────────────────────────────────────────────────── */
+.sidebar-tree-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  padding-top: 3px;
+  padding-bottom: 3px;
+  padding-right: 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  transition: background 0.1s, color 0.1s;
+  border-radius: 0;
+  min-height: 24px;
+}
+
+.sidebar-tree-row:hover {
+  background: #2c313a;
+}
+
+/* Directory rows */
+.sidebar-tree-dir {
+  color: #abb2bf;
+}
+
+.sidebar-tree-dir:hover {
+  color: #d7dae0;
+}
+
+.sidebar-tree-arrow {
+  font-size: 9px;
+  color: #636d83;
+  flex-shrink: 0;
+  width: 10px;
+  text-align: center;
+}
+
+/* File rows */
+.sidebar-tree-file {
+  color: #636d83;
+}
+
+.sidebar-tree-file:hover {
+  color: #abb2bf;
+}
+
+.sidebar-tree-file.active {
+  background: rgba(97, 175, 239, 0.12);
+  color: #61afef;
+}
+
+/* Icon */
+.sidebar-tree-icon {
+  font-size: 10px;
+  flex-shrink: 0;
+  color: #4b5263;
+  width: 16px;
+  text-align: center;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+}
+
+.sidebar-tree-icon--dir {
+  color: #e5c07b;
+  font-size: 12px;
+}
+
+.sidebar-tree-file.active .sidebar-tree-icon {
+  color: #61afef;
+}
+
+/* Name */
+.sidebar-tree-name {
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+/* Preserve old .sidebar-file styles for anything that may still use them */
+.sidebar-file {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 12px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  color: #636d83;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: background 0.12s, color 0.12s;
+  border-radius: 0;
+}
+
+.sidebar-file:hover {
+  background: #2c313a;
+  color: #abb2bf;
+}
+
+.sidebar-file.active {
+  background: rgba(97, 175, 239, 0.12);
+  color: #61afef;
+}
+
+.sidebar-file-icon {
+  font-size: 10px;
+  flex-shrink: 0;
+  opacity: 0.5;
+}
+
+.sidebar-file.active .sidebar-file-icon {
+  opacity: 1;
 }

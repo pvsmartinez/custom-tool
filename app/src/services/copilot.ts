@@ -1,4 +1,5 @@
-import type { ChatMessage, CopilotStreamChunk, CopilotModel } from '../types';
+import type { ChatMessage, CopilotStreamChunk, CopilotModel, CopilotModelInfo } from '../types';
+import { FALLBACK_MODELS } from '../types';
 
 // GitHub Copilot API — OpenAI-compatible endpoint.
 // Requires a GitHub Personal Access Token with `copilot` scope.
@@ -103,4 +104,56 @@ export async function copilotComplete(
       model
     );
   });
+}
+
+// ── Model discovery ──────────────────────────────────────────────────────────
+
+interface RawModel {
+  id: string;
+  name?: string;
+  // GitHub Copilot API field for cost relative to a standard request
+  billing_multiplier?: number;
+  // Some API versions use this instead
+  multiplier?: number;
+  vendor?: string;
+  capabilities?: { family?: string };
+}
+
+/** Fetches available models from the GitHub Copilot /models endpoint. */
+export async function fetchCopilotModels(): Promise<CopilotModelInfo[]> {
+  try {
+    const token = getToken();
+    const res = await fetch('https://api.githubcopilot.com/models', {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'Copilot-Integration-Id': 'vscode-chat',
+        'Editor-Version': 'vscode/1.97.0',
+        'Editor-Plugin-Version': 'copilot-chat/0.24.0',
+        'User-Agent': 'GitHubCopilotChat/0.24.0',
+      },
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = await res.json() as { data?: RawModel[] };
+    const raw: RawModel[] = json.data ?? [];
+
+    // Filter to chat-compatible models only
+    const models: CopilotModelInfo[] = raw
+      .filter((m) => m.id && !m.id.includes('embedding') && !m.id.includes('whisper'))
+      .map((m) => {
+        const mult = m.billing_multiplier ?? m.multiplier ?? 1;
+        return {
+          id: m.id,
+          name: m.name ?? m.id,
+          multiplier: mult,
+          isPremium: mult > 1,
+          vendor: m.vendor,
+        };
+      })
+      .sort((a, b) => a.multiplier - b.multiplier || a.name.localeCompare(b.name));
+
+    return models.length > 0 ? models : FALLBACK_MODELS;
+  } catch {
+    return FALLBACK_MODELS;
+  }
 }

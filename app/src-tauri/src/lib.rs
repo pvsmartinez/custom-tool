@@ -1,7 +1,8 @@
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::Emitter;
+use tokio::io::AsyncBufReadExt;
 
 /// Initialize a git repository at the given path (no-op if already a repo).
 #[tauri::command]
@@ -45,31 +46,51 @@ fn git_sync(path: String, message: String) -> Result<String, String> {
     Ok("synced".into())
 }
 
-/// Build the app from source, copy it to ~/Applications, relaunch and exit.
-/// Called by the in-app Update button. The project_root is embedded at
-/// build time via Vite's define (see vite.config.ts).
+/// Build the app from source, streaming every output line to the frontend,
+/// then copy to ~/Applications and relaunch. Events emitted:
+///   update:log     { line: String }
+///   update:success ()
+///   update:error   { message: String }
 #[tauri::command]
-async fn update_app(project_root: String) -> Result<String, String> {
+async fn update_app(app: tauri::AppHandle, project_root: String) -> Result<(), String> {
+    let emit_log = |line: &str| { let _ = app.emit("update:log", line.to_string()); };
+
     let home = std::env::var("HOME").map_err(|e| e.to_string())?;
     let cargo_bin = format!("{}/.cargo/bin", home);
-    let app_dir = format!("{}/app", project_root);
+    let app_dir   = format!("{}/app", project_root);
 
-    // Incremental tauri build — only produce .app, not .dmg
     let build_cmd = format!(
-        "export PATH=\"{}:$PATH\" && cd '{}' && npm run tauri build -- --bundles app",
-        cargo_bin, app_dir
+        "export PATH=\"{cargo_bin}:$PATH\" && cd '{app_dir}' && npm run tauri build -- --bundles app 2>&1"
     );
 
-    let status = tokio::process::Command::new("bash")
+    emit_log("▸ Starting incremental build…");
+    emit_log("");
+
+    let mut child = tokio::process::Command::new("bash")
         .arg("-c")
         .arg(&build_cmd)
-        .status()
-        .await
-        .map_err(|e| e.to_string())?;
+        .stdout(Stdio::piped())
+        .spawn()
+        .map_err(|e| { let _ = app.emit("update:error", e.to_string()); e.to_string() })?;
+
+    // Stream stdout line by line to the frontend
+    if let Some(stdout) = child.stdout.take() {
+        let mut reader = tokio::io::BufReader::new(stdout).lines();
+        while let Ok(Some(line)) = reader.next_line().await {
+            emit_log(&line);
+        }
+    }
+
+    let status = child.wait().await.map_err(|e| e.to_string())?;
 
     if !status.success() {
-        return Err("Build failed — check the terminal for details.".into());
+        let msg = "Build failed — see log above.".to_string();
+        let _ = app.emit("update:error", &msg);
+        return Err(msg);
     }
+
+    emit_log("");
+    emit_log("▸ Build succeeded — installing…");
 
     // Find the freshly built .app bundle
     let bundle_dir = format!("{}/app/src-tauri/target/release/bundle/macos", project_root);
@@ -80,25 +101,37 @@ async fn update_app(project_root: String) -> Result<String, String> {
         .map(|e| e.path())
         .ok_or_else(|| "No .app bundle found after build".to_string())?;
 
-    // Install to ~/Applications (no sudo needed)
     let install_dir = format!("{}/Applications", home);
     std::fs::create_dir_all(&install_dir).map_err(|e| e.to_string())?;
     let dest = format!("{}/custom-tool.app", install_dir);
 
-    let _ = std::fs::remove_dir_all(&dest); // remove old version
-    tokio::process::Command::new("cp")
+    let _ = std::fs::remove_dir_all(&dest);
+    let cp_status = tokio::process::Command::new("cp")
         .args(["-R", app_path.to_str().unwrap_or_default(), &dest])
         .status()
         .await
         .map_err(|e| e.to_string())?;
 
-    // Relaunch new version, then exit this process
+    if !cp_status.success() {
+        let msg = format!("Failed to copy .app to {}", dest);
+        let _ = app.emit("update:error", &msg);
+        return Err(msg);
+    }
+
+    emit_log(&format!("▸ Installed to {}", dest));
+    emit_log("");
+    emit_log("✓  Done! Relaunching…");
+
+    // Signal success — frontend shows countdown, then we relaunch
+    let _ = app.emit("update:success", ());
+    tokio::time::sleep(tokio::time::Duration::from_millis(3200)).await;
+
     tokio::process::Command::new("open")
         .arg(&dest)
         .spawn()
         .map_err(|e| e.to_string())?;
 
-    tokio::time::sleep(tokio::time::Duration::from_millis(800)).await;
+    tokio::time::sleep(tokio::time::Duration::from_millis(600)).await;
     std::process::exit(0);
 }
 

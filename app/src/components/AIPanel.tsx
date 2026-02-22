@@ -1,11 +1,91 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { streamCopilotChat } from '../services/copilot';
-import { COPILOT_MODELS, DEFAULT_MODEL } from '../types';
-import type { ChatMessage, CopilotModel } from '../types';
+import { streamCopilotChat, fetchCopilotModels } from '../services/copilot';
+import { DEFAULT_MODEL, FALLBACK_MODELS } from '../types';
+import type { ChatMessage, CopilotModel, CopilotModelInfo } from '../types';
 import './AIPanel.css';
 
-// Pull DEFAULT_MODEL from types
-const _DEFAULT = DEFAULT_MODEL;
+// ── Rate badge helper ────────────────────────────────────────────────────────
+function MultiplierBadge({ value }: { value: number }) {
+  const label = value === 0 ? 'free' : `${value}×`;
+  const cls =
+    value === 0
+      ? 'ai-rate-badge ai-rate-free'
+      : value <= 1
+      ? 'ai-rate-badge ai-rate-standard'
+      : 'ai-rate-badge ai-rate-premium';
+  return <span className={cls}>{label}</span>;
+}
+
+// ── Model picker dropdown ────────────────────────────────────────────────────
+interface ModelPickerProps {
+  models: CopilotModelInfo[];
+  value: CopilotModel;
+  onChange: (id: CopilotModel) => void;
+  loading: boolean;
+}
+
+function ModelPicker({ models, value, onChange, loading }: ModelPickerProps) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function onOutside(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    if (open) document.addEventListener('mousedown', onOutside);
+    return () => document.removeEventListener('mousedown', onOutside);
+  }, [open]);
+
+  const current = models.find((m) => m.id === value) ?? { id: value, name: value, multiplier: 1, isPremium: false };
+
+  const free = models.filter((m) => m.multiplier === 0);
+  const standard = models.filter((m) => m.multiplier > 0 && m.multiplier <= 1);
+  const premium = models.filter((m) => m.multiplier > 1);
+
+  function renderGroup(label: string, items: CopilotModelInfo[]) {
+    if (items.length === 0) return null;
+    return (
+      <>
+        <div className="ai-model-group-label">{label}</div>
+        {items.map((m) => (
+          <button
+            key={m.id}
+            className={`ai-model-option ${m.id === value ? 'selected' : ''}`}
+            onClick={() => { onChange(m.id); setOpen(false); }}
+          >
+            <span className="ai-model-option-name">{m.name}</span>
+            <MultiplierBadge value={m.multiplier} />
+          </button>
+        ))}
+      </>
+    );
+  }
+
+  return (
+    <div className="ai-model-picker" ref={ref}>
+      <button
+        className="ai-model-trigger"
+        onClick={() => setOpen((v) => !v)}
+        title="Switch model"
+        disabled={loading}
+      >
+        <span className="ai-model-trigger-name">{loading ? '…' : current.name}</span>
+        <MultiplierBadge value={current.multiplier} />
+        <span className="ai-model-trigger-caret">▾</span>
+      </button>
+
+      {open && (
+        <div className="ai-model-menu">
+          {renderGroup('Free', free)}
+          {renderGroup('Standard', standard)}
+          {renderGroup('Premium', premium)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Main panel ───────────────────────────────────────────────────────────────
 
 interface AIPanelProps {
   isOpen: boolean;
@@ -39,8 +119,10 @@ export default function AIPanel({
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingText, setStreamingText] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [model, setModel] = useState<CopilotModel>(_DEFAULT);
+  const [model, setModel] = useState<CopilotModel>(DEFAULT_MODEL);
   const [isListening, setIsListening] = useState(false);
+  const [availableModels, setAvailableModels] = useState<CopilotModelInfo[]>(FALLBACK_MODELS);
+  const [modelsLoading, setModelsLoading] = useState(false);
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -52,6 +134,18 @@ export default function AIPanel({
       setTimeout(() => inputRef.current?.focus(), 50);
     }
   }, [isOpen, initialPrompt]);
+
+  // Fetch available models once on first open
+  useEffect(() => {
+    if (!isOpen || availableModels !== FALLBACK_MODELS) return;
+    setModelsLoading(true);
+    fetchCopilotModels().then((models) => {
+      setAvailableModels(models);
+      // If the currently selected model isn't in the list, keep it anyway
+      setModelsLoading(false);
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -149,16 +243,12 @@ export default function AIPanel({
       <div className="ai-panel-header">
         <span className="ai-panel-title">✦ Copilot</span>
         <div className="ai-panel-header-right">
-          <select
-            className="ai-model-select"
+          <ModelPicker
+            models={availableModels}
             value={model}
-            onChange={(e) => setModel(e.target.value as CopilotModel)}
-            title="Switch model"
-          >
-            {COPILOT_MODELS.map((m) => (
-              <option key={m.id} value={m.id}>{m.label}</option>
-            ))}
-          </select>
+            onChange={setModel}
+            loading={modelsLoading}
+          />
           <button
             onClick={() => setMessages([])}
             className="ai-btn-ghost"

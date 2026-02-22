@@ -1,0 +1,137 @@
+.um-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(3px);
+}
+
+.um-modal {
+  width: 660px;
+  max-width: 92vw;
+  max-height: 80vh;
+  background: #1e2127;
+  border: 1px solid #3e4451;
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6);
+}
+
+/* Header */
+.um-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: #21252b;
+  border-bottom: 1px solid #2c313a;
+  flex-shrink: 0;
+}
+
+.um-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #abb2bf;
+  letter-spacing: 0.02em;
+}
+
+.um-close {
+  background: none;
+  border: none;
+  color: #636d83;
+  font-size: 15px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  line-height: 1;
+  transition: color 0.15s;
+}
+
+.um-close:hover { color: #abb2bf; }
+
+/* Log area */
+.um-log {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 16px;
+  font-family: 'SF Mono', 'Menlo', 'Monaco', 'Courier New', monospace;
+  font-size: 11.5px;
+  line-height: 1.65;
+  color: #636d83;
+  background: #1a1d23;
+  min-height: 220px;
+}
+
+.um-line {
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* Lines that look like progress or success */
+.um-line:is(:has(*), [data-ok]) {
+  color: #abb2bf;
+}
+
+/* Status bar */
+.um-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  border-top: 1px solid #2c313a;
+  flex-shrink: 0;
+}
+
+.um-status--building {
+  color: #e5c07b;
+}
+
+.um-status--success {
+  color: #98c379;
+}
+
+.um-status--error {
+  color: #e06c75;
+}
+
+.um-spinner {
+  display: inline-block;
+  animation: um-spin 1s linear infinite;
+  margin-right: 4px;
+}
+
+@keyframes um-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+/* Copy button */
+.um-copy-btn {
+  background: #2c313a;
+  border: 1px solid #3e4451;
+  color: #abb2bf;
+  font-size: 12px;
+  padding: 4px 12px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.um-copy-btn:hover {
+  border-color: #e06c75;
+  color: #e06c75;
+}
+
+.um-copy-btn--done {
+  border-color: #98c379 !important;
+  color: #98c379 !important;
+}

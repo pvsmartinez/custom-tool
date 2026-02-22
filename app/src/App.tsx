@@ -5,6 +5,7 @@ import Editor from './components/Editor';
 import AIPanel from './components/AIPanel';
 import WorkspacePicker from './components/WorkspacePicker';
 import Sidebar from './components/Sidebar';
+import UpdateModal from './components/UpdateModal';
 import {
   readFile,
   writeFile,
@@ -21,20 +22,14 @@ export default function App() {
   const [aiOpen, setAiOpen] = useState(false);
   const [aiInitialPrompt, setAiInitialPrompt] = useState('');
   const [wordCount, setWordCount] = useState(0);
-  const [updating, setUpdating] = useState<'idle' | 'building' | 'error'>('idle');
-  const [updateError, setUpdateError] = useState<string | null>(null);
+  const [showUpdateModal, setShowUpdateModal] = useState(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── In-app update ───────────────────────────────────────────
-  async function handleUpdate() {
-    setUpdating('building');
-    setUpdateError(null);
-    try {
-      await invoke('update_app', { projectRoot: __PROJECT_ROOT__ });
-    } catch (err) {
-      setUpdating('error');
-      setUpdateError(String(err));
-    }
+  function handleUpdate() {
+    setShowUpdateModal(true);
+    // fire and forget — UpdateModal listens to update:log / update:success / update:error
+    invoke('update_app', { projectRoot: __PROJECT_ROOT__ }).catch(() => {});
   }
 
   // Listen for the native menu "Update custom-tool…" event
@@ -82,15 +77,19 @@ export default function App() {
   }
 
   function handleWorkspaceChange(ws: Workspace) {
+    const isSameWorkspace = workspace?.path === ws.path;
     setWorkspace(ws);
-    const target = ws.config.lastOpenedFile ?? ws.files[0] ?? null;
-    if (target) {
-      readFile(ws, target)
-        .then((text) => { setContent(text); setActiveFile(target); })
-        .catch(() => { setContent(FALLBACK_CONTENT); setActiveFile(null); });
-    } else {
-      setContent(FALLBACK_CONTENT);
-      setActiveFile(null);
+    // Only reset the open file when actually switching to a different workspace
+    if (!isSameWorkspace) {
+      const target = ws.config.lastOpenedFile ?? ws.files[0] ?? null;
+      if (target) {
+        readFile(ws, target)
+          .then((text) => { setContent(text); setActiveFile(target); })
+          .catch(() => { setContent(FALLBACK_CONTENT); setActiveFile(null); });
+      } else {
+        setContent(FALLBACK_CONTENT);
+        setActiveFile(null);
+      }
     }
   }
 
@@ -186,8 +185,6 @@ export default function App() {
           onWorkspaceChange={handleWorkspaceChange}
           onFilesChange={handleFilesChange}
           onUpdate={handleUpdate}
-          updating={updating}
-          updateError={updateError}
         />
 
         <Editor
@@ -203,6 +200,11 @@ export default function App() {
           onInsert={handleInsert}
           documentContext={content}
           agentContext={workspace.agentContext}
+        />
+
+        <UpdateModal
+          open={showUpdateModal}
+          onClose={() => setShowUpdateModal(false)}
         />
       </div>
     </div>
