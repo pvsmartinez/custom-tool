@@ -1,0 +1,22 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# VS Code
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+
+# Node / npm (if needed later)
+node_modules/
+dist/
+build/
+
+# Python (if needed later)
+__pycache__/
+*.pyc
+.env
+
+# Logs
+*.log
