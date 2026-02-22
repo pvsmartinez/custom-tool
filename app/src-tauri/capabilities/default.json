@@ -11,9 +11,11 @@
     "fs:allow-read-text-file",
     "fs:allow-write-text-file",
     "fs:allow-read-dir",
-    "fs:allow-create-dir",
+    "fs:allow-mkdir",
     "fs:allow-exists",
-    "fs:allow-app-data-write",
-    "fs:allow-app-data-read"
+    "fs:scope-home-recursive",
+    "fs:allow-appdata-read",
+    "fs:allow-appdata-write"
   ]
 }
+
