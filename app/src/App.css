@@ -102,6 +102,38 @@ body {
   color: #61afef;
 }
 
+/* ── Edit / Preview toggle ───────────────────────── */
+.app-view-toggle {
+  display: flex;
+  align-items: center;
+  background: #2c313a;
+  border: 1px solid #3e4451;
+  border-radius: 5px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.app-view-btn {
+  background: none;
+  border: none;
+  color: #636d83;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 4px 11px;
+  cursor: pointer;
+  transition: color 0.12s, background 0.12s;
+}
+
+.app-view-btn:hover {
+  color: #abb2bf;
+  background: #3e4451;
+}
+
+.app-view-btn.active {
+  background: rgba(97, 175, 239, 0.15);
+  color: #61afef;
+}
+
 /* ── Body ────────────────────────────────────────── */
 .app-body {
   display: flex;

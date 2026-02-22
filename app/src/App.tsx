@@ -5,11 +5,14 @@ import Editor from './components/Editor';
 import AIPanel from './components/AIPanel';
 import WorkspacePicker from './components/WorkspacePicker';
 import Sidebar from './components/Sidebar';
+import MarkdownPreview from './components/MarkdownPreview';
+import PDFViewer from './components/PDFViewer';
 import UpdateModal from './components/UpdateModal';
 import {
   readFile,
   writeFile,
 } from './services/workspace';
+import { getFileTypeInfo } from './utils/fileType';
 import type { Workspace } from './types';
 import './App.css';
 
@@ -23,7 +26,11 @@ export default function App() {
   const [aiInitialPrompt, setAiInitialPrompt] = useState('');
   const [wordCount, setWordCount] = useState(0);
   const [showUpdateModal, setShowUpdateModal] = useState(false);
+  const [viewMode, setViewMode] = useState<'edit' | 'preview'>('edit');
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Derived from active file
+  const fileTypeInfo = activeFile ? getFileTypeInfo(activeFile) : null;
 
   // ── In-app update ───────────────────────────────────────────
   function handleUpdate() {
@@ -62,6 +69,13 @@ export default function App() {
   // ── File open ────────────────────────────────────────────────
   async function handleOpenFile(filename: string) {
     if (!workspace) return;
+    const info = getFileTypeInfo(filename);
+    setViewMode(info.defaultMode);
+    if (info.kind === 'pdf') {
+      setActiveFile(filename);
+      setContent('');
+      return;
+    }
     try {
       const text = await readFile(workspace, filename);
       setContent(text);
@@ -79,10 +93,16 @@ export default function App() {
   function handleWorkspaceChange(ws: Workspace) {
     const isSameWorkspace = workspace?.path === ws.path;
     setWorkspace(ws);
-    // Only reset the open file when actually switching to a different workspace
     if (!isSameWorkspace) {
       const target = ws.config.lastOpenedFile ?? ws.files[0] ?? null;
       if (target) {
+        const info = getFileTypeInfo(target);
+        setViewMode(info.defaultMode);
+        if (info.kind === 'pdf') {
+          setActiveFile(target);
+          setContent('');
+          return;
+        }
         readFile(ws, target)
           .then((text) => { setContent(text); setActiveFile(target); })
           .catch(() => { setContent(FALLBACK_CONTENT); setActiveFile(null); });
@@ -129,9 +149,15 @@ export default function App() {
   // ── Workspace loaded ─────────────────────────────────────────
   async function handleWorkspaceLoaded(ws: Workspace) {
     setWorkspace(ws);
-    // Open the last opened file, or the first .md file
     const target = ws.config.lastOpenedFile ?? ws.files[0] ?? null;
     if (target) {
+      const info = getFileTypeInfo(target);
+      setViewMode(info.defaultMode);
+      if (info.kind === 'pdf') {
+        setActiveFile(target);
+        setContent('');
+        return;
+      }
       try {
         const text = await readFile(ws, target);
         setContent(text);
@@ -165,7 +191,27 @@ export default function App() {
           )}
         </div>
         <div className="app-header-right">
-          <span className="app-wordcount">{wordCount.toLocaleString()} words</span>
+          {fileTypeInfo?.kind === 'markdown' && (
+            <div className="app-view-toggle">
+              <button
+                className={`app-view-btn ${viewMode === 'edit' ? 'active' : ''}`}
+                onClick={() => setViewMode('edit')}
+                title="Edit mode"
+              >
+                Edit
+              </button>
+              <button
+                className={`app-view-btn ${viewMode === 'preview' ? 'active' : ''}`}
+                onClick={() => setViewMode('preview')}
+                title="Preview rendered markdown"
+              >
+                Preview
+              </button>
+            </div>
+          )}
+          {fileTypeInfo?.kind !== 'pdf' && (
+            <span className="app-wordcount">{wordCount.toLocaleString()} words</span>
+          )}
           <button
             className={`app-ai-toggle ${aiOpen ? 'active' : ''}`}
             onClick={() => setAiOpen((v) => !v)}
@@ -187,11 +233,20 @@ export default function App() {
           onUpdate={handleUpdate}
         />
 
-        <Editor
-          content={content}
-          onChange={handleContentChange}
-          onAIRequest={handleAIRequest}
-        />
+        {fileTypeInfo?.kind === 'pdf' && activeFile ? (
+          <PDFViewer
+            absPath={`${workspace.path}/${activeFile}`}
+            filename={activeFile}
+          />
+        ) : viewMode === 'preview' && fileTypeInfo?.kind === 'markdown' ? (
+          <MarkdownPreview content={content} />
+        ) : (
+          <Editor
+            content={content}
+            onChange={handleContentChange}
+            onAIRequest={handleAIRequest}
+          />
+        )}
 
         <AIPanel
           isOpen={aiOpen}
@@ -202,11 +257,12 @@ export default function App() {
           agentContext={workspace.agentContext}
         />
 
-        <UpdateModal
-          open={showUpdateModal}
-          onClose={() => setShowUpdateModal(false)}
-        />
       </div>
+
+      <UpdateModal
+        open={showUpdateModal}
+        onClose={() => setShowUpdateModal(false)}
+      />
     </div>
   );
 }
