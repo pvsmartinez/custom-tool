@@ -42,6 +42,7 @@ export default function WorkspacePicker({ onOpen }: WorkspacePickerProps) {
   return (
     <div className="wp-overlay">
       <div className="wp-card">
+        <h1 className="wp-welcome">Welcome!</h1>
         <div className="wp-logo">✦</div>
         <h1 className="wp-title">custom-tool</h1>
         <p className="wp-subtitle">Open a folder to begin. Each folder is an independent workspace with its own git history.</p>

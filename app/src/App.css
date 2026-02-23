@@ -51,6 +51,43 @@ body {
   -webkit-app-region: no-drag;
 }
 
+/* Sidebar toggle button */
+.app-sidebar-toggle {
+  background: none;
+  border: none;
+  color: #636d83;
+  font-size: 15px;
+  line-height: 1;
+  padding: 4px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+.app-sidebar-toggle:hover {
+  color: #abb2bf;
+  background: #2c313a;
+}
+.app-sidebar-toggle.active {
+  color: #abb2bf;
+}
+
+/* Home button */
+.app-home-btn {
+  background: none;
+  border: none;
+  color: #636d83;
+  font-size: 16px;
+  line-height: 1;
+  padding: 2px 5px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+.app-home-btn:hover {
+  color: #61afef;
+  background: rgba(97, 175, 239, 0.08);
+}
+
 .app-logo {
   color: #61afef;
   font-size: 16px;
@@ -102,6 +139,73 @@ body {
   color: #61afef;
 }
 
+/* ── AI nav toolbar (toggle + prev/next) ─────────────────────── */
+.app-ai-nav {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  background: rgba(229, 192, 123, 0.07);
+  border: 1px solid rgba(229, 192, 123, 0.3);
+  border-radius: 6px;
+  padding: 0 2px;
+}
+
+.app-ai-nav-btn {
+  background: none;
+  border: none;
+  color: #e5c07b;
+  font-size: 13px;
+  padding: 3px 7px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background 0.12s;
+  line-height: 1;
+}
+.app-ai-nav-btn:hover:not(:disabled) {
+  background: rgba(229, 192, 123, 0.14);
+}
+.app-ai-nav-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.app-ai-nav-btn.app-ai-nav-toggle {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 3px 8px;
+  letter-spacing: 0.03em;
+}
+.app-ai-nav-btn.app-ai-nav-toggle.active {
+  background: rgba(229, 192, 123, 0.15);
+}
+
+.app-ai-nav-count {
+  font-size: 11px;
+  color: #e5c07b;
+  padding: 2px 4px;
+  cursor: pointer;
+  border-radius: 4px;
+  white-space: nowrap;
+  transition: background 0.12s;
+}
+.app-ai-nav-count:hover {
+  background: rgba(229, 192, 123, 0.14);
+}
+
+.app-ai-review-badge {
+  background: rgba(229, 192, 123, 0.1);
+  border: 1px solid rgba(229, 192, 123, 0.4);
+  color: #e5c07b;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.app-ai-review-badge:hover {
+  background: rgba(229, 192, 123, 0.18);
+  border-color: #e5c07b;
+}
+
 /* ── Edit / Preview toggle ───────────────────────── */
 .app-view-toggle {
   display: flex;
@@ -140,6 +244,20 @@ body {
   flex-direction: row;
   flex: 1;
   overflow: hidden;
+}
+
+/* ── Drag-to-resize divider ──────────────────────── */
+.resize-divider {
+  width: 4px;
+  flex-shrink: 0;
+  cursor: col-resize;
+  background: transparent;
+  transition: background 0.15s;
+  z-index: 10;
+}
+.resize-divider:hover,
+.resize-divider:active {
+  background: rgba(97, 175, 239, 0.35);
 }
 
 /* Remove old Tauri/Vite defaults below */

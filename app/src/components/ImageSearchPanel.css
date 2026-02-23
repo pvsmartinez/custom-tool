@@ -1,0 +1,446 @@
+/* ── ImageSearchPanel ──────────────────────────────────────────────────────── */
+
+.isp-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(3px);
+}
+
+.isp-panel {
+  background: #1e2127;
+  border: 1px solid #3e4451;
+  border-radius: 12px;
+  width: min(780px, 96vw);
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 12px 60px rgba(0, 0, 0, 0.65);
+}
+
+/* ── Header ─────────────────────────────────────────────────────────────────── */
+
+.isp-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 18px 12px;
+  border-bottom: 1px solid #2d3039;
+  flex-shrink: 0;
+}
+
+.isp-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #dfe6f0;
+  letter-spacing: 0.02em;
+}
+
+.isp-source {
+  font-size: 11px;
+  color: #5c6370;
+  margin-left: -4px;
+}
+
+.isp-close {
+  margin-left: auto;
+  background: transparent;
+  border: none;
+  color: #5c6370;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: color 0.15s, background 0.15s;
+}
+
+.isp-close:hover {
+  color: #abb2bf;
+  background: #2d3039;
+}
+
+/* ── Search bar ──────────────────────────────────────────────────────────────── */
+
+.isp-search-row {
+  display: flex;
+  gap: 8px;
+  padding: 12px 18px 8px;
+  flex-shrink: 0;
+}
+
+.isp-search-input {
+  flex: 1;
+  background: #282c34;
+  border: 1px solid #3e4451;
+  border-radius: 7px;
+  color: #abb2bf;
+  font-size: 13px;
+  padding: 8px 12px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.isp-search-input:focus {
+  border-color: #61afef;
+}
+
+.isp-search-input::placeholder {
+  color: #4b5263;
+}
+
+.isp-search-btn {
+  background: rgba(97, 175, 239, 0.12);
+  border: 1px solid #61afef;
+  border-radius: 7px;
+  color: #61afef;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 18px;
+  transition: background 0.15s;
+  white-space: nowrap;
+}
+
+.isp-search-btn:hover:not(:disabled) {
+  background: rgba(97, 175, 239, 0.22);
+}
+
+.isp-search-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ── API key section ─────────────────────────────────────────────────────────── */
+
+.isp-key-section {
+  margin: 0 18px 8px;
+  border: 1px solid #2d3039;
+  border-radius: 8px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.isp-key-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  background: #282c34;
+  border: none;
+  color: #5c6370;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 7px 12px;
+  text-align: left;
+  transition: background 0.15s, color 0.15s;
+}
+
+.isp-key-toggle:hover {
+  background: #2d3039;
+  color: #abb2bf;
+}
+
+.isp-key-section--open .isp-key-toggle {
+  color: #abb2bf;
+}
+
+.isp-key-icon { font-size: 11px; }
+
+.isp-key-status {
+  margin-left: auto;
+  font-size: 11px;
+  color: #e06c75;
+}
+
+.isp-key-status--ok {
+  color: #98c379;
+}
+
+.isp-key-chevron {
+  font-size: 10px;
+  color: #5c6370;
+  margin-left: 4px;
+}
+
+.isp-key-body {
+  background: #1e2127;
+  border-top: 1px solid #2d3039;
+  padding: 10px 12px 12px;
+}
+
+.isp-key-hint {
+  color: #5c6370;
+  font-size: 11px;
+  margin: 0 0 8px;
+  line-height: 1.5;
+}
+
+.isp-key-hint a {
+  color: #61afef;
+  text-decoration: none;
+}
+
+.isp-key-hint a:hover {
+  text-decoration: underline;
+}
+
+.isp-key-row {
+  display: flex;
+  gap: 8px;
+}
+
+.isp-key-input {
+  flex: 1;
+  background: #282c34;
+  border: 1px solid #3e4451;
+  border-radius: 6px;
+  color: #abb2bf;
+  font-size: 12px;
+  padding: 6px 10px;
+  outline: none;
+}
+
+.isp-key-input:focus {
+  border-color: #61afef;
+}
+
+.isp-key-save {
+  background: rgba(152, 195, 121, 0.12);
+  border: 1px solid #98c379;
+  border-radius: 6px;
+  color: #98c379;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 14px;
+  transition: background 0.15s;
+}
+
+.isp-key-save:hover:not(:disabled) {
+  background: rgba(152, 195, 121, 0.22);
+}
+
+.isp-key-save:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ── Error ───────────────────────────────────────────────────────────────────── */
+
+.isp-error {
+  margin: 0 18px 8px;
+  background: rgba(224, 108, 117, 0.1);
+  border: 1px solid #e06c75;
+  border-radius: 7px;
+  color: #e06c75;
+  font-size: 12px;
+  padding: 8px 12px;
+  flex-shrink: 0;
+}
+
+/* ── Results grid ────────────────────────────────────────────────────────────── */
+
+.isp-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  padding: 8px 18px 4px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+/* ── Skeleton loader ─────────────────────────────────────────────────────────── */
+
+.isp-skeleton {
+  border-radius: 8px;
+  aspect-ratio: 4/3;
+  background: linear-gradient(90deg, #282c34 25%, #2d3039 50%, #282c34 75%);
+  background-size: 200% 100%;
+  animation: isp-shimmer 1.4s infinite;
+}
+
+@keyframes isp-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ── Result card ─────────────────────────────────────────────────────────────── */
+
+.isp-card {
+  position: relative;
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: default;
+  aspect-ratio: 4/3;
+  border: 2px solid transparent;
+  transition: border-color 0.15s, transform 0.12s;
+}
+
+.isp-card:hover {
+  border-color: #61afef;
+  transform: translateY(-1px);
+  z-index: 1;
+}
+
+.isp-card--saved {
+  border-color: #98c379;
+}
+
+.isp-card-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* Overlay shows on hover */
+.isp-card-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top, rgba(0,0,0,0.82) 0%, rgba(0,0,0,0) 55%);
+  opacity: 0;
+  transition: opacity 0.18s;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding: 10px;
+  gap: 6px;
+}
+
+.isp-card:hover .isp-card-overlay {
+  opacity: 1;
+}
+
+.isp-card-credit {
+  color: rgba(255,255,255,0.75);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.isp-card-credit strong {
+  color: #fff;
+}
+
+.isp-card-actions {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.isp-card-btn {
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 10px;
+  transition: background 0.15s, opacity 0.15s;
+  white-space: nowrap;
+}
+
+.isp-card-btn:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+.isp-card-btn--save {
+  background: rgba(255,255,255,0.15);
+  border: 1px solid rgba(255,255,255,0.4);
+  color: #fff;
+  backdrop-filter: blur(4px);
+}
+
+.isp-card-btn--save:hover:not(:disabled) {
+  background: rgba(255,255,255,0.28);
+}
+
+.isp-card-btn--canvas {
+  background: rgba(97, 175, 239, 0.25);
+  border: 1px solid #61afef;
+  color: #61afef;
+  backdrop-filter: blur(4px);
+}
+
+.isp-card-btn--canvas:hover:not(:disabled) {
+  background: rgba(97, 175, 239, 0.42);
+}
+
+/* Corner badges */
+.isp-card-badge {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  background: #98c379;
+  border-radius: 50%;
+  color: #1e2127;
+  font-size: 11px;
+  font-weight: 700;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+}
+
+.isp-card-badge--canvas {
+  background: #61afef;
+}
+
+/* ── Attribution ─────────────────────────────────────────────────────────────── */
+
+.isp-attribution {
+  padding: 8px 18px 14px;
+  font-size: 10px;
+  color: #4b5263;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.isp-attribution a {
+  color: #5c6370;
+  text-decoration: none;
+}
+
+.isp-attribution a:hover {
+  color: #abb2bf;
+  text-decoration: underline;
+}
+
+.isp-attribution code {
+  font-family: monospace;
+  background: #282c34;
+  padding: 1px 4px;
+  border-radius: 3px;
+  color: #98c379;
+}
+
+/* ── Empty state ─────────────────────────────────────────────────────────────── */
+
+.isp-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 48px 18px;
+  flex: 1;
+}
+
+.isp-empty-icon {
+  font-size: 36px;
+  opacity: 0.3;
+}
+
+.isp-empty-text {
+  color: #4b5263;
+  font-size: 13px;
+  text-align: center;
+  max-width: 320px;
+  line-height: 1.5;
+}

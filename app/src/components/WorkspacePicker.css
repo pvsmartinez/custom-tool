@@ -21,6 +21,14 @@
   border-radius: 12px;
 }
 
+.wp-welcome {
+  font-size: 64px;
+  font-weight: 800;
+  color: #61afef;
+  margin: 0 0 8px;
+  letter-spacing: -1px;
+}
+
 .wp-logo {
   font-size: 36px;
   color: #61afef;

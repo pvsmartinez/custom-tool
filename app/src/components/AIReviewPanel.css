@@ -1,0 +1,175 @@
+/* ── Overlay ──────────────────────────────────────────────────────────────── */
+.air-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 60px;
+  z-index: 1000;
+}
+
+.air-panel {
+  width: 600px;
+  max-width: calc(100vw - 48px);
+  max-height: calc(100vh - 120px);
+  background: #21252b;
+  border: 1px solid #3e4451;
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+
+/* ── Header ────────────────────────────────────────────────────────────────── */
+.air-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 20px;
+  border-bottom: 1px solid #3e4451;
+  background: #2c313a;
+  flex-shrink: 0;
+}
+
+.air-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #abb2bf;
+}
+
+.air-subtitle {
+  font-size: 12px;
+  color: #636d83;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.air-close {
+  background: none;
+  border: none;
+  color: #636d83;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: color 0.15s;
+  flex-shrink: 0;
+}
+.air-close:hover { color: #abb2bf; }
+
+/* ── Body ──────────────────────────────────────────────────────────────────── */
+.air-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* ── Empty state ───────────────────────────────────────────────────────────── */
+.air-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 0;
+  gap: 8px;
+}
+
+.air-empty-icon {
+  font-size: 36px;
+  color: #98c379;
+}
+
+.air-empty-msg {
+  font-size: 14px;
+  color: #636d83;
+}
+
+/* ── Mark cards ────────────────────────────────────────────────────────────── */
+.air-card {
+  background: #2c313a;
+  border: 1px solid #3e4451;
+  border-radius: 8px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.air-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.air-model-badge {
+  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: 10px;
+  background: rgba(97, 175, 239, 0.14);
+  border: 1px solid rgba(97, 175, 239, 0.3);
+  color: #61afef;
+  font-family: monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+}
+
+.air-time {
+  font-size: 11px;
+  color: #636d83;
+}
+
+.air-text-preview {
+  margin: 0;
+  padding: 8px 10px;
+  background: #181a1f;
+  border-radius: 5px;
+  font-size: 12px;
+  font-family: "Cascadia Code", "JetBrains Mono", monospace;
+  color: #abb2bf;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.55;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+/* ── Card action buttons ────────────────────────────────────────────────────── */
+.air-card-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.air-btn {
+  padding: 5px 12px;
+  border-radius: 5px;
+  border: 1px solid #3e4451;
+  background: #21252b;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  color: #abb2bf;
+}
+.air-btn:hover {
+  background: #2c3a4a;
+  color: #61afef;
+}
+
+.air-btn-reviewed {
+  color: #98c379;
+  border-color: rgba(152, 195, 121, 0.3);
+  background: rgba(152, 195, 121, 0.06);
+}
+.air-btn-reviewed:hover {
+  background: rgba(152, 195, 121, 0.12);
+  color: #b5e890;
+}

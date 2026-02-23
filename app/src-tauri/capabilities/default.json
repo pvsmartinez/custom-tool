@@ -8,11 +8,17 @@
     "opener:default",
     "dialog:default",
     "fs:default",
-    { "identifier": "fs:allow-read-text-file",  "allow": [{ "path": "$HOME/**" }] },
-    { "identifier": "fs:allow-write-text-file", "allow": [{ "path": "$HOME/**" }] },
-    { "identifier": "fs:allow-read-dir",        "allow": [{ "path": "$HOME/**" }] },
-    { "identifier": "fs:allow-mkdir",           "allow": [{ "path": "$HOME/**" }] },
-    { "identifier": "fs:allow-exists",          "allow": [{ "path": "$HOME/**" }] }
+    "http:default",
+    { "identifier": "http:allow-fetch", "allow": [{ "url": "https://api.githubcopilot.com/**" }, { "url": "https://api.github.com/**" }, { "url": "https://github.com/**" }, { "url": "https://api.duckduckgo.com/**" }, { "url": "https://api.pexels.com/**" }] },
+    { "identifier": "http:allow-fetch-send", "allow": [{ "url": "https://api.githubcopilot.com/**" }, { "url": "https://api.github.com/**" }, { "url": "https://github.com/**" }, { "url": "https://api.duckduckgo.com/**" }, { "url": "https://api.pexels.com/**" }] },
+    { "identifier": "fs:allow-read-text-file",  "allow": [{ "path": "$HOME/**" }, { "path": "$HOME/**/.*" }, { "path": "$HOME/**/.*/**" }] },
+    { "identifier": "fs:allow-write-text-file", "allow": [{ "path": "$HOME/**" }, { "path": "$HOME/**/.*" }, { "path": "$HOME/**/.*/**" }] },
+    { "identifier": "fs:allow-write-file",      "allow": [{ "path": "$HOME/**" }, { "path": "$HOME/**/.*" }, { "path": "$HOME/**/.*/**" }] },
+    { "identifier": "fs:allow-read-dir",        "allow": [{ "path": "$HOME/**" }, { "path": "$HOME/**/.*" }, { "path": "$HOME/**/.*/**" }] },
+    { "identifier": "fs:allow-mkdir",           "allow": [{ "path": "$HOME/**" }, { "path": "$HOME/**/.*" }, { "path": "$HOME/**/.*/**" }] },
+    { "identifier": "fs:allow-exists",          "allow": [{ "path": "$HOME/**" }, { "path": "$HOME/**/.*" }, { "path": "$HOME/**/.*/**" }] },
+    { "identifier": "fs:allow-remove",          "allow": [{ "path": "$HOME/**" }, { "path": "$HOME/**/.*" }, { "path": "$HOME/**/.*/**" }] },
+    { "identifier": "fs:allow-copy-file",       "allow": [{ "path": "$HOME/**" }, { "path": "$HOME/**/.*" }, { "path": "$HOME/**/.*/**" }] }
   ]
 }
 

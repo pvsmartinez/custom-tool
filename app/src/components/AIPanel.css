@@ -2,11 +2,13 @@
   display: flex;
   flex-direction: column;
   width: 340px;
-  min-width: 300px;
+  min-width: 260px;
   height: 100%;
   background: #21252b;
   border-left: 1px solid #3e4451;
   flex-shrink: 0;
+  position: relative;
+  /* width overridden by inline style when dragging */
 }
 
 .ai-panel-header {
@@ -163,6 +165,44 @@
   align-items: center;
 }
 
+/* frequency visualizer canvas */
+.ai-viz-canvas {
+  flex-shrink: 0;
+  border-radius: 4px;
+  opacity: 0;
+  transition: opacity 0.2s;
+  background: transparent;
+  align-self: center;
+}
+
+.ai-viz-canvas.active {
+  opacity: 1;
+}
+
+/* new-chat button (↺) in input row */
+.ai-btn-new-chat {
+  background: transparent;
+  border: 1px solid #3e4451;
+  color: #636d83;
+  border-radius: 6px;
+  font-size: 14px;
+  padding: 4px 7px;
+  cursor: pointer;
+  transition: all 0.15s;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.ai-btn-new-chat:hover:not(:disabled) {
+  border-color: #98c379;
+  color: #98c379;
+}
+
+.ai-btn-new-chat:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
 .ai-input {
   flex: 1;
   resize: none;
@@ -176,6 +216,9 @@
   outline: none;
   transition: border-color 0.15s;
   line-height: 1.5;
+  min-height: 52px;
+  max-height: 200px;
+  overflow-y: auto;
 }
 
 .ai-input:focus {
@@ -223,16 +266,22 @@
   user-select: none;
 }
 
-.ai-btn-mic:hover {
+.ai-btn-mic:hover:not(:disabled) {
   border-color: #61afef;
   color: #61afef;
 }
 
-.ai-btn-mic.listening {
+.ai-btn-mic.recording {
   border-color: #e06c75;
   color: #e06c75;
   background: rgba(224, 108, 117, 0.1);
   animation: mic-pulse 1s infinite;
+}
+
+.ai-btn-mic.transcribing {
+  border-color: #e5c07b;
+  color: #e5c07b;
+  opacity: 0.7;
 }
 
 @keyframes mic-pulse {
@@ -240,6 +289,78 @@
   70%  { box-shadow: 0 0 0 6px rgba(224,108,117,0); }
   100% { box-shadow: 0 0 0 0 rgba(224,108,117,0); }
 }
+
+/* Groq key setup overlay */
+.ai-groq-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(30, 33, 39, 0.92);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  padding: 20px;
+}
+
+.ai-groq-card {
+  background: #2c313a;
+  border: 1px solid #3e4451;
+  border-radius: 10px;
+  padding: 24px 20px;
+  width: 100%;
+  max-width: 280px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ai-groq-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #abb2bf;
+}
+
+.ai-groq-desc {
+  font-size: 12px;
+  color: #636d83;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.ai-groq-link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: #61afef;
+  cursor: pointer;
+  font-size: 12px;
+  text-decoration: underline;
+}
+
+.ai-groq-input {
+  background: #1e2127;
+  border: 1px solid #3e4451;
+  border-radius: 5px;
+  color: #abb2bf;
+  font-size: 12px;
+  padding: 7px 10px;
+  outline: none;
+  font-family: monospace;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.ai-groq-input:focus {
+  border-color: #61afef;
+}
+
+.ai-groq-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
 
 /* ── Model picker ──────────────────────────────────────────────────────────── */
 .ai-model-picker {
@@ -365,4 +486,480 @@
   background: rgba(229, 192, 123, 0.12);
   color: #e5c07b;
   border: 1px solid rgba(229, 192, 123, 0.3);
+}
+
+/* ── Auth screen ──────────────────────────────────────────────────────────── */
+.ai-auth-screen {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 32px 24px;
+  text-align: center;
+}
+
+.ai-auth-icon {
+  font-size: 36px;
+  color: #61afef;
+}
+
+.ai-auth-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #abb2bf;
+}
+
+.ai-auth-desc {
+  font-size: 13px;
+  color: #636d83;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.ai-auth-error {
+  color: #e06c75;
+}
+
+.ai-auth-btn {
+  background: #61afef;
+  color: #1e2127;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 20px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.ai-auth-btn:hover:not(:disabled) { background: #4d9bd6; }
+.ai-auth-btn:disabled { opacity: 0.5; cursor: default; }
+
+.ai-auth-btn--link {
+  background: transparent;
+  border: 1px solid #61afef;
+  color: #61afef;
+}
+.ai-auth-btn--link:hover { background: rgba(97,175,239,0.1); }
+
+.ai-auth-code {
+  font-family: monospace;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  color: #e5c07b;
+  background: #2c313a;
+  padding: 8px 20px;
+  border-radius: 6px;
+}
+
+.ai-auth-waiting {
+  font-size: 12px;
+  color: #636d83;
+  margin: 0;
+}
+
+/* ── Code blocks ──────────────────────────────────────────────────────────── */
+.ai-code-block {
+  border: 1px solid #3e4451;
+  border-radius: 6px;
+  margin: 6px 0;
+  overflow: hidden;
+  background: #181a1f;
+}
+
+.ai-code-block-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 10px;
+  background: #2c313a;
+  border-bottom: 1px solid #3e4451;
+}
+
+.ai-code-lang {
+  font-size: 11px;
+  color: #636d83;
+  font-family: monospace;
+  text-transform: lowercase;
+}
+
+.ai-code-run-btn {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid #3e4451;
+  background: #21252b;
+  color: #98c379;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.ai-code-run-btn:hover:not(:disabled) {
+  background: #2c3a2c;
+}
+.ai-code-run-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.ai-code-pre {
+  margin: 0;
+  padding: 10px 12px;
+  font-size: 12px;
+  font-family: "Cascadia Code", "JetBrains Mono", monospace;
+  color: #abb2bf;
+  overflow-x: auto;
+  white-space: pre;
+  line-height: 1.6;
+}
+
+.ai-code-output {
+  border-top: 1px solid #3e4451;
+  padding: 6px 12px 8px;
+  background: #1a1d22;
+}
+.ai-code-output--error {
+  background: #1e1a1a;
+}
+
+.ai-code-stdout,
+.ai-code-stderr {
+  margin: 0 0 4px;
+  font-size: 11px;
+  font-family: "Cascadia Code", "JetBrains Mono", monospace;
+  color: #abb2bf;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.ai-code-stderr {
+  color: #e06c75;
+}
+
+.ai-code-exit {
+  display: inline-block;
+  margin-top: 4px;
+  font-size: 10px;
+  color: #636d83;
+  font-family: monospace;
+}
+
+/* ── Agent process panel ─────────────────────────────────────── */
+.ai-agent-process {
+  margin: 6px 0 8px;
+  border: 1px solid #2e3440;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #1a1d22;
+}
+
+.ai-agent-process-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: #21262f;
+  border-bottom: 1px solid #2e3440;
+}
+
+.ai-agent-process-icon {
+  font-size: 10px;
+  color: #61afef;
+}
+
+.ai-agent-process-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: #61afef;
+  flex: 1;
+}
+
+.ai-agent-process-count {
+  font-size: 10px;
+  color: #4b5263;
+  font-family: "Cascadia Code", "JetBrains Mono", monospace;
+}
+
+.ai-agent-process-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+/* ── Thinking block ──────────────────────────────────────────── */
+.ai-thinking-block {
+  padding: 8px 10px;
+  border-bottom: 1px solid #252830;
+  border-left: 3px solid #7c5cbf;
+  background: #1e1b2e;
+}
+
+.ai-thinking-block:last-child {
+  border-bottom: none;
+}
+
+.ai-thinking-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 5px;
+}
+
+.ai-thinking-icon {
+  font-size: 12px;
+  line-height: 1;
+}
+
+.ai-thinking-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #9d7cd8;
+  flex: 1;
+}
+
+.ai-thinking-toggle {
+  background: none;
+  border: none;
+  padding: 0 2px;
+  font-size: 10px;
+  color: #4b5263;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.ai-thinking-toggle:hover {
+  color: #9d7cd8;
+}
+
+.ai-thinking-text {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #7a6e9f;
+  font-style: italic;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ── Tool call card ──────────────────────────────────────────── */
+.ai-tool-card {
+  border-bottom: 1px solid #252830;
+  border-left: 3px solid transparent;
+  padding: 7px 10px;
+  transition: border-color 0.2s, background 0.2s;
+  background: #1a1d22;
+}
+
+.ai-tool-card:last-child {
+  border-bottom: none;
+}
+
+.ai-tool-card--running {
+  border-left-color: #61afef;
+  background: #1b2029;
+  animation: tool-card-pulse 2s ease-in-out infinite;
+}
+
+.ai-tool-card--done {
+  border-left-color: #3d7a52;
+}
+
+.ai-tool-card--error {
+  border-left-color: #8b3a3a;
+  background: #1e1a1a;
+}
+
+@keyframes tool-card-pulse {
+  0%, 100% { background: #1b2029; }
+  50%       { background: #1d2435; }
+}
+
+.ai-tool-card-header {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.ai-tool-card-icon {
+  font-size: 13px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.ai-tool-card-name {
+  flex: 1;
+  font-size: 12px;
+  font-family: "Cascadia Code", "JetBrains Mono", monospace;
+  color: #7fb3d3;
+  word-break: break-all;
+}
+
+.ai-tool-card-status-badge {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+
+/* Spinner */
+.ai-tool-spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid #3e4451;
+  border-top-color: #61afef;
+  border-radius: 50%;
+  animation: tool-spin 0.8s linear infinite;
+}
+
+@keyframes tool-spin {
+  to { transform: rotate(360deg); }
+}
+
+.ai-tool-status-ok {
+  font-size: 11px;
+  color: #98c379;
+  font-weight: 700;
+}
+
+.ai-tool-status-err {
+  font-size: 11px;
+  color: #e06c75;
+  font-weight: 700;
+}
+
+/* Args preview */
+.ai-tool-card-args {
+  margin: 5px 0 0;
+  padding: 4px 6px;
+  background: #111318;
+  border-radius: 4px;
+  border: 1px solid #252830;
+  font-size: 11px;
+  font-family: "Cascadia Code", "JetBrains Mono", monospace;
+  color: #636d83;
+  white-space: pre-wrap;
+  word-break: break-all;
+  line-height: 1.5;
+}
+
+/* Result toggle button */
+.ai-tool-card-result-toggle {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  margin-top: 5px;
+  padding: 2px 6px 2px 4px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  border-radius: 3px;
+  transition: background 0.15s;
+}
+
+.ai-tool-card-result-toggle:hover {
+  background: #252830;
+}
+
+.ai-tool-card-result-toggle.error .ai-tool-result-prefix {
+  color: #e06c75;
+}
+
+.ai-tool-result-prefix {
+  font-size: 11px;
+  font-weight: 700;
+  color: #98c379;
+  flex-shrink: 0;
+}
+
+.ai-tool-result-preview {
+  flex: 1;
+  font-size: 11px;
+  font-family: "Cascadia Code", "JetBrains Mono", monospace;
+  color: #4b5263;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ai-tool-result-chevron {
+  font-size: 9px;
+  color: #3e4451;
+  flex-shrink: 0;
+}
+
+/* Full expanded result */
+.ai-tool-card-result-full {
+  margin: 4px 0 0;
+  padding: 6px 8px;
+  background: #111318;
+  border: 1px solid #252830;
+  border-radius: 4px;
+  font-size: 11px;
+  font-family: "Cascadia Code", "JetBrains Mono", monospace;
+  color: #636d83;
+  white-space: pre-wrap;
+  word-break: break-all;
+  line-height: 1.5;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.ai-tool-card-result-full.error {
+  color: #c97a7a;
+  background: #1a1010;
+  border-color: #3d2020;
+}
+
+/* ── Agent context notice ─────────────────────────────────────── */
+.ai-agent-notice {
+  margin-top: 8px;
+  font-size: 11px;
+  color: #61afef;
+  background: rgba(97, 175, 239, 0.07);
+  border: 1px solid rgba(97, 175, 239, 0.2);
+  border-radius: 5px;
+  padding: 4px 10px;
+  display: inline-block;
+}
+
+/* ── Legacy tool activity rows (kept for backward compat) ───── */
+.ai-tool-activity {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 0;
+  font-size: 11px;
+  color: #636d83;
+}
+.ai-tool-activity.running .ai-tool-icon {
+  display: inline-block;
+  animation: spin 1s linear infinite;
+}
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+.ai-tool-activity.done .ai-tool-icon {
+  color: #98c379;
+}
+.ai-tool-activity.error .ai-tool-icon {
+  color: #e06c75;
+}
+.ai-tool-activity .ai-tool-name {
+  color: #61afef;
+  font-family: "Cascadia Code", "JetBrains Mono", monospace;
+}
+.ai-tool-activity .ai-tool-summary {
+  color: #4b5263;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 220px;
 }

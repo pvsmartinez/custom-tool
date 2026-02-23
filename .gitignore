@@ -2,6 +2,11 @@
 .DS_Store
 .AppleDouble
 .LSOverride
+Icon?
+._*
+.Spotlight-V100
+.Trashes
+.fseventsd
 
 # VS Code
 .vscode/*
@@ -11,16 +16,30 @@
 # Node / npm
 node_modules/
 dist/
+dist-ssr/
 build/
+*.local
+
+# Rust / Cargo (Tauri)
+**/target/
+app/src-tauri/gen/
 
 # App secrets
+.env
+.env.local
+.env.*.local
 app/.env
 app/.env.local
 
 # Python (if needed later)
 __pycache__/
 *.pyc
-.env
 
 # Logs
 *.log
+logs/
+
+# OS-generated
+Thumbs.db
+ehthumbs.db
+Desktop.ini

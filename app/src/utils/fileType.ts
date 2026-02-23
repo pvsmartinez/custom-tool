@@ -1,5 +1,5 @@
 /** What kind of file this is — drives which viewer/editor is shown. */
-export type FileKind = 'markdown' | 'pdf' | 'code' | 'unknown';
+export type FileKind = 'markdown' | 'pdf' | 'video' | 'image' | 'canvas' | 'code' | 'unknown';
 
 export interface FileTypeInfo {
   kind: FileKind;
@@ -26,6 +26,11 @@ const CODE_EXTENSIONS: Record<string, string> = {
 };
 
 export function getFileTypeInfo(filename: string): FileTypeInfo {
+  // .tldr.json must be checked before the generic `.json` extension path
+  if (filename.endsWith('.tldr.json')) {
+    return { kind: 'canvas', supportsPreview: false, defaultMode: 'edit', language: '' };
+  }
+
   const ext = filename.split('.').pop()?.toLowerCase() ?? '';
 
   if (ext === 'md' || ext === 'mdx') {
@@ -34,6 +39,16 @@ export function getFileTypeInfo(filename: string): FileTypeInfo {
 
   if (ext === 'pdf') {
     return { kind: 'pdf', supportsPreview: false, defaultMode: 'preview', language: '' };
+  }
+
+  // Videos — played via HTML5 <video>; macOS WebView supports mp4/webm/mov/m4v/mkv
+  if (['mp4', 'webm', 'mov', 'm4v', 'mkv', 'ogv', 'avi'].includes(ext)) {
+    return { kind: 'video', supportsPreview: false, defaultMode: 'preview', language: '' };
+  }
+
+  // Images + GIFs — shown via <img>
+  if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif', 'tiff', 'tif'].includes(ext)) {
+    return { kind: 'image', supportsPreview: false, defaultMode: 'preview', language: '' };
   }
 
   if (ext in CODE_EXTENSIONS) {
