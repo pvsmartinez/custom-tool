@@ -22,8 +22,14 @@ import {
   exists,
 } from '@tauri-apps/plugin-fs';
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
+import { invoke } from '@tauri-apps/api/core';
 import type { Editor } from 'tldraw';
-import { executeCanvasCommands, canvasToDataUrl } from './canvasAI';
+import { executeCanvasCommands, canvasToDataUrl, summarizeCanvas } from './canvasAI';
+import { runExportTarget } from './exportWorkspace';
+import { emitTerminalEntry } from '../services/terminalBus';
+import { lockFile, unlockFile } from '../services/copilotLock';
+import { WORKSPACE_SKIP } from '../services/config';
+import type { WorkspaceExportConfig, ExportTarget, ExportFormat } from '../types';
 
 // ── Tool definition schema (OpenAI format) ──────────────────────────────────
 
@@ -34,7 +40,12 @@ export interface ToolDefinition {
     description: string;
     parameters: {
       type: 'object';
-      properties: Record<string, { type: string; description: string }>;
+      properties: Record<string, {
+        type: string;
+        description?: string;
+        enum?: string[];
+        items?: { type: string };
+      }>;
       required?: string[];
     };
   };
@@ -137,7 +148,7 @@ export const WORKSPACE_TOOLS: ToolDefinition[] = [
               '  {"op":"move","id":"abc123","x":300,"y":400}       ← reposition a shape',
               '  {"op":"update","id":"abc123","text":"New text"}   ← id from list_canvas_shapes',
               '  {"op":"delete","id":"abc123"}',
-              '  {"op":"clear"}',
+              '  {"op":"clear"}  ← DANGER: removes ALL shapes. Only use when the user explicitly asks to wipe the canvas.',
               'Valid colors: yellow, blue, green, red, orange, violet, grey, black, white, light-blue, light-violet',
               'Valid geo shapes: rectangle, ellipse, triangle, diamond, hexagon, cloud, star, arrow-right',
               'Spacing tip: use 240px column gaps, 160px row gaps to avoid overlaps.',
@@ -206,6 +217,86 @@ export const WORKSPACE_TOOLS: ToolDefinition[] = [
   {
     type: 'function',
     function: {
+      name: 'run_command',
+      description:
+        'Run a shell (bash) command in the workspace directory. Use this to create folders, run npm/node/git commands, install packages, scaffold projects, execute scripts, and perform any other terminal operations. ' +
+        'Returns stdout, stderr, and the exit code. Commands run with the workspace root as the working directory unless cwd is specified.',
+      parameters: {
+        type: 'object',
+        properties: {
+          command: {
+            type: 'string',
+            description: 'The bash command to run, e.g. "npm init -y" or "mkdir -p src/components" or "npm install react".',
+          },
+          cwd: {
+            type: 'string',
+            description: 'Optional subdirectory (relative to workspace root) to run the command in. Defaults to the workspace root.',
+          },
+        },
+        required: ['command'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'export_workspace',
+      description:
+        'Run export targets for this workspace — markdown → PDF, canvas → PNG/PDF, zip bundles, or custom commands. ' +
+        'Call this when the user says to export, build, publish, deploy, or produce output files. ' +
+        'With no argument it runs all enabled targets. Pass a target name to run just one.',
+      parameters: {
+        type: 'object',
+        properties: {
+          target: {
+            type: 'string',
+            description: 'Target name to run, or "all" to run all enabled targets (default: "all").',
+          },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'configure_export_targets',
+      description:
+        'List, add, update, or remove export targets in the workspace Build/Export settings. ' +
+        'Use this when the user wants to set up, tweak, or inspect export rules without opening the UI. ' +
+        'The config is persisted immediately. ' +
+        'action="list" returns all targets as JSON. ' +
+        'action="add" creates a new target (name, format, and outputDir required). ' +
+        'action="update" patches an existing target by id or name. ' +
+        'action="remove" deletes a target by id or name.',
+      parameters: {
+        type: 'object',
+        properties: {
+          action: { type: 'string', enum: ['list', 'add', 'update', 'remove'], description: 'Operation to perform.' },
+          id:          { type: 'string', description: 'Target id (for update/remove).' },
+          name:        { type: 'string', description: 'Target name (required for add; used to find target in update/remove).' },
+          description: { type: 'string', description: 'Human/AI readable description of what this target produces.' },
+          format: {
+            type: 'string',
+            enum: ['pdf', 'canvas-png', 'canvas-pdf', 'zip', 'custom'],
+            description: 'Export format.'
+          },
+          include:      { type: 'array', items: { type: 'string' }, description: 'File extensions to match, e.g. ["md"] or ["tldr.json"].' },
+          includeFiles: { type: 'array', items: { type: 'string' }, description: 'Pinned specific files (relative paths). Overrides include extensions when set.' },
+          excludeFiles: { type: 'array', items: { type: 'string' }, description: 'Relative paths to skip.' },
+          outputDir:    { type: 'string', description: 'Output directory relative to workspace root.' },
+          customCommand:{ type: 'string', description: 'Shell command for custom format. Use {{input}} and {{output}} placeholders.' },
+          enabled:      { type: 'boolean', description: 'Whether this target is included in Export All.' },
+          merge:        { type: 'boolean', description: 'Merge all matched files into one output (pdf/canvas-pdf).' },
+          mergeName:    { type: 'string', description: 'Filename (no extension) for merged output.' },
+        },
+        required: ['action'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'add_canvas_image',
       description:
         'Fetch an image from a URL and place it on the currently open canvas as an image shape. ' +
@@ -239,7 +330,6 @@ export const WORKSPACE_TOOLS: ToolDefinition[] = [
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-const SKIP = new Set(['node_modules', '.git', '.customtool', 'customtool', 'target', '.DS_Store']);
 const TEXT_EXTS = new Set(['md', 'mdx', 'txt', 'ts', 'tsx', 'js', 'jsx', 'json', 'css', 'html', 'rs', 'toml', 'yaml', 'yml', 'sh']);
 
 async function listFilesFlat(dir: string, rel = ''): Promise<string[]> {
@@ -247,7 +337,7 @@ async function listFilesFlat(dir: string, rel = ''): Promise<string[]> {
   try { entries = await readDir(dir); } catch { return []; }
   const paths: string[] = [];
   for (const e of entries) {
-    if (!e.name || SKIP.has(e.name) || e.name.startsWith('.')) continue;
+    if (!e.name || WORKSPACE_SKIP.has(e.name) || e.name.startsWith('.')) continue;
     const relPath = rel ? `${rel}/${e.name}` : e.name;
     if (e.isDirectory) {
       paths.push(...await listFilesFlat(`${dir}/${e.name}`, relPath));
@@ -270,12 +360,17 @@ export type ToolExecutor = (
  * Pass the live tldraw editor ref (null when no canvas is open).
  * `onFileWritten` is called after write_workspace_file so the UI can refresh.
  * `onMarkRecorded` is called after write_workspace_file so the parent can record an AI edit mark.
+ * `onCanvasModified` is called after canvas_op with the IDs of shapes that were created.
  */
 export function buildToolExecutor(
   workspacePath: string,
   canvasEditor: { current: Editor | null },
   onFileWritten?: (path: string) => void,
   onMarkRecorded?: (relPath: string, content: string) => void,
+  onCanvasModified?: (shapeIds: string[]) => void,
+  activeFile?: string,
+  workspaceExportConfig?: WorkspaceExportConfig,
+  onExportConfigChange?: (config: WorkspaceExportConfig) => void,
 ): ToolExecutor {
   return async (name, args) => {
     switch (name) {
@@ -316,6 +411,7 @@ export function buildToolExecutor(
         const abs = `${workspacePath}/${relPath}`;
         // Create any parent dirs
         const dir = abs.split('/').slice(0, -1).join('/');
+        lockFile(relPath);
         try {
           if (!(await exists(dir))) {
             await mkdir(dir, { recursive: true });
@@ -324,8 +420,10 @@ export function buildToolExecutor(
           console.debug('[write_workspace_file] success:', abs);
         } catch (e) {
           console.error('[write_workspace_file] FAILED:', e);
+          unlockFile(relPath);
           return `Error writing file: ${e}`;
         }
+        unlockFile(relPath);
         onFileWritten?.(relPath);
         onMarkRecorded?.(relPath, content);
         return `File written successfully: ${relPath} (${content.length} chars)`;
@@ -368,7 +466,6 @@ export function buildToolExecutor(
       case 'list_canvas_shapes': {
         const editor = canvasEditor.current;
         if (!editor) return 'No canvas is currently open. Ask the user to open a .tldr.json canvas file first.';
-        const { summarizeCanvas } = await import('./canvasAI');
         return summarizeCanvas(editor);
       }
 
@@ -379,15 +476,19 @@ export function buildToolExecutor(
         const commands = String(args.commands ?? '');
         // Wrap in a ```canvas block so executeCanvasCommands can parse it
         const fenced = '```canvas\n' + commands + '\n```';
-        const count = executeCanvasCommands(editor, fenced);
+        if (activeFile) lockFile(activeFile);
+        const { count, shapeIds } = executeCanvasCommands(editor, fenced);
+        if (activeFile) unlockFile(activeFile);
         if (count === 0) return 'No commands were executed. Check the command syntax.';
+        // Notify the parent so it can: (a) record AI marks, (b) force-sync the slide strip
+        onCanvasModified?.(shapeIds);
         return `Executed ${count} canvas operation(s) successfully.`;
       }
       // ── canvas_screenshot ──────────────────────────────────────
       case 'canvas_screenshot': {
         const editor = canvasEditor.current;
         if (!editor) return 'No canvas is currently open.';
-        const url = await canvasToDataUrl(editor);
+        const url = await canvasToDataUrl(editor, 0.5);
         if (!url) return 'Canvas is empty — nothing to screenshot.';
         // The agent loop detects this sentinel and injects a vision user message
         // so the model can visually verify the canvas.
@@ -468,7 +569,7 @@ export function buildToolExecutor(
 
         // Read Pexels API key from localStorage (set by the UI ImageSearchPanel)
         const pexelsKey = typeof window !== 'undefined'
-          ? (window.localStorage.getItem('customtool_pexels_key') ?? '')
+          ? (window.localStorage.getItem('cafezin_pexels_key') ?? '')
           : '';
 
         if (!pexelsKey) {
@@ -512,6 +613,144 @@ export function buildToolExecutor(
         } catch (e) {
           return `Stock image search failed: ${e}`;
         }
+      }
+
+      // ── run_command ────────────────────────────────────────────
+      case 'run_command': {
+        const command = String(args.command ?? '').trim();
+        if (!command) return 'Error: command is required.';
+        const relCwd = String(args.cwd ?? '').trim();
+        const absCwd = relCwd ? `${workspacePath}/${relCwd}` : workspacePath;
+        try {
+          const result = await invoke<{ stdout: string; stderr: string; exit_code: number }>(
+            'shell_run',
+            { cmd: command, cwd: absCwd },
+          );
+          // Surface AI-run commands in the bottom terminal panel
+          emitTerminalEntry({
+            source: 'ai',
+            command,
+            cwd: absCwd,
+            stdout: result.stdout,
+            stderr: result.stderr,
+            exitCode: result.exit_code,
+            ts: Date.now(),
+          });
+          const parts: string[] = [`$ ${command}`, `exit code: ${result.exit_code}`];
+          if (result.stdout.trim()) parts.push(`stdout:
+${result.stdout.trim()}`);
+          if (result.stderr.trim()) parts.push(`stderr:
+${result.stderr.trim()}`);
+          return parts.join('\n');
+        } catch (e) {
+          return `Error running command: ${e}`;
+        }
+      }
+
+      // ── export_workspace ───────────────────────────────────────
+      case 'export_workspace': {
+        const targets = workspaceExportConfig?.targets ?? [];
+        if (targets.length === 0) {
+          return 'No export targets configured. Ask the user to open Export Settings (via the ↓ Export button) and define at least one target, or use configure_export_targets to add one.';
+        }
+        const targetArg = String(args.target ?? 'all').toLowerCase();
+        const toRun = targetArg === 'all'
+          ? targets.filter((t) => t.enabled)
+          : targets.filter((t) => t.name.toLowerCase() === targetArg || t.id === args.target);
+
+        if (toRun.length === 0) {
+          const names = targets.map((t) => `"${t.name}"`).join(', ');
+          return `No matching target found for "${args.target ?? 'all'}". Available targets: ${names}`;
+        }
+
+        const lines: string[] = [];
+        for (const target of toRun) {
+          try {
+            const result = await runExportTarget({
+              workspacePath,
+              target,
+              canvasEditorRef: canvasEditor,
+              activeCanvasRel: typeof activeFile === 'string' ? activeFile : null,
+            });
+            const okPart  = result.outputs.length > 0 ? `✓ ${result.outputs.join(', ')}` : '';
+            const errPart = result.errors.length  > 0 ? `⚠ ${result.errors.join('; ')}` : '';
+            lines.push(`[${target.name}] ${[okPart, errPart].filter(Boolean).join(' | ')} (${result.elapsed}ms)`);
+          } catch (e) {
+            lines.push(`[${target.name}] Failed: ${e}`);
+          }
+        }
+        return lines.join('\n');
+      }
+
+      // ── configure_export_targets ──────────────────────────────────
+      case 'configure_export_targets': {
+        const action = String(args.action ?? 'list');
+        const currentTargets: ExportTarget[] = workspaceExportConfig?.targets ?? [];
+
+        if (action === 'list') {
+          if (currentTargets.length === 0) return 'No export targets configured yet.';
+          return JSON.stringify(currentTargets, null, 2);
+        }
+
+        if (!onExportConfigChange) {
+          return 'Export config changes are not available in this context.';
+        }
+
+        if (action === 'add') {
+          if (!args.name) return 'Error: name is required for add.';
+          if (!args.format) return 'Error: format is required for add.';
+          const newTarget: ExportTarget = {
+            id: Math.random().toString(36).slice(2, 9),
+            name: String(args.name),
+            description: args.description ? String(args.description) : undefined,
+            format: String(args.format) as ExportFormat,
+            include: Array.isArray(args.include) ? args.include.map(String) : [],
+            includeFiles: Array.isArray(args.includeFiles) ? args.includeFiles.map(String) : undefined,
+            excludeFiles: Array.isArray(args.excludeFiles) ? args.excludeFiles.map(String) : undefined,
+            outputDir: args.outputDir ? String(args.outputDir) : 'dist',
+            customCommand: args.customCommand ? String(args.customCommand) : undefined,
+            enabled: args.enabled !== false,
+            merge: args.merge === true ? true : undefined,
+            mergeName: args.mergeName ? String(args.mergeName) : undefined,
+          };
+          const next: WorkspaceExportConfig = { targets: [...currentTargets, newTarget] };
+          onExportConfigChange(next);
+          return `Added target "${newTarget.name}" (id: ${newTarget.id}).`;
+        }
+
+        if (action === 'update') {
+          const match = currentTargets.find((t) =>
+            (args.id && t.id === args.id) || (args.name && t.name.toLowerCase() === String(args.name).toLowerCase())
+          );
+          if (!match) return `Target not found: ${args.id ?? args.name}`;
+          const patch: Partial<ExportTarget> = {};
+          if (args.name        !== undefined) patch.name         = String(args.name);
+          if (args.description !== undefined) patch.description  = String(args.description);
+          if (args.format      !== undefined) patch.format       = String(args.format) as ExportFormat;
+          if (args.include     !== undefined) patch.include      = Array.isArray(args.include) ? args.include.map(String) : [];
+          if (args.includeFiles!== undefined) patch.includeFiles = Array.isArray(args.includeFiles) ? args.includeFiles.map(String) : [];
+          if (args.excludeFiles!== undefined) patch.excludeFiles = Array.isArray(args.excludeFiles) ? args.excludeFiles.map(String) : [];
+          if (args.outputDir   !== undefined) patch.outputDir    = String(args.outputDir);
+          if (args.customCommand!==undefined) patch.customCommand= String(args.customCommand);
+          if (args.enabled     !== undefined) patch.enabled      = Boolean(args.enabled);
+          if (args.merge       !== undefined) patch.merge        = Boolean(args.merge);
+          if (args.mergeName   !== undefined) patch.mergeName    = String(args.mergeName);
+          const next: WorkspaceExportConfig = { targets: currentTargets.map((t) => t.id === match.id ? { ...t, ...patch } : t) };
+          onExportConfigChange(next);
+          return `Updated target "${match.name}".`;
+        }
+
+        if (action === 'remove') {
+          const match = currentTargets.find((t) =>
+            (args.id && t.id === args.id) || (args.name && t.name.toLowerCase() === String(args.name).toLowerCase())
+          );
+          if (!match) return `Target not found: ${args.id ?? args.name}`;
+          const next: WorkspaceExportConfig = { targets: currentTargets.filter((t) => t.id !== match.id) };
+          onExportConfigChange(next);
+          return `Removed target "${match.name}".`;
+        }
+
+        return `Unknown action: ${action}. Use list, add, update, or remove.`;
       }
 
       // ── add_canvas_image ───────────────────────────────────────

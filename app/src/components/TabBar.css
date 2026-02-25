@@ -1,0 +1,327 @@
+.tab-bar {
+  display: flex;
+  align-items: stretch;
+  background: var(--surface-code);
+  border-bottom: 1px solid var(--border-code);
+  min-height: 30px;
+  max-height: 30px;
+  flex-shrink: 0;
+  overflow: hidden;
+  /* not draggable */
+  -webkit-app-region: no-drag;
+}
+
+.tab-bar-tabs {
+  display: flex;
+  flex: 1;
+  overflow-x: auto;
+  scrollbar-width: none;
+  align-items: stretch;
+}
+
+.tab-bar-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.tab-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 8px 0 12px;
+  min-width: 80px;
+  max-width: 200px;
+  height: 30px;
+  border-right: 1px solid var(--border-code);
+  cursor: pointer;
+  color: var(--text-dim);
+  font-size: var(--font-size-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  flex-shrink: 0;
+  position: relative;        /* needed for ::after underline */
+  transition: background 0.1s, color 0.1s;
+  user-select: none;
+}
+/* Animated accent underline — slides in when tab becomes active */
+.tab-item::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--accent);
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform 0.16s ease;
+  border-radius: 1px 1px 0 0;
+}
+
+.tab-item:hover {
+  background: var(--surface-code);
+  color: var(--text);
+}
+
+.tab-item.active {
+  background: var(--surface-deep);
+  color: var(--text);
+  /* underline handled by ::after */
+}
+.tab-item.active::after {
+  transform: scaleX(1);
+}
+
+.tab-dirty {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--yellow);
+  flex-shrink: 0;
+  display: inline-block;
+  margin-right: 1px;
+  animation: tab-dot-breathe 3s ease-in-out infinite;
+}
+@keyframes tab-dot-breathe {
+  0%, 65%, 100% { opacity: 0.75; transform: scale(1); }
+  80%            { opacity: 1;    transform: scale(1.35); }
+}
+
+.tab-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tab-close {
+  background: none;
+  border: none;
+  color: transparent;
+  font-size: var(--font-size-md);
+  padding: 0;
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  flex-shrink: 0;
+  line-height: 1;
+  transition: background 0.1s, color 0.1s;
+  box-shadow: none;
+  outline: none;
+}
+
+/* Show close button on hover / active tab */
+.tab-item:hover .tab-close,
+.tab-item.active .tab-close {
+  color: var(--text-muted);
+}
+
+.tab-close:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text) !important;
+}
+
+.tab-close:active {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.tab-close-all {
+  background: none;
+  border: none;
+  border-left: 1px solid var(--surface);
+  color: var(--border2);
+  font-size: var(--font-size-xs);
+  padding: 0 12px;
+  height: 30px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: color var(--transition-fast), background var(--transition-fast);
+  box-shadow: none;
+  outline: none;
+}
+
+.tab-close-all:hover {
+  color: var(--text-muted);
+  background: var(--surface-code);
+}
+
+.tab-close-all:active {
+  background: var(--surface-code);
+}
+
+/* Preview tab — italic title, indicates the tab is temporary */
+.tab-item.preview .tab-name {
+  font-style: italic;
+  opacity: 0.75;
+}
+.tab-item.preview.active .tab-name {
+  opacity: 0.9;
+}
+
+/* Copilot-locked tab — subtle sweep shimmer so you know it's being written */
+@keyframes tab-copilot-sweep {
+  0%   { background-position: 200% center; }
+  100% { background-position: -50%  center; }
+}
+.tab-item.copilot-locked {
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(var(--accent-rgb), 0.2) 45%,
+    rgba(var(--accent-rgb), 0.08) 55%,
+    transparent 100%
+  );
+  background-size: 250% 100%;
+  animation: tab-copilot-sweep 1.6s ease-in-out infinite;
+  color: var(--text);
+}
+
+/* ── Tab overflow dropdown ────────────────────────────── */
+.tab-overflow-wrap {
+  position: relative;
+  flex-shrink: 0;
+  display: flex;
+  align-items: stretch;
+  border-left: 1px solid var(--surface);
+}
+
+.tab-overflow-btn {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: var(--font-size-base);
+  padding: 0 10px;
+  height: 30px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  transition: color var(--transition-fast), background var(--transition-fast);
+  box-shadow: none;
+  outline: none;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.tab-overflow-btn:hover,
+.tab-overflow-btn.active {
+  color: var(--text);
+  background: var(--surface-code);
+}
+
+.tab-overflow-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: var(--z-canvas);
+  background: var(--surface-code);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  min-width: 200px;
+  max-width: 340px;
+  max-height: 400px;
+  overflow-y: auto;
+  padding: 4px 0;
+  /* open upward if not enough room below (handled by CSS) */
+}
+
+.tab-overflow-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 5px 12px;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  transition: background 0.1s, color 0.1s;
+}
+
+.tab-overflow-item:hover {
+  background: var(--surface-deep);
+  color: var(--text);
+}
+
+.tab-overflow-item.active {
+  color: var(--accent);
+  background: rgba(var(--accent-rgb), 0.07);
+}
+
+.tab-overflow-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tab-overflow-item .tab-close {
+  color: transparent;
+  font-size: var(--font-size-md);
+}
+
+.tab-overflow-item:hover .tab-close {
+  color: var(--text-muted);
+}
+
+.tab-overflow-item .tab-close:hover {
+  color: var(--text) !important;
+  background: rgba(255,255,255,0.08);
+}
+
+/* ── Drag-to-reorder ─────────────────────────────────── */
+.tab-item.dragging {
+  opacity: 0.4;
+}
+
+.tab-item.drag-over {
+  border-left: 2px solid var(--accent);
+  margin-left: -1px;
+}
+
+/* Tab context menu — slides down from above */
+@keyframes tab-menu-in {
+  from { opacity: 0; transform: translateY(-5px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0)    scale(1); }
+}
+.tab-ctx-menu {
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius-md);
+  padding: var(--space-2);
+  box-shadow: var(--shadow-md);
+  min-width: 190px;
+  animation: tab-menu-in 0.11s ease;
+  transform-origin: top right;
+}
+
+.tab-ctx-menu button {
+  display: block;
+  width: 100%;
+  background: none;
+  border: none;
+  color: var(--text);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  padding: 6px 10px;
+  text-align: left;
+  border-radius: var(--radius-sm);
+  transition: background 0.1s, color 0.1s;
+}
+
+.tab-ctx-menu button:hover:not(:disabled) {
+  background: var(--surface-deep);
+}
+
+.tab-ctx-menu button:disabled {
+  color: var(--text-dim);
+  cursor: default;
+}
+
+.tab-ctx-sep {
+  height: 1px;
+  background: var(--border2);
+  margin: var(--space-1) var(--space-2);
+}

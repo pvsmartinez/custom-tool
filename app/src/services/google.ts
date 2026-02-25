@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { openUrl } from '@tauri-apps/plugin-opener';
+import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -25,7 +26,7 @@ export interface SlideOutline {
 
 // ── Token storage ─────────────────────────────────────────────────────────────
 
-const TOKENS_KEY = 'custom-tool-google-tokens';
+const TOKENS_KEY = 'cafezin-google-tokens';
 
 export function getStoredTokens(): GoogleTokens | null {
   try {
@@ -80,7 +81,7 @@ export async function startGoogleAuth(): Promise<GoogleTokens> {
     grant_type: 'authorization_code',
   });
 
-  const res = await fetch('https://oauth2.googleapis.com/token', {
+  const res = await tauriFetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: params.toString(),
@@ -88,7 +89,7 @@ export async function startGoogleAuth(): Promise<GoogleTokens> {
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({})) as Record<string, string>;
-    throw new Error(err.error_description ?? `Token exchange failed (${res.status})`);
+    throw new Error(err.error_description ?? `Token exchange failed (${res.status})`)
   }
 
   const data = await res.json() as {
@@ -105,7 +106,7 @@ export async function startGoogleAuth(): Promise<GoogleTokens> {
 
   // Fetch email for display (non-fatal)
   try {
-    const me = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+    const me = await tauriFetch('https://www.googleapis.com/oauth2/v3/userinfo', {
       headers: { Authorization: `Bearer ${tokens.access_token}` },
     });
     if (me.ok) {
@@ -137,7 +138,7 @@ export async function getValidToken(): Promise<string> {
     grant_type: 'refresh_token',
   });
 
-  const res = await fetch('https://oauth2.googleapis.com/token', {
+  const res = await tauriFetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: params.toString(),
@@ -160,21 +161,21 @@ export async function getValidToken(): Promise<string> {
 
 // ── Drive ─────────────────────────────────────────────────────────────────────
 
-const DRIVE_FOLDER_NAME = 'custom-tool backups';
+const DRIVE_FOLDER_NAME = 'cafezin backups';
 
 async function getOrCreateBackupFolder(token: string): Promise<string> {
   const q = encodeURIComponent(
     `name='${DRIVE_FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
   );
-  const res = await fetch(
+  const res = await tauriFetch(
     `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id)`,
-    { headers: { Authorization: `Bearer ${token}` } },
+    { method: 'GET', headers: { Authorization: `Bearer ${token}` } },
   );
   const data = await res.json() as { files: { id: string }[] };
   if (data.files?.length) return data.files[0].id;
 
   // Create the folder
-  const createRes = await fetch('https://www.googleapis.com/drive/v3/files', {
+  const createRes = await tauriFetch('https://www.googleapis.com/drive/v3/files', {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -191,9 +192,9 @@ export async function listDriveBackups(): Promise<DriveFile[]> {
   const token = await getValidToken();
   const folderId = await getOrCreateBackupFolder(token);
   const q = encodeURIComponent(`'${folderId}' in parents and trashed=false`);
-  const res = await fetch(
+  const res = await tauriFetch(
     `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name,modifiedTime,mimeType)&orderBy=modifiedTime+desc`,
-    { headers: { Authorization: `Bearer ${token}` } },
+    { method: 'GET', headers: { Authorization: `Bearer ${token}` } },
   );
   const data = await res.json() as { files: DriveFile[] };
   return data.files ?? [];
@@ -206,9 +207,9 @@ export async function backupFileToDrive(filename: string, content: string): Prom
 
   // Check if a file with the same name already exists in the folder
   const q = encodeURIComponent(`name='${filename}' and '${folderId}' in parents and trashed=false`);
-  const searchRes = await fetch(
+  const searchRes = await tauriFetch(
     `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id)`,
-    { headers: { Authorization: `Bearer ${token}` } },
+    { method: 'GET', headers: { Authorization: `Bearer ${token}` } },
   );
   const searchData = await searchRes.json() as { files: { id: string }[] };
   const existingId: string | undefined = searchData.files?.[0]?.id;
@@ -227,7 +228,7 @@ export async function backupFileToDrive(filename: string, content: string): Prom
     ? `https://www.googleapis.com/upload/drive/v3/files/${existingId}?uploadType=multipart`
     : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart';
 
-  const res = await fetch(url, {
+  const res = await tauriFetch(url, {
     method: existingId ? 'PATCH' : 'POST',
     headers: {
       Authorization: `Bearer ${token}`,
@@ -244,9 +245,9 @@ export async function backupFileToDrive(filename: string, content: string): Prom
 /** Download file content from Drive. */
 export async function downloadFromDrive(fileId: string): Promise<string> {
   const token = await getValidToken();
-  const res = await fetch(
+  const res = await tauriFetch(
     `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
-    { headers: { Authorization: `Bearer ${token}` } },
+    { method: 'GET', headers: { Authorization: `Bearer ${token}` } },
   );
   if (!res.ok) throw new Error(`Drive download failed (${res.status})`);
   return res.text();
@@ -308,7 +309,7 @@ export async function createSlidesPresentation(
   const token = await getValidToken();
 
   // 1. Create a blank presentation
-  const createRes = await fetch('https://slides.googleapis.com/v1/presentations', {
+  const createRes = await tauriFetch('https://slides.googleapis.com/v1/presentations', {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`,
@@ -372,7 +373,7 @@ export async function createSlidesPresentation(
 
   // 3. Send batchUpdate
   if (requests.length > 0) {
-    const batchRes = await fetch(
+    const batchRes = await tauriFetch(
       `https://slides.googleapis.com/v1/presentations/${presentationId}:batchUpdate`,
       {
         method: 'POST',

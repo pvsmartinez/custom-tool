@@ -1,84 +1,93 @@
 .wp-overlay {
   position: fixed;
   inset: 0;
-  background: #1e2127;
+  background: var(--bg);
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 100;
+  z-index: var(--z-overlay);
 }
 
 .wp-card {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 16px;
+  gap: var(--space-6);
   width: 480px;
   max-width: 90vw;
   padding: 48px 40px;
-  background: #21252b;
-  border: 1px solid #2c313a;
-  border-radius: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
 }
 
 .wp-welcome {
   font-size: 64px;
   font-weight: 800;
-  color: #61afef;
+  color: var(--accent);
   margin: 0 0 8px;
   letter-spacing: -1px;
 }
 
 .wp-logo {
   font-size: 36px;
-  color: #61afef;
+  color: var(--accent);
   line-height: 1;
 }
 
 .wp-title {
   font-size: 22px;
   font-weight: 700;
-  color: #abb2bf;
+  color: var(--text);
   margin: 0;
 }
 
+.wp-tagline {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-style: italic;
+  letter-spacing: 0.04em;
+  margin: 2px 0 0;
+  opacity: 0.75;
+}
+
 .wp-subtitle {
-  font-size: 13px;
-  color: #636d83;
+  font-size: var(--font-size-base);
+  color: var(--text-muted);
   text-align: center;
   line-height: 1.6;
   margin: 0;
 }
 
 .wp-btn-open {
-  margin-top: 8px;
-  background: #61afef;
-  color: #1e2127;
+  margin-top: var(--space-4);
+  background: var(--accent);
+  color: var(--bg);
   border: none;
-  border-radius: 7px;
-  font-size: 15px;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-md);
   font-weight: 600;
   padding: 11px 28px;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background var(--transition-base);
   width: 100%;
 }
 
 .wp-btn-open:hover:not(:disabled) {
-  background: #7cc4ff;
+  background: rgba(var(--blue-rgb), 0.85);
 }
 
 .wp-btn-open:disabled {
-  background: #3e4451;
-  color: #636d83;
+  background: var(--border2);
+  color: var(--text-muted);
   cursor: not-allowed;
 }
 
 .wp-error {
-  color: #e06c75;
-  font-size: 13px;
-  background: rgba(224, 108, 117, 0.08);
-  border-radius: 6px;
+  color: var(--red);
+  font-size: var(--font-size-base);
+  background: rgba(var(--red-rgb, 201,117,112), 0.08);
+  border-radius: var(--radius-md);
   padding: 8px 12px;
   width: 100%;
   text-align: center;
@@ -87,39 +96,38 @@
 .wp-recents {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-2);
   width: 100%;
-  margin-top: 8px;
+  margin-top: var(--space-4);
 }
 
 .wp-recents-label {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: #4b5263;
+  color: var(--text-dim);
   padding: 0 4px;
-  margin-bottom: 4px;
+  margin-bottom: var(--space-2);
 }
 
 .wp-recent-item {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
+  gap: 3px;
   padding: 10px 12px;
-  background: #2c313a;
+  background: var(--surface2);
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   cursor: pointer;
   width: 100%;
   text-align: left;
-  transition: border-color 0.15s, background 0.15s;
+  transition: border-color var(--transition-base), background var(--transition-base);
 }
 
 .wp-recent-item:hover:not(:disabled) {
-  border-color: #3e4451;
-  background: #333842;
+  border-color: var(--border2);
+  background: var(--surface-code);
 }
 
 .wp-recent-item:disabled {
@@ -127,17 +135,52 @@
   cursor: not-allowed;
 }
 
+/* Top row: name + badge */
+.wp-recent-top {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+/* Bottom row: path + time */
+.wp-recent-bottom {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
 .wp-recent-name {
-  font-size: 14px;
+  font-size: var(--font-size-md);
   font-weight: 500;
-  color: #abb2bf;
+  color: var(--text);
+}
+
+.wp-recent-badge {
+  flex-shrink: 0;
+  font-size: var(--font-size-2xs);
+  font-weight: 700;
+  line-height: 1;
+  padding: 2px 5px;
+  border-radius: var(--radius-lg);
+  background: var(--border2);
+  color: var(--yellow);
+  letter-spacing: 0.02em;
 }
 
 .wp-recent-path {
-  font-size: 11px;
-  color: #4b5263;
+  font-size: var(--font-size-xs);
+  color: var(--text-dim);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 100%;
+  min-width: 0;
+  flex: 1;
+}
+
+.wp-recent-time {
+  flex-shrink: 0;
+  font-size: var(--font-size-xs);
+  color: var(--text-dim);
+  white-space: nowrap;
 }

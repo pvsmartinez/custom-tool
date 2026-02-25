@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
-# build-mac.sh   –   Build custom-tool as a native macOS .app bundle
+# build-mac.sh   –   Build Cafezin as a native macOS .app bundle
 # Usage:
 #   ./scripts/build-mac.sh           # build only (opens in Finder)
 #   ./scripts/build-mac.sh --install # build + install to ~/Applications
@@ -27,7 +27,7 @@ cd "$APP_DIR"
 
 echo ""
 echo "╔════════════════════════════════════╗"
-echo "║   custom-tool  — macOS app build   ║"
+echo "║   Cafezin  — macOS app build       ║"
 echo "╚════════════════════════════════════╝"
 echo ""
 echo "▸ Installing npm dependencies…"
@@ -42,8 +42,8 @@ BUNDLE_DIR="$APP_DIR/src-tauri/target/release/bundle/macos"
 APP_PATH=""
 
 # Try exact match first, then glob
-if [[ -d "$BUNDLE_DIR/custom-tool.app" ]]; then
-  APP_PATH="$BUNDLE_DIR/custom-tool.app"
+if [[ -d "$BUNDLE_DIR/Cafezin.app" ]]; then
+  APP_PATH="$BUNDLE_DIR/Cafezin.app"
 else
   # Tauri sometimes uses the app name from tauri.conf.json
   APP_PATH="$(find "$BUNDLE_DIR" -maxdepth 1 -name '*.app' 2>/dev/null | head -1)"

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { X, Warning } from '@phosphor-icons/react';
 import { createPortal } from 'react-dom';
 import { invoke } from '@tauri-apps/api/core';
 import './SyncModal.css';
@@ -135,7 +136,7 @@ export default function SyncModal({ open, workspacePath, onConfirm, onClose }: S
               </span>
             )}
           </span>
-          <button className="sm-close" onClick={onClose} disabled={syncing}>✕</button>
+          <button className="sm-close" onClick={onClose} disabled={syncing}><X weight="thin" size={14} /></button>
         </div>
 
         {/* Body */}
@@ -145,7 +146,7 @@ export default function SyncModal({ open, workspacePath, onConfirm, onClose }: S
           )}
 
           {!loading && error && (
-            <div className="sm-error">⚠ {error}</div>
+            <div className="sm-error"><Warning weight="thin" size={14} /> {error}</div>
           )}
 
           {!loading && result && (

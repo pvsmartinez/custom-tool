@@ -21,72 +21,65 @@
   height: 100% !important;
 }
 
-/* ── Present button (floating top-right) ───────────────────── */
-.canvas-present-btn {
+/* ── Add-image button (floating top-right) ──────────────────── */
+/* ── Floating canvas action buttons (top-right group) ────────────── */
+.canvas-action-btns {
   position: absolute;
   top: 12px;
   right: 12px;
-  z-index: 500;
-  background: rgba(30, 33, 39, 0.88);
-  border: 1px solid #3e4451;
-  border-radius: 7px;
-  color: #abb2bf;
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.03em;
-  padding: 6px 12px;
-  backdrop-filter: blur(6px);
-  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  z-index: var(--z-canvas);
+  display: flex;
+  gap: 6px;
+  align-items: center;
   pointer-events: all;
 }
 
-.canvas-present-btn:hover {
-  background: rgba(97, 175, 239, 0.15);
-  border-color: #61afef;
-  color: #61afef;
-}
-
-/* ── Add-image button (floating, below Present) ─────────────── */
 .canvas-img-btn {
-  position: absolute;
-  top: 48px;
-  right: 12px;
-  z-index: 500;
-  background: rgba(30, 33, 39, 0.88);
-  border: 1px solid #3e4451;
-  border-radius: 7px;
-  color: #abb2bf;
+  /* position handled by .canvas-action-btns — no longer individually absolute */
+  background: var(--surface-code);
+  border: 1px solid var(--border-code);
+  border-radius: var(--radius-md);
+  color: var(--text-muted);
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   font-weight: 600;
   letter-spacing: 0.03em;
   padding: 6px 12px;
-  backdrop-filter: blur(6px);
-  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
   pointer-events: all;
 }
 
 .canvas-img-btn:hover {
-  background: rgba(152, 195, 121, 0.15);
-  border-color: #98c379;
-  color: #98c379;
+  background: var(--surface-code);
+  border-color: var(--fmt-hover-br);
+  color: var(--text);
+}
+
+/* Active state — shown when the frame/slide draw tool is in use */
+.canvas-img-btn--active {
+  background: rgba(var(--accent-rgb), 0.13);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.canvas-img-btn--active:hover {
+  background: rgba(var(--accent-rgb), 0.22);
+  color: var(--accent);
 }
 
 /* ── Drag-over highlight + drop hint ───────────────────── */
 .canvas-editor-main--dragover {
-  outline: 3px dashed #61afef;
+  outline: 3px dashed var(--accent);
   outline-offset: -3px;
 }
 
 .canvas-drop-hint {
   position: absolute;
   inset: 0;
-  z-index: 800;
+  z-index: var(--z-canvas-top);
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(97, 175, 239, 0.08);
+  background: rgba(var(--accent-rgb), 0.08);
   pointer-events: none;
 }
 
@@ -96,15 +89,15 @@
   align-items: center;
   gap: 10px;
   background: rgba(20, 22, 27, 0.88);
-  border: 2px dashed #61afef;
-  border-radius: 14px;
+  border: 2px dashed var(--accent);
+  border-radius: var(--radius-xl);
   padding: 24px 40px;
   backdrop-filter: blur(6px);
 }
 
 .canvas-drop-hint-icon {
   font-size: 28px;
-  color: #61afef;
+  color: var(--accent);
   animation: canvas-drop-bob 0.6s ease-in-out infinite alternate;
 }
 
@@ -114,8 +107,8 @@
 }
 
 .canvas-drop-hint-text {
-  color: #abb2bf;
-  font-size: 14px;
+  color: var(--text);
+  font-size: var(--font-size-md);
   font-weight: 600;
   letter-spacing: 0.02em;
 }
@@ -124,7 +117,7 @@
 .canvas-img-dialog {
   position: absolute;
   inset: 0;
-  z-index: 900;
+  z-index: calc(var(--z-canvas-top) + 100);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -134,77 +127,77 @@
 }
 
 .canvas-img-dialog-box {
-  background: #282c34;
-  border: 1px solid #3e4451;
-  border-radius: 10px;
+  background: var(--surface-code);
+  border: 1px solid var(--border-code);
+  border-radius: var(--radius-lg);
   padding: 20px 22px 16px;
-  min-width: 340px;
-  max-width: 500px;
+  min-width: 380px;
+  max-width: 560px;
   width: 90%;
-  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 4px 24px var(--shadow);
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--space-5);
 }
 
 .canvas-img-dialog-title {
-  font-size: 14px;
+  font-size: var(--font-size-md);
   font-weight: 600;
-  color: #abb2bf;
+  color: var(--text);
 }
 
 .canvas-img-dialog-input {
   width: 100%;
   box-sizing: border-box;
-  background: #1e2127;
-  border: 1px solid #3e4451;
-  border-radius: 6px;
-  color: #abb2bf;
-  font-size: 13px;
+  background: var(--bg);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius-md);
+  color: var(--text);
+  font-size: var(--font-size-base);
   padding: 8px 10px;
   outline: none;
-  transition: border-color 0.15s;
+  transition: border-color var(--transition-base);
 }
 
 .canvas-img-dialog-input:focus {
-  border-color: #61afef;
+  border-color: var(--accent);
 }
 
 .canvas-img-dialog-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
+  gap: var(--space-4);
 }
 
 .canvas-img-dialog-cancel,
 .canvas-img-dialog-add {
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   font-weight: 600;
   padding: 6px 14px;
-  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  transition: background var(--transition-base), border-color var(--transition-base), color var(--transition-base);
 }
 
 .canvas-img-dialog-cancel {
   background: transparent;
-  border: 1px solid #3e4451;
-  color: #abb2bf;
+  border: 1px solid var(--border2);
+  color: var(--text);
 }
 
 .canvas-img-dialog-cancel:hover {
-  border-color: #abb2bf;
-  color: #dfe6f0;
+  border-color: var(--text);
+  color: var(--text);
 }
 
 .canvas-img-dialog-add {
-  background: rgba(97, 175, 239, 0.12);
-  border: 1px solid #61afef;
-  color: #61afef;
+  background: rgba(var(--accent-rgb), 0.12);
+  border: 1px solid var(--accent);
+  color: var(--accent);
 }
 
 .canvas-img-dialog-add:hover:not(:disabled) {
-  background: rgba(97, 175, 239, 0.22);
+  background: rgba(var(--accent-rgb), 0.22);
 }
 
 .canvas-img-dialog-add:disabled {
@@ -212,40 +205,154 @@
   cursor: not-allowed;
 }
 
+/* ── Image dialog header (title + tabs) ─────────────────────── */
+.canvas-img-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.canvas-img-dialog-tabs {
+  display: flex;
+  gap: var(--space-1);
+  background: var(--bg);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius-md);
+  padding: var(--space-1);
+}
+
+.canvas-img-tab {
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  padding: 3px 10px;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+.canvas-img-tab:hover { color: var(--text); }
+.canvas-img-tab--active {
+  background: rgba(var(--accent-rgb), 0.15);
+  color: var(--accent);
+}
+
+/* ── Workspace image grid ────────────────────────────────────── */
+.canvas-img-ws-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+  gap: var(--space-3);
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 2px 0;
+}
+
+.canvas-img-ws-thumb {
+  background: var(--bg);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  overflow: hidden;
+  padding: 4px 4px 6px;
+  transition: border-color var(--transition-fast), background var(--transition-fast);
+}
+.canvas-img-ws-thumb:hover {
+  border-color: var(--accent);
+  background: rgba(var(--accent-rgb), 0.07);
+}
+
+.canvas-img-ws-thumb-img {
+  width: 100%;
+  height: 62px;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  background: var(--surface2);
+}
+
+.canvas-img-ws-thumb-name {
+  color: var(--text-muted);
+  font-size: var(--font-size-2xs);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.canvas-img-ws-loading,
+.canvas-img-ws-empty {
+  color: var(--text-dim);
+  font-size: var(--font-size-sm);
+  padding: 24px 0;
+  text-align: center;
+  grid-column: 1 / -1;
+}
+
+
 
 .canvas-present-overlay {
   position: absolute;
   bottom: 20px;
   left: 50%;
   transform: translateX(-50%);
-  z-index: 600;
+  z-index: calc(var(--z-canvas) + 100);
   display: flex;
   align-items: center;
-  gap: 12px;
-  background: rgba(20, 22, 27, 0.92);
-  border: 1px solid #3e4451;
-  border-radius: 10px;
+  gap: var(--space-5);
+  background: var(--surface-code);
+  border: 1px solid var(--border-code);
+  border-radius: var(--radius-lg);
   padding: 8px 14px;
-  backdrop-filter: blur(10px);
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow-md);
   pointer-events: all;
+}
+
+/* Fullscreen PNG slide stage — sits behind the nav overlay (z-index 550 < 600) */
+.canvas-present-stage {
+  position: absolute;
+  inset: 0;
+  z-index: calc(var(--z-canvas) + 50);
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.canvas-present-slide {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  user-select: none;
+  pointer-events: none;
+  border-radius: 2px;
+}
+
+.canvas-present-generating {
+  color: var(--text-muted);
+  font-size: var(--font-size-base);
+  font-family: inherit;
+  letter-spacing: 0.02em;
 }
 
 .canvas-present-exit {
   background: none;
-  border: 1px solid #3e4451;
-  border-radius: 6px;
-  color: #636d83;
+  border: 1px solid var(--border2);
+  border-radius: var(--radius-md);
+  color: var(--text-muted);
   cursor: pointer;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   padding: 4px 9px;
-  transition: color 0.12s, border-color 0.12s;
+  transition: color var(--transition-fast), border-color var(--transition-fast);
 }
 
 .canvas-present-exit:hover {
-  color: #e06c75;
-  border-color: #e06c75;
+  color: var(--red);
+  border-color: var(--red);
 }
 
 .canvas-present-nav {
@@ -256,23 +363,23 @@
 
 .canvas-present-nav-btn {
   background: none;
-  border: 1px solid #3e4451;
-  border-radius: 6px;
-  color: #abb2bf;
+  border: 1px solid var(--border2);
+  border-radius: var(--radius-md);
+  color: var(--text);
   cursor: pointer;
-  font-size: 14px;
+  font-size: var(--font-size-md);
   width: 30px;
   height: 28px;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.12s, color 0.12s, border-color 0.12s;
+  transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
 }
 
 .canvas-present-nav-btn:hover:not(:disabled) {
-  background: rgba(97, 175, 239, 0.12);
-  border-color: #61afef;
-  color: #61afef;
+  background: rgba(var(--accent-rgb), 0.12);
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .canvas-present-nav-btn:disabled {
@@ -281,33 +388,33 @@
 }
 
 .canvas-present-counter {
-  font-size: 13px;
+  font-size: var(--font-size-base);
   font-weight: 600;
-  color: #abb2bf;
+  color: var(--text);
   min-width: 48px;
   text-align: center;
   letter-spacing: 0.02em;
 }
 
 .canvas-present-counter span {
-  color: #4b5263;
+  color: var(--text-dim);
   font-weight: 400;
   margin: 0 2px;
 }
 
 .canvas-present-hint {
-  font-size: 12px;
-  color: #636d83;
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
 }
 
 .canvas-present-hint kbd {
-  background: #2c313a;
-  border: 1px solid #4b5263;
-  border-radius: 3px;
-  color: #abb2bf;
-  font-size: 11px;
+  background: var(--surface2);
+  border: 1px solid var(--text-dim);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: var(--font-size-xs);
   padding: 1px 5px;
-  font-family: monospace;
+  font-family: var(--font-mono);
 }
 
 /* ── Bottom bar (slides strip + theme) ─────────────────────── */
@@ -315,8 +422,8 @@
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  background: var(--sidebar-bg, #1a1d23);
-  border-top: 1px solid #2a2d36;
+  background: var(--surface-code);
+  border-top: 1px solid var(--border-code);
   user-select: none;
 }
 
@@ -333,32 +440,53 @@
 .canvas-strip-toggle {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-3);
   background: none;
   border: none;
-  border-right: 1px solid #2a2d36;
-  color: #636d83;
+  border-right: 1px solid var(--border-code);
+  color: var(--text-muted);
   cursor: pointer;
   flex-shrink: 0;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   height: 100%;
   letter-spacing: 0.05em;
   padding: 0 12px;
   text-transform: uppercase;
-  transition: color 0.12s;
+  transition: color var(--transition-fast);
   white-space: nowrap;
 }
 
 .canvas-strip-toggle:hover {
-  color: #abb2bf;
+  color: var(--text);
+}
+
+/* Rescan / re-sync button — sits right of the toggle */
+.canvas-strip-rescan {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  border-right: 1px solid var(--border-code);
+  color: var(--text-dim);
+  cursor: pointer;
+  flex-shrink: 0;
+  font-size: var(--font-size-base);
+  height: 100%;
+  padding: 0 8px;
+  transition: color var(--transition-fast);
+}
+
+.canvas-strip-rescan:hover {
+  color: var(--text);
 }
 
 .canvas-strip-count {
-  background: #2c313a;
-  border-radius: 8px;
-  color: #636d83;
-  font-size: 10px;
+  background: var(--surface2);
+  border-radius: var(--radius-lg);
+  color: var(--text-muted);
+  font-size: var(--font-size-2xs);
   font-weight: 700;
   margin-left: auto;
   padding: 1px 6px;
@@ -370,76 +498,87 @@
   align-items: center;
   flex: 1;
   flex-direction: row;
-  gap: 6px;
+  gap: var(--space-3);
   height: 100%;
   overflow-x: auto;
   overflow-y: hidden;
-  padding: 0 8px;
-  scrollbar-width: thin;
-  scrollbar-color: #2c313a transparent;
+  padding: 0 var(--space-4);
 }
 
 .canvas-strip-scroll::-webkit-scrollbar {
   height: 3px;
 }
 .canvas-strip-scroll::-webkit-scrollbar-thumb {
-  background: #2c313a;
-  border-radius: 2px;
+  background: var(--border2);
+  border-radius: var(--radius-pill);
 }
 
 /* Empty state hint */
 .canvas-strip-empty {
-  color: #4b5263;
-  font-size: 11px;
+  color: var(--text-dim);
+  font-size: var(--font-size-xs);
   padding: 2px 4px;
   white-space: nowrap;
 }
 
 .canvas-strip-empty kbd {
-  background: #2c313a;
-  border: 1px solid #4b5263;
-  border-radius: 3px;
-  color: #abb2bf;
-  font-size: 10px;
+  background: var(--surface2);
+  border: 1px solid var(--text-dim);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: var(--font-size-2xs);
   padding: 1px 4px;
-  font-family: monospace;
+  font-family: var(--font-mono);
 }
 
 /* Individual slide card */
 .canvas-strip-card {
   align-items: center;
-  background: #21252b;
-  border: 1px solid #2a2d36;
-  border-radius: 6px;
-  color: #636d83;
+  background: var(--surface-code);
+  border: 1px solid var(--border-code);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
   cursor: pointer;
   display: flex;
   flex-direction: row;
   flex-shrink: 0;
-  font-size: 11px;
-  gap: 5px;
-  padding: 4px 8px;
-  transition: background 0.12s, border-color 0.12s, color 0.12s;
-  max-width: 180px;
+  font-size: var(--font-size-xs);
+  gap: var(--space-2);
+  padding: 3px 6px;
+  transition: background 0.1s, border-color 0.1s, color 0.1s;
+  max-width: 120px;
 }
 
 .canvas-strip-card:hover {
-  background: #2c313a;
-  border-color: #3e4451;
-  color: #abb2bf;
+  background: var(--surface2);
+  border-color: var(--border2);
+  color: var(--text);
 }
 
 /* Highlighted slide during presentation */
 .canvas-strip-card--active {
-  background: rgba(97, 175, 239, 0.1);
-  border-color: #61afef;
-  color: #61afef;
+  background: var(--fmt-on-bg);
+  border-color: var(--fmt-on-border);
+  color: var(--fmt-on-text);
+}
+
+/* While being dragged */
+.canvas-strip-card--dragging {
+  opacity: 0.4;
+  cursor: grabbing;
+}
+
+/* Drop target indicator */
+.canvas-strip-card--drag-over {
+  border-color: var(--purple);
+  background: rgba(198, 120, 221, 0.08);
+  box-shadow: -2px 0 0 0 var(--purple);
 }
 
 .canvas-strip-num {
-  background: #2c313a;
-  border-radius: 3px;
-  font-size: 10px;
+  background: var(--surface2);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-2xs);
   font-weight: 700;
   min-width: 16px;
   padding: 1px 4px;
@@ -447,63 +586,194 @@
 }
 
 .canvas-strip-card--active .canvas-strip-num {
-  background: rgba(97, 175, 239, 0.2);
-  color: #61afef;
+  background: var(--fmt-on-bg);
+  color: var(--fmt-on-text);
 }
 
 .canvas-strip-name {
   flex: 1;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 100px;
+  max-width: 60px;
 }
 
-/* Export button (↓) inline within card */
-.canvas-strip-export {
-  color: #4b5263;
+/* Export button — now removed from cards; kept in case it resurfaces */
+.canvas-strip-export { display: none; }
+
+.canvas-strip-delete {
+  color: var(--text-dim);
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   padding: 0 2px;
-  border-radius: 3px;
-  transition: color 0.12s, background 0.12s;
+  border-radius: var(--radius-sm);
+  transition: color var(--transition-fast), background var(--transition-fast);
   line-height: 1;
+  opacity: 0;
 }
 
-.canvas-strip-export:hover {
-  color: #98c379;
-  background: rgba(152, 195, 121, 0.1);
+.canvas-strip-card:hover .canvas-strip-delete {
+  opacity: 1;
+}
+
+.canvas-strip-delete:hover {
+  color: var(--red);
+  background: rgba(var(--red-rgb, 201,117,112), 0.12);
 }
 
 /* + Slide button */
 .canvas-strip-add {
   align-items: center;
   background: none;
-  border: 1px dashed #3e4451;
-  border-radius: 6px;
-  color: #4b5263;
+  border: 1px solid var(--border-code);
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
   cursor: pointer;
   display: flex;
   flex-shrink: 0;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-weight: 600;
-  gap: 4px;
+  gap: var(--space-2);
   padding: 4px 11px;
-  transition: background 0.12s, border-color 0.12s, color 0.12s;
+  transition: background 0.1s, border-color 0.1s, color 0.1s;
   white-space: nowrap;
 }
 
 .canvas-strip-add:hover {
-  background: rgba(198, 120, 221, 0.08);
-  border-color: #c678dd;
-  border-style: solid;
-  color: #c678dd;
+  background: rgba(100, 108, 130, 0.1);
+  border-color: var(--border2);
+  color: var(--text);
 }
 
 /* ── Slightly raise bar prominence while presenting */
 .canvas-bottom-bar--presenting {
-  border-top-color: rgba(97, 175, 239, 0.3);
+  border-top-color: rgba(var(--accent-rgb), 0.3);
+}
+
+/* ── Slide right-click context menu ───────────────────────────── */
+.canvas-ctx-menu {
+  background: var(--surface-code);
+  border: 1px solid var(--border-code);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  min-width: 150px;
+  padding: 4px 0;
+  user-select: none;
+}
+
+.canvas-ctx-item {
+  align-items: center;
+  background: none;
+  border: none;
+  color: var(--text);
+  cursor: pointer;
+  display: flex;
+  font-size: var(--font-size-sm);
+  gap: var(--space-4);
+  padding: 6px 14px;
+  text-align: left;
+  transition: background 0.1s, color 0.1s;
+  width: 100%;
+}
+
+.canvas-ctx-item:hover:not(:disabled) {
+  background: var(--surface2);
+  color: var(--text-bright);
+}
+
+.canvas-ctx-item:disabled {
+  color: var(--border2);
+  cursor: not-allowed;
+}
+
+.canvas-ctx-item--danger { color: var(--red); }
+.canvas-ctx-item--danger:hover:not(:disabled) {
+  background: rgba(var(--red-rgb), 0.1);
+  color: var(--red);
+}
+
+.canvas-ctx-icon {
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  min-width: 12px;
+  text-align: center;
+}
+.canvas-ctx-item--danger .canvas-ctx-icon { color: var(--red); }
+
+.canvas-ctx-sep {
+  border-top: 1px solid var(--border-code);
+  margin: 3px 0;
+}
+
+/* ── Long-press unlock pill ──────────────────────────────── */
+.canvas-lock-pill {
+  align-items: center;
+  animation: canvas-pill-in var(--transition-fast);
+  background: var(--surface-code);
+  border: 1px solid var(--border-code);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-md);
+  color: var(--text);
+  cursor: pointer;
+  display: flex;
+  font-size: var(--font-size-sm);
+  gap: var(--space-3);
+  padding: 6px 16px;
+  user-select: none;
+  white-space: nowrap;
+}
+.canvas-lock-pill:hover {
+  background: var(--surface2);
+  color: var(--text-bright);
+}
+@keyframes canvas-pill-in {
+  from { opacity: 0; transform: translateY(4px) scale(0.95); }
+  to   { opacity: 1; transform: translateY(0)   scale(1); }
+}
+
+/* ── Lock-attempt flash ──────────────────────────────────── */
+/* Brief animated 🔒 shown the moment a user touches a locked shape */
+.canvas-lock-flash {
+  align-items: center;
+  animation: canvas-lock-flash-anim 1.0s ease-out forwards;
+  background: rgba(97, 175, 239, 0.18);
+  border: 2px solid rgba(97, 175, 239, 0.55);
+  border-radius: 50%;
+  display: flex;
+  font-size: 15px;
+  height: 36px;
+  justify-content: center;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  width: 36px;
+  z-index: 9997;
+}
+@keyframes canvas-lock-flash-anim {
+  0%   { opacity: 1; transform: translate(-50%, -50%) scale(1.3); }
+  25%  { transform: translate(-50%, -50%) scale(1); }
+  75%  { opacity: 1; }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(0.75); }
+}
+
+/* ── Format panel: slide export button ───────────────────── */
+.canvas-fmt-slide-btn {
+  flex: 1;
+  background: var(--surface);
+  border: 1px solid var(--border-code);
+  border-radius: var(--radius-md);
+  color: var(--green);
+  cursor: pointer;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  padding: 5px 8px;
+  text-align: center;
+  transition: background 0.1s, border-color 0.1s;
+  width: 100%;
+}
+.canvas-fmt-slide-btn:hover {
+  background: rgba(var(--green-rgb), 0.1);
+  border-color: var(--green);
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -514,35 +784,34 @@
   position: absolute;
   top: 52px;
   right: 8px;
-  z-index: 300;
+  z-index: calc(var(--z-panel) + 100);
   width: 196px;
-  background: rgba(20, 22, 27, 0.94);
-  border: 1px solid #3e4451;
-  border-radius: 10px;
+  background: var(--surface-code);
+  border: 1px solid var(--border-code);
+  border-radius: var(--radius-lg);
   padding: 8px 10px 10px;
-  backdrop-filter: blur(12px);
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow-md);
   pointer-events: all;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-4);
   user-select: none;
 }
 
 .canvas-fmt-section {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-2);
 }
 
 .canvas-fmt-section + .canvas-fmt-section {
-  padding-top: 6px;
-  border-top: 1px solid #2a2d36;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-code);
 }
 
 .canvas-fmt-label {
-  color: #4b5263;
-  font-size: 10px;
+  color: var(--text-dim);
+  font-size: var(--font-size-2xs);
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -551,17 +820,17 @@
 /* Row of equal-width pill buttons */
 .canvas-fmt-row {
   display: flex;
-  gap: 4px;
+  gap: var(--space-2);
 }
 
 .canvas-fmt-btn {
   flex: 1;
-  background: #21252b;
-  border: 1px solid #2a2d36;
-  border-radius: 5px;
-  color: #636d83;
+  background: var(--surface-code);
+  border: 1px solid var(--border-code);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
   cursor: pointer;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   line-height: 1;
   padding: 5px 3px;
@@ -571,19 +840,19 @@
 }
 
 .canvas-fmt-btn:hover {
-  background: #2c313a;
-  border-color: #3e4451;
-  color: #abb2bf;
+  background: var(--fmt-hover-bg);
+  border-color: var(--fmt-hover-br);
+  color: var(--text);
 }
 
 .canvas-fmt-btn--on {
-  background: rgba(97, 175, 239, 0.15);
-  border-color: #61afef;
-  color: #61afef;
+  background: var(--fmt-on-bg);
+  border-color: var(--fmt-on-border);
+  color: var(--fmt-on-text);
 }
 
 .canvas-fmt-btn--on:hover {
-  background: rgba(97, 175, 239, 0.25);
+  background: var(--fmt-on-bg);
 }
 
 /* "···" More fonts button — slightly narrower than the font pills */
@@ -591,6 +860,22 @@
   flex: 0 0 auto;
   min-width: 30px;
   letter-spacing: 0.04em;
+}
+
+/* Wrap-as-Slide action button */
+.canvas-fmt-btn--make-slide {
+  flex: unset;
+  width: 100%;
+  background: var(--fmt-green-bg);
+  border-color: var(--fmt-green-br);
+  color: var(--green);
+  letter-spacing: 0.01em;
+}
+
+.canvas-fmt-btn--make-slide:hover {
+  background: var(--fmt-green-hbg);
+  border-color: var(--fmt-green-hbr);
+  color: var(--green);
 }
 
 /* Label row with custom font name inline */
@@ -604,10 +889,10 @@
   display: flex;
   align-items: center;
   gap: 3px;
-  background: rgba(229, 192, 123, 0.1);
-  border: 1px solid rgba(229, 192, 123, 0.25);
-  border-radius: 4px;
-  color: #e5c07b;
+  background: rgba(var(--yellow-rgb, 212,169,106), 0.1);
+  border: 1px solid rgba(var(--yellow-rgb, 212,169,106), 0.25);
+  border-radius: var(--radius-sm);
+  color: var(--yellow);
   font-size: 9px;
   font-weight: 600;
   letter-spacing: 0.02em;
@@ -621,7 +906,7 @@
 .canvas-fmt-custom-clear {
   background: none;
   border: none;
-  color: #e5c07b;
+  color: var(--yellow);
   cursor: pointer;
   font-size: 9px;
   line-height: 1;
@@ -635,38 +920,36 @@
 .canvas-fmt-font-picker {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  margin-top: 4px;
-  background: #1a1d23;
-  border: 1px solid #3e4451;
-  border-radius: 7px;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  background: var(--surface-code);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius-md);
   overflow: hidden;
 }
 
 .canvas-fmt-font-search {
-  background: #21252b;
+  background: var(--surface);
   border: none;
-  border-bottom: 1px solid #2a2d36;
-  color: #abb2bf;
-  font-size: 11px;
+  border-bottom: 1px solid var(--border-code);
+  color: var(--text);
+  font-size: var(--font-size-xs);
   outline: none;
   padding: 6px 8px;
   width: 100%;
   box-sizing: border-box;
 }
-.canvas-fmt-font-search::placeholder { color: #4b5263; }
-.canvas-fmt-font-search:focus { border-bottom-color: #61afef; }
+.canvas-fmt-font-search::placeholder { color: var(--text-dim); }
+.canvas-fmt-font-search:focus { border-bottom-color: var(--accent); }
 
 .canvas-fmt-font-list {
   max-height: 200px;
   overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: #2c313a transparent;
 }
 
 .canvas-fmt-font-loading {
-  color: #4b5263;
-  font-size: 11px;
+  color: var(--text-dim);
+  font-size: var(--font-size-xs);
   padding: 8px 10px;
   text-align: center;
 }
@@ -678,20 +961,20 @@
   background: none;
   border: none;
   cursor: pointer;
-  font-size: 13px;
+  font-size: var(--font-size-base);
   padding: 5px 9px;
   width: 100%;
   text-align: left;
-  color: #abb2bf;
+  color: var(--text);
   transition: background 0.1s, color 0.1s;
 }
 .canvas-fmt-font-item:hover {
-  background: rgba(97, 175, 239, 0.07);
-  color: #d7dae0;
+  background: rgba(var(--accent-rgb), 0.07);
+  color: var(--text-bright);
 }
 .canvas-fmt-font-item--on {
-  background: rgba(97, 175, 239, 0.12);
-  color: #61afef;
+  background: rgba(var(--accent-rgb), 0.12);
+  color: var(--accent);
 }
 
 .canvas-fmt-font-item-name {
@@ -702,11 +985,11 @@
 }
 
 .canvas-fmt-font-item-slot {
-  color: #4b5263;
-  font-family: monospace;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
   font-size: 9px;
   flex-shrink: 0;
-  margin-left: 6px;
+  margin-left: var(--space-3);
   text-transform: uppercase;
 }
 
@@ -714,12 +997,18 @@
 .canvas-fmt-colors {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  gap: 4px;
+  gap: var(--space-2);
+}
+
+/* Dimmed when an image background is active */
+.canvas-fmt-colors--muted .canvas-fmt-swatch {
+  opacity: 0.35;
+  pointer-events: auto; /* still clickable to revert to color */
 }
 
 .canvas-fmt-swatch {
   aspect-ratio: 1;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   border: 2px solid transparent;
   cursor: pointer;
   padding: 0;
@@ -734,8 +1023,8 @@
 }
 
 .canvas-fmt-swatch--on {
-  border-color: #61afef;
-  box-shadow: 0 0 0 2px rgba(97, 175, 239, 0.35);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(var(--accent-rgb), 0.35);
   transform: scale(1.1);
 }
 
@@ -747,62 +1036,60 @@
 .canvas-theme-toggle {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-3);
   background: none;
   border: none;
-  border-left: 1px solid #2a2d36;
-  color: #636d83;
+  border-left: 1px solid var(--border-code);
+  color: var(--text-muted);
   cursor: pointer;
   flex-shrink: 0;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   height: 100%;
   letter-spacing: 0.05em;
   padding: 0 12px;
   text-transform: uppercase;
-  transition: color 0.12s, background 0.12s;
+  transition: color var(--transition-fast), background var(--transition-fast);
   white-space: nowrap;
 }
 
-.canvas-theme-toggle:hover { color: #abb2bf; }
+.canvas-theme-toggle:hover { color: var(--text); }
 
 .canvas-theme-toggle--on {
-  color: #61afef;
-  background: rgba(97, 175, 239, 0.08);
+  color: var(--accent);
+  background: rgba(var(--accent-rgb), 0.08);
 }
 
 .canvas-theme-toggle--on:hover {
-  background: rgba(97, 175, 239, 0.14);
+  background: rgba(var(--accent-rgb), 0.14);
 }
 
 /* Scrollable body */
 .canvas-theme-body {
-  border-top: 1px solid #2a2d36;
+  border-top: 1px solid var(--border-code);
   display: flex;
   flex-direction: column;
   gap: 0;
   max-height: 300px;
   overflow-y: auto;
-  padding: 8px 12px 10px;
-  scrollbar-width: thin;
-  scrollbar-color: #2c313a transparent;
+  padding: var(--space-4) var(--space-5) 10px;
 }
 
 .canvas-theme-section {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding-bottom: 8px;
+  gap: var(--space-2);
+  padding-bottom: var(--space-4);
 }
 
 .canvas-theme-section + .canvas-theme-section {
-  padding-top: 6px;
-  border-top: 1px solid #2a2d36;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-code);
 }
 
 .canvas-theme-label {
-  color: #4b5263;
-  font-size: 10px;
+  color: var(--text-dim);
+  font-size: var(--font-size-2xs);
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -812,7 +1099,7 @@
 .canvas-theme-label-row {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-3);
 }
 
 .canvas-theme-label-row .canvas-theme-label {
@@ -821,12 +1108,12 @@
 
 /* "Use Heading" / "Use Body" apply button */
 .canvas-theme-apply-btn {
-  background: rgba(97, 175, 239, 0.08);
-  border: 1px solid #3e4451;
-  border-radius: 5px;
-  color: #61afef;
+  background: rgba(var(--accent-rgb), 0.08);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius-md);
+  color: var(--accent);
   cursor: pointer;
-  font-size: 10px;
+  font-size: var(--font-size-2xs);
   font-weight: 600;
   padding: 3px 8px;
   transition: background 0.1s, border-color 0.1s;
@@ -834,48 +1121,48 @@
 }
 
 .canvas-theme-apply-btn:hover {
-  background: rgba(97, 175, 239, 0.18);
-  border-color: #61afef;
+  background: rgba(var(--accent-rgb), 0.18);
+  border-color: var(--accent);
 }
 
 /* Pencil edit toggle */
 .canvas-theme-edit-btn {
   background: none;
-  border: 1px solid #2a2d36;
-  border-radius: 5px;
-  color: #4b5263;
+  border: 1px solid var(--border-code);
+  border-radius: var(--radius-md);
+  color: var(--text-dim);
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   padding: 2px 6px;
   transition: color 0.1s, border-color 0.1s;
 }
 
 .canvas-theme-edit-btn:hover {
-  border-color: #3e4451;
-  color: #abb2bf;
+  border-color: var(--border2);
+  color: var(--text);
 }
 
 .canvas-theme-edit-btn--on {
-  border-color: #61afef;
-  color: #61afef;
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 /* Small preview label showing current preset values */
 .canvas-theme-preview-tag {
-  background: #21252b;
-  border: 1px solid #2a2d36;
-  border-radius: 4px;
-  color: #636d83;
-  font-size: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border-code);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: var(--font-size-2xs);
   padding: 3px 7px;
   letter-spacing: 0.02em;
 }
 
 /* Editor panel that expands under a preset */
 .canvas-theme-preset-edit {
-  background: #1a1d23;
-  border: 1px solid #2a2d36;
-  border-radius: 6px;
+  background: var(--surface-code);
+  border: 1px solid var(--border-code);
+  border-radius: var(--radius-md);
   display: flex;
   flex-direction: column;
   gap: 3px;
@@ -886,24 +1173,565 @@
 .canvas-theme-presets {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: var(--space-2);
 }
 
 .canvas-theme-preset {
   background-color: var(--pt-bg, #fff);
   border: 2px solid transparent;
-  border-radius: 5px;
+  border-radius: var(--radius-md);
   color: var(--pt-txt, #000);
   cursor: pointer;
-  font-size: 10px;
+  font-size: var(--font-size-2xs);
   font-weight: 700;
   padding: 3px 9px;
   transition: transform 0.1s, border-color 0.1s, box-shadow 0.1s;
 }
 
 .canvas-theme-preset:hover {
-  border-color: #61afef;
-  box-shadow: 0 0 0 2px rgba(97, 175, 239, 0.25);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(var(--accent-rgb), 0.25);
   transform: scale(1.05);
 }
 
+/* ── Slide background image ────────────────────────────────── */
+
+/* Workspace image picker grid */
+.canvas-theme-bg-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  margin-top: var(--space-2);
+  max-height: 120px;
+  overflow-y: auto;
+  padding: 2px 0;
+}
+
+.canvas-theme-bg-picker-msg {
+  color: var(--text-dim);
+  font-size: var(--font-size-xs);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.canvas-theme-bg-picker-thumb {
+  background: var(--surface-code);
+  border: 1.5px solid var(--border2);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  overflow: hidden;
+  padding: 0;
+  transition: border-color var(--transition-fast);
+  flex-shrink: 0;
+}
+.canvas-theme-bg-picker-thumb:hover { border-color: var(--accent); }
+
+.canvas-theme-bg-picker-img {
+  display: block;
+  width: 44px;
+  height: 28px;
+  object-fit: cover;
+  background: var(--surface2);
+}
+
+.canvas-theme-bg-picker-refresh {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: var(--font-size-base);
+  padding: 2px 4px;
+  transition: color 0.1s;
+}
+.canvas-theme-bg-picker-refresh:hover { color: var(--text); }
+
+
+/* Active state: preview thumbnail + label + remove button */
+.canvas-theme-bg-img-active {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+  background: var(--surface-code);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius-md);
+  padding: 5px 8px;
+}
+
+.canvas-theme-bg-img-preview {
+  flex-shrink: 0;
+  width: 36px;
+  height: 22px;
+  border-radius: var(--radius-sm);
+  object-fit: cover;
+  object-position: center;
+  display: block;
+  border: 1px solid var(--border-code);
+}
+
+.canvas-theme-bg-img-label {
+  flex: 1;
+  color: var(--green);
+  font-size: var(--font-size-xs);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.canvas-theme-bg-img-remove {
+  flex-shrink: 0;
+  background: none;
+  border: 1px solid var(--border-code);
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: var(--font-size-2xs);
+  padding: 2px 6px;
+  transition: color 0.1s, border-color 0.1s;
+  white-space: nowrap;
+}
+
+.canvas-theme-bg-img-remove:hover {
+  border-color: var(--red);
+  color: var(--red);
+}
+
+/* ── tldraw toolbar & menu overrides — flat/professional look ────────────────
+   Target tldraw's own tlui-* class names to strip heavy shadows, remove blur,
+   and pull everything into a cohesive flat dark design.                       */
+
+/* Toolbar pill */
+.tl-container .tlui-toolbar,
+.tl-container .tlui-toolbar__extras {
+  box-shadow: var(--shadow-sm);
+  backdrop-filter: none !important;
+  border-radius: var(--radius-md) !important;
+}
+
+/* Menu zone (hamburger + pages) */
+.tl-container .tlui-menu-zone {
+  box-shadow: var(--shadow-sm) !important;
+  backdrop-filter: none !important;
+  border-radius: var(--radius-md) !important;
+}
+
+/* Navigation panel (zoom controls) */
+.tl-container .tlui-navigation-panel {
+  box-shadow: var(--shadow-sm) !important;
+  backdrop-filter: none !important;
+  border-radius: var(--radius-md) !important;
+}
+
+/* Context / popover menus */
+.tl-container .tlui-popover__content,
+.tl-container .tlui-context-menu {
+  box-shadow: var(--shadow-md) !important;
+  backdrop-filter: none !important;
+  border-radius: var(--radius-md) !important;
+}
+
+/* Flatten tldraw button hover states — reduce visual noise */
+.tl-container .tlui-button:hover {
+  background: rgba(255,255,255,0.06) !important;
+}
+
+/* Subtle selection handles — less chrome-y */
+.tl-container .tl-handle {
+  box-shadow: 0 0 0 1.5px rgba(255,255,255,0.15) !important;
+}
+
+/* Strip redundant blur from the drop-hint overlay */
+.canvas-drop-hint-inner {
+  background: var(--surface-code) !important;
+  border-color: var(--fmt-hover-br) !important;
+  border-style: solid !important;
+  border-width: 1.5px !important;
+  border-radius: var(--radius-lg) !important;
+  backdrop-filter: none !important;
+}
+
+/* ─── Rotation control ────────────────────────────────────────────────────── */
+.canvas-fmt-rotation-row {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.canvas-fmt-rot-btn {
+  flex: 0 0 auto !important;
+  min-width: 36px !important;
+  font-size: var(--font-size-2xs) !important;
+  padding: 5px 4px !important;
+  letter-spacing: 0;
+}
+
+.canvas-fmt-rotation-input {
+  flex: 1;
+  background: var(--surface-code);
+  border: 1px solid var(--border-code);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  min-width: 0;
+  outline: none;
+  padding: 4px 5px;
+  text-align: center;
+  -moz-appearance: textfield;
+  appearance: textfield;
+  transition: border-color 0.1s;
+}
+.canvas-fmt-rotation-input::-webkit-inner-spin-button,
+.canvas-fmt-rotation-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.canvas-fmt-rotation-input:focus {
+  border-color: var(--accent);
+  color: var(--text-bright);
+}
+
+.canvas-fmt-rotation-deg {
+  color: var(--text-dim);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+/* ─── Opacity slider ──────────────────────────────────────────────────────── */
+.canvas-fmt-dim-value {
+  color: var(--text-muted);
+  font-size: var(--font-size-2xs);
+  font-weight: 600;
+  margin-left: auto;
+}
+
+.canvas-fmt-opacity-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(to right, var(--accent) var(--v, 100%), var(--border-code) var(--v, 100%));
+  outline: none;
+  cursor: pointer;
+  margin: 2px 0;
+}
+.canvas-fmt-opacity-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2.5px solid var(--surface-code);
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+  transition: transform 0.1s;
+}
+.canvas-fmt-opacity-slider::-webkit-slider-thumb:hover { transform: scale(1.15); }
+.canvas-fmt-opacity-slider::-moz-range-thumb {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2.5px solid var(--surface-code);
+  cursor: pointer;
+}
+
+/* ─── Alignment / distribution buttons ───────────────────────────────────── */
+.canvas-fmt-align-btn {
+  font-size: var(--font-size-md) !important;
+  padding: 4px 2px !important;
+  line-height: 1 !important;
+  flex: 1 !important;
+}
+
+/* ─── Lock button ─────────────────────────────────────────────────────────── */
+/* Full-width lock button (legacy — kept for reference) */
+.canvas-fmt-lock-btn {
+  flex: unset;
+  width: 100%;
+  font-size: var(--font-size-xs) !important;
+  letter-spacing: 0.02em;
+}
+
+.canvas-fmt-lock-btn--locked {
+  background: var(--fmt-green-bg) !important;
+  border-color: var(--fmt-green-br) !important;
+  color: var(--green) !important;
+}
+.canvas-fmt-lock-btn--locked:hover {
+  background: var(--fmt-green-hbg) !important;
+  border-color: var(--fmt-green-hbr) !important;
+}
+
+/* Icon-only compact lock button, sits as the last pill in the Layer row */
+.canvas-fmt-lock-icon-btn {
+  flex: 0 0 auto;
+  min-width: 26px;
+  padding: 4px 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+}
+.canvas-fmt-lock-icon-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* ── Shape effects — shadow custom sliders ──────────────────────────────────── */
+.canvas-fmt-shadow-sliders {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 7px;
+}
+.canvas-fmt-shadow-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.canvas-fmt-shadow-label {
+  font-size: var(--font-size-2xs);
+  color: var(--hud-text-dim);
+  min-width: 24px;
+  flex-shrink: 0;
+}
+.canvas-fmt-shadow-slider {
+  flex: 1;
+}
+
+/* ── Slide layout picker (theme panel) ──────────────────────────────────────── */
+.canvas-theme-layout-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 5px;
+  margin-top: var(--space-3);
+}
+.canvas-theme-layout-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 7px 4px 6px;
+  border: 1px solid var(--fmt-border);
+  border-radius: var(--radius-md);
+  background: var(--fmt-bg);
+  color: var(--text);
+  cursor: pointer;
+  font-size: var(--font-size-xs);
+  transition: border-color var(--transition-fast), background var(--transition-fast);
+}
+.canvas-theme-layout-btn:hover {
+  border-color: var(--accent);
+  color: var(--text-bright);
+}
+.canvas-theme-layout-btn--on {
+  border-color: var(--accent);
+  background: var(--fmt-on-bg);
+  color: var(--text-bright);
+}
+.canvas-theme-layout-icon {
+  font-size: var(--font-size-md);
+  font-family: var(--font-mono);
+  letter-spacing: 0;
+  line-height: 1;
+}
+.canvas-theme-layout-label {
+  font-size: var(--font-size-2xs);
+  text-align: center;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+/* ── Geo shape type picker ─────────────────────────────────── */
+.canvas-fmt-geo-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 3px;
+  margin-top: var(--space-1);
+}
+.canvas-fmt-geo-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  background: var(--fmt-bg);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: var(--font-size-md);
+  cursor: pointer;
+  line-height: 1;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+.canvas-fmt-geo-btn:hover {
+  background: var(--fmt-hover-bg);
+  border-color: var(--border2);
+}
+.canvas-fmt-geo-btn.canvas-fmt-btn--on {
+  background: var(--fmt-on-bg);
+  border-color: var(--accent);
+  color: var(--text-bright);
+}
+.canvas-fmt-geo-more {
+  font-size: var(--font-size-xs);
+  letter-spacing: 1px;
+}
+
+/* ── W × H dimension inputs ────────────────────────────────── */
+.canvas-fmt-wh-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: nowrap;
+}
+.canvas-fmt-wh-label {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  min-width: 12px;
+}
+.canvas-fmt-wh-input {
+  width: 62px;
+  padding: 3px 5px;
+  background: var(--fmt-bg);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: var(--font-size-sm);
+  text-align: center;
+}
+.canvas-fmt-wh-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* ── Layer order buttons ───────────────────────────────────── */
+.canvas-fmt-layer-btn {
+  font-size: var(--font-size-lg);
+  letter-spacing: 0;
+  flex: 1;
+}
+
+/* ── Selection count badge (top of format panel) ──────────── */
+.canvas-fmt-sel-badge {
+  font-size: var(--font-size-2xs);
+  color: var(--text-dim);
+  text-align: center;
+  padding: 2px 0 5px;
+  letter-spacing: 0.03em;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+  margin-bottom: var(--space-1);
+}
+
+/* ── Zoom level indicator ────────────────────────────────────── */
+.canvas-zoom-indicator {
+  position: absolute;
+  bottom: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  background: var(--hud-bg);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: var(--radius-lg);
+  padding: 3px 4px;
+  pointer-events: all;
+  user-select: none;
+  backdrop-filter: blur(6px);
+  box-shadow: var(--shadow-sm);
+  z-index: calc(var(--z-canvas) - 1);
+}
+.canvas-zoom-btn {
+  background: none;
+  border: none;
+  color: var(--hud-text-dim);
+  cursor: pointer;
+  font-size: var(--font-size-md);
+  font-weight: 500;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  line-height: 1;
+  transition: background 0.1s, color 0.1s;
+}
+.canvas-zoom-btn:hover {
+  background: rgba(255,255,255,0.08);
+  color: var(--text);
+}
+.canvas-zoom-pct {
+  background: none;
+  border: none;
+  color: var(--hud-text);
+  cursor: pointer;
+  font-size: 11.5px;
+  font-weight: 500;
+  min-width: 38px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  letter-spacing: 0.01em;
+  transition: background 0.1s, color 0.1s;
+}
+.canvas-zoom-pct:hover {
+  background: rgba(255,255,255,0.08);
+  color: var(--hud-text-hi);
+}
+
+/* ── Corner radius drag handle ──────────────────────────────────────────── */
+.canvas-cr-handle {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid #2b83f6;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.35);
+  cursor: ew-resize;
+  transition: background 0.1s;
+}
+.canvas-cr-handle:hover {
+  background: #2b83f6;
+}
+.canvas-cr-label {
+  background: rgba(26,21,16,0.88);
+  color: #4ec9b0;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  pointer-events: none;
+  user-select: none;
+  white-space: nowrap;
+  z-index: 9999;
+}
+
+/* ── Modifier-key shortcut hints ────────────────────────────────────────── */
+.canvas-shortcut-hints {
+  position: absolute;
+  bottom: 50px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--hud-text-dim, rgba(255,255,255,0.4));
+  font-size: 10px;
+  pointer-events: none;
+  user-select: none;
+  white-space: nowrap;
+  opacity: 0.75;
+}
+.canvas-shortcut-hints em {
+  font-style: normal;
+  color: var(--hud-text, rgba(255,255,255,0.7));
+}
+.canvas-shortcut-hints-sep {
+  opacity: 0.4;
+}

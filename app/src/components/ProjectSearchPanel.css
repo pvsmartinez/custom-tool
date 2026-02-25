@@ -1,0 +1,252 @@
+/* ── ProjectSearchPanel ───────────────────────────────────────────── */
+
+.psp-root {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+  padding: 8px 6px 4px;
+  gap: var(--space-2);
+}
+
+/* ── Search input ── */
+.psp-search-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.psp-search-input {
+  width: 100%;
+  background: var(--surface-deep);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: var(--font-size-sm);
+  padding: 5px 26px 5px 8px;
+  outline: none;
+  transition: border-color var(--transition-fast);
+  box-sizing: border-box;
+}
+.psp-search-input:focus {
+  border-color: var(--accent);
+}
+.psp-input-error {
+  border-color: var(--red) !important;
+}
+
+.psp-spinner {
+  position: absolute;
+  right: 6px;
+  font-size: var(--font-size-xs);
+  opacity: 0.6;
+}
+
+.psp-clear {
+  position: absolute;
+  right: 4px;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+  padding: 2px 4px;
+  line-height: 1;
+}
+.psp-clear:hover { color: var(--red); }
+
+/* ── Options ── */
+.psp-options {
+  display: flex;
+  gap: 3px;
+  align-items: center;
+}
+
+.psp-opt {
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  padding: 2px 5px;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  line-height: 1;
+  transition: all 0.1s;
+}
+.psp-opt:hover { color: var(--text); background: var(--surface2); }
+.psp-opt.active {
+  color: var(--accent);
+  background: rgba(var(--accent-rgb), 0.12);
+  border-color: rgba(var(--accent-rgb), 0.35);
+}
+
+.psp-opt-replace {
+  margin-left: auto;
+  font-family: inherit;
+  font-size: var(--font-size-base);
+}
+
+.psp-error {
+  font-size: var(--font-size-xs);
+  color: var(--red);
+  padding: 2px 2px;
+}
+
+/* ── Replace row ── */
+.psp-replace-row {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.psp-replace-input {
+  flex: 1;
+}
+
+.psp-replace-btn {
+  background: none;
+  border: 1px solid var(--border2);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: var(--font-size-xs);
+  padding: 4px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: all var(--transition-fast);
+}
+.psp-replace-btn:hover:not(:disabled) {
+  background: rgba(var(--accent-rgb), 0.12);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.psp-replace-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.psp-replace-status {
+  font-size: var(--font-size-xs);
+  color: var(--green);
+  padding: 2px 2px;
+}
+
+/* ── Summary ── */
+.psp-summary {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  padding: 2px 2px 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* ── Results ── */
+.psp-results {
+  flex: 1;
+  overflow-y: auto;
+  margin: 0 -6px;
+}
+
+.psp-file-group {
+  margin-bottom: var(--space-1);
+}
+
+.psp-file-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: 4px 8px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.1s;
+  font-size: var(--font-size-sm);
+}
+.psp-file-header:hover {
+  background: var(--surface2);
+}
+
+.psp-file-arrow {
+  font-size: var(--font-size-2xs);
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.psp-file-name {
+  color: var(--text);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 0;
+  max-width: 120px;
+}
+
+.psp-file-path {
+  color: var(--text-dim);
+  font-size: var(--font-size-xs);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+}
+
+.psp-file-count {
+  background: rgba(var(--accent-rgb), 0.14);
+  color: var(--accent);
+  font-size: var(--font-size-2xs);
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: var(--radius-lg);
+  flex-shrink: 0;
+}
+
+/* ── Match row ── */
+.psp-match-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  width: 100%;
+  padding: 2px 8px 2px 24px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  font-size: var(--font-size-sm);
+  transition: background 0.1s;
+  overflow: hidden;
+}
+.psp-match-row:hover {
+  background: rgba(var(--accent-rgb), 0.07);
+}
+
+.psp-line-no {
+  font-size: var(--font-size-2xs);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+  min-width: 22px;
+  text-align: right;
+}
+
+.psp-line-text {
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+}
+
+.psp-match {
+  background: rgba(var(--yellow-rgb, 212,169,106), 0.3);
+  color: var(--yellow);
+  border-radius: 2px;
+  padding: 0 1px;
+  font-weight: 600;
+}

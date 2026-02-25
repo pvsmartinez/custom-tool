@@ -5,8 +5,7 @@ import {
   mkdir,
 } from '@tauri-apps/plugin-fs';
 import type { Workspace, AIEditMark } from '../types';
-
-const CONFIG_DIR = 'customtool';
+import { CONFIG_DIR } from './config';
 const MARKS_FILE = 'ai-marks.json';
 
 function marksPath(workspace: Workspace): string {
@@ -32,6 +31,15 @@ export async function saveMarks(workspace: Workspace, marks: AIEditMark[]): Prom
 export async function addMark(workspace: Workspace, mark: AIEditMark): Promise<AIEditMark[]> {
   const marks = await loadMarks(workspace);
   const updated = [...marks, mark];
+  await saveMarks(workspace, updated);
+  return updated;
+}
+
+/** Append multiple marks in a single read-modify-write cycle. */
+export async function addMarksBulk(workspace: Workspace, newMarks: AIEditMark[]): Promise<AIEditMark[]> {
+  if (newMarks.length === 0) return loadMarks(workspace);
+  const existing = await loadMarks(workspace);
+  const updated = [...existing, ...newMarks];
   await saveMarks(workspace, updated);
   return updated;
 }

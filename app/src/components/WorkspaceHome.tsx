@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { Play } from '@phosphor-icons/react';
 import { invoke } from '@tauri-apps/api/core';
-import type { Workspace, AIEditMark } from '../types';
+import type { Workspace, AIEditMark, FileTreeNode } from '../types';
 import './WorkspaceHome.css';
 
 interface WorkspaceHomeProps {
@@ -14,6 +15,11 @@ interface SyncState {
   loading: boolean;
   changedCount: number;
   error: boolean;
+}
+
+// Count all non-directory nodes in the file tree
+function countFiles(nodes: FileTreeNode[]): number {
+  return nodes.reduce((sum, n) => sum + (n.isDirectory ? countFiles(n.children ?? []) : 1), 0);
 }
 
 // Human-readable relative time
@@ -31,7 +37,7 @@ function relativeTime(iso: string): string {
 }
 
 // File-type icon (same logic as Sidebar)
-function fileIcon(name: string): string {
+function fileIcon(name: string): React.ReactNode {
   const ext = name.split('.').pop()?.toLowerCase() ?? '';
   if (['md', 'mdx'].includes(ext)) return '◎';
   if (['ts', 'tsx'].includes(ext)) return 'TS';
@@ -40,14 +46,14 @@ function fileIcon(name: string): string {
   if (['css', 'scss', 'less'].includes(ext)) return '#';
   if (['html', 'htm'].includes(ext)) return '<>';
   if (['rs'].includes(ext)) return '⛭';
-  if (['mp4', 'webm', 'mov', 'm4v', 'mkv', 'ogv', 'avi'].includes(ext)) return '▶';
+  if (['mp4', 'webm', 'mov', 'm4v', 'mkv', 'ogv', 'avi'].includes(ext)) return <Play weight="thin" size={11} />;
   if (ext === 'gif') return 'GIF';
   if (['png', 'jpg', 'jpeg', 'svg', 'webp', 'bmp', 'ico', 'avif'].includes(ext)) return '⬡';
   if (ext === 'pdf') return '⬡';
   return '·';
 }
 
-export default function WorkspaceHome({ workspace, onOpenFile, aiMarks = [], onOpenAIReview }: WorkspaceHomeProps) {
+export default function WorkspaceHome({ workspace, onOpenFile, aiMarks = [] }: WorkspaceHomeProps) {
   const [sync, setSync] = useState<SyncState>({ loading: true, changedCount: 0, error: false });
 
   useEffect(() => {
@@ -111,7 +117,7 @@ export default function WorkspaceHome({ workspace, onOpenFile, aiMarks = [], onO
           {/* File count */}
           <div className="wh-stat">
             <span className="wh-stat-label">Files</span>
-            <span className="wh-stat-value">{workspace.files.length}</span>
+            <span className="wh-stat-value">{countFiles(workspace.fileTree)}</span>
           </div>
         </div>
 
@@ -167,7 +173,6 @@ export default function WorkspaceHome({ workspace, onOpenFile, aiMarks = [], onO
                     className="wh-ai-file-btn"
                     onClick={() => {
                       onOpenFile(file);
-                      setTimeout(() => onOpenAIReview?.(), 120);
                     }}
                     title={file}
                   >

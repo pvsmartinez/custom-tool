@@ -8,10 +8,24 @@ use sha2::{Digest, Sha256};
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use rand::RngCore;
 
+/// Opens the webview DevTools inspector (debug builds only).
+#[tauri::command]
+fn open_devtools(webview_window: tauri::WebviewWindow) {
+    #[cfg(debug_assertions)]
+    webview_window.open_devtools();
+    #[cfg(not(debug_assertions))]
+    let _ = webview_window; // no-op in release builds
+}
+
 /// Run an arbitrary shell (bash) command in the given working directory.
 /// Returns {stdout, stderr, exit_code}. Output capped at ~8 KB each.
+/// The `cwd` must be within the user's $HOME directory to prevent path traversal.
 #[tauri::command]
 fn shell_run(cmd: String, cwd: String) -> Result<serde_json::Value, String> {
+    let home = std::env::var("HOME").unwrap_or_default();
+    if home.is_empty() || !cwd.starts_with(&home) {
+        return Err(format!("shell_run: cwd must be within $HOME (rejected: {cwd})"));
+    }
     let output = Command::new("bash")
         .args(["-c", &cmd])
         .current_dir(&cwd)
@@ -104,6 +118,22 @@ fn git_sync(path: String, message: String) -> Result<String, String> {
     run(&["push", "origin", "HEAD"])
         .unwrap_or(()); // push is best-effort (no remote = ok)
     Ok("synced".into())
+}
+
+/// Return the `origin` remote URL for the workspace at `path`.
+/// Errors if the folder is not a git repo or has no remote named `origin`.
+#[tauri::command]
+fn git_get_remote(path: String) -> Result<String, String> {
+    let out = Command::new("git")
+        .args(["remote", "get-url", "origin"])
+        .current_dir(&path)
+        .output()
+        .map_err(|e| e.to_string())?;
+    if out.status.success() {
+        Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+    } else {
+        Err("no remote".into())
+    }
 }
 
 /// Revert a single file to the last committed state (`git checkout -- <file>`).
@@ -212,7 +242,7 @@ async fn google_oauth(app: tauri::AppHandle, client_id: String) -> Result<serde_
     let body = "<html><body style='font-family:-apple-system,sans-serif;\
                 text-align:center;padding:80px;background:#1e2127;color:#abb2bf'>\
                 <h2 style='color:#98c379'>✓ Connected to Google</h2>\
-                <p>You can close this tab and return to custom-tool.</p></body></html>";
+                <p>You can close this tab and return to Cafezin.</p></body></html>";
     let response = format!(
         "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\
          Content-Length: {}\r\nConnection: close\r\n\r\n{}",
@@ -292,6 +322,19 @@ async fn update_app(app: tauri::AppHandle, project_root: String) -> Result<(), S
     emit_log("▸ Starting incremental build…");
     emit_log("");
 
+    // Remove stale .app bundles from a previous build so the post-build search
+    // always finds exactly one — the freshly produced one.
+    let bundle_dir = format!("{}/app/src-tauri/target/release/bundle/macos", project_root);
+    if std::path::Path::new(&bundle_dir).exists() {
+        if let Ok(entries) = std::fs::read_dir(&bundle_dir) {
+            for entry in entries.flatten() {
+                if entry.path().extension().map(|x| x == "app").unwrap_or(false) {
+                    let _ = std::fs::remove_dir_all(entry.path());
+                }
+            }
+        }
+    }
+
     let mut child = tokio::process::Command::new("bash")
         .arg("-c")
         .arg(&build_cmd)
@@ -318,18 +361,18 @@ async fn update_app(app: tauri::AppHandle, project_root: String) -> Result<(), S
     emit_log("");
     emit_log("▸ Build succeeded — installing…");
 
-    // Find the freshly built .app bundle
-    let bundle_dir = format!("{}/app/src-tauri/target/release/bundle/macos", project_root);
+    // Find the freshly built .app bundle — pick newest by mtime as a safety net
     let app_path = std::fs::read_dir(&bundle_dir)
         .map_err(|e| e.to_string())?
         .flatten()
-        .find(|e| e.path().extension().map(|x| x == "app").unwrap_or(false))
+        .filter(|e| e.path().extension().map(|x| x == "app").unwrap_or(false))
+        .max_by_key(|e| e.metadata().and_then(|m| m.modified()).ok())
         .map(|e| e.path())
         .ok_or_else(|| "No .app bundle found after build".to_string())?;
 
     let install_dir = format!("{}/Applications", home);
     std::fs::create_dir_all(&install_dir).map_err(|e| e.to_string())?;
-    let dest = format!("{}/custom-tool.app", install_dir);
+    let dest = format!("{}/Cafezin.app", install_dir);
 
     let _ = std::fs::remove_dir_all(&dest);
     let cp_status = tokio::process::Command::new("cp")
@@ -371,16 +414,20 @@ pub fn run() {
         .setup(|app| {
             // ── Native macOS menu bar ───────────────────────────────
             let update_item = MenuItem::with_id(
-                app, "update_app", "Update custom-tool\u{2026}", true, Some("cmd+shift+u")
+                app, "update_app", "Update Cafezin\u{2026}", true, Some("cmd+shift+u")
+            )?;
+            let settings_item = MenuItem::with_id(
+                app, "settings", "Settings\u{2026}", true, Some("cmd+,")
             )?;
             let separator = PredefinedMenuItem::separator(app)?;
+            let separator2 = PredefinedMenuItem::separator(app)?;
             let hide      = PredefinedMenuItem::hide(app, None)?;
             let hide_others = PredefinedMenuItem::hide_others(app, None)?;
-            let quit      = PredefinedMenuItem::quit(app, Some("Quit custom-tool"))?;
+            let quit      = PredefinedMenuItem::quit(app, Some("Quit Cafezin"))?;
 
             let app_menu = Submenu::with_items(
-                app, "custom-tool", true,
-                &[&update_item, &separator, &hide, &hide_others, &separator, &quit],
+                app, "Cafezin", true,
+                &[&update_item, &settings_item, &separator, &hide, &hide_others, &separator2, &quit],
             )?;
 
             // Standard Edit menu so copy/paste/undo work normally
@@ -402,8 +449,10 @@ pub fn run() {
             // Emit to the webview so the frontend can respond
             let handle = app.handle().clone();
             app.on_menu_event(move |_app, event| {
-                if event.id().as_ref() == "update_app" {
-                    let _ = handle.emit("menu-update-app", ());
+                match event.id().as_ref() {
+                    "update_app" => { let _ = handle.emit("menu-update-app", ()); }
+                    "settings"   => { let _ = handle.emit("menu-settings", ()); }
+                    _ => {}
                 }
             });
 
@@ -413,7 +462,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_http::init())
-        .invoke_handler(tauri::generate_handler![git_init, git_diff, git_sync, git_checkout_file, shell_run, update_app, google_oauth, transcribe_audio])
+        .invoke_handler(tauri::generate_handler![git_init, git_diff, git_sync, git_checkout_file, git_get_remote, shell_run, update_app, google_oauth, transcribe_audio, open_devtools])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

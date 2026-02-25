@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
-# update-app.sh  —  Incrementally rebuild custom-tool and replace the running app
+# update-app.sh  —  Incrementally rebuild Cafezin and replace the running app
 #
 # Usage:
 #   ./scripts/update-app.sh              # rebuild → replace in ~/Applications → relaunch
@@ -15,7 +15,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_DIR="$(dirname "$SCRIPT_DIR")/app"
-APP_NAME="custom-tool"
+APP_NAME="Cafezin"
 INSTALL_DIR="$HOME/Applications"
 INSTALL_PATH="${INSTALL_DIR}/${APP_NAME}.app"
 BUNDLE_DIR="${APP_DIR}/src-tauri/target/release/bundle/macos"
@@ -35,7 +35,7 @@ fi
 
 echo ""
 echo "╔════════════════════════════════════╗"
-echo "║   custom-tool  —  update           ║"
+echo "║   Cafezin  —  update               ║"
 echo "╚════════════════════════════════════╝"
 echo ""
 

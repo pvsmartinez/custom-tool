@@ -1,0 +1,41 @@
+/* ── Overlay layer — transparent to pointer events except the buttons ── */
+.aimo-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: var(--z-editor-overlay);
+  overflow: hidden;
+}
+
+/* ── Per-mark accept button ─────────────────────────────────────────────── */
+.aimo-accept-btn {
+  position: absolute;
+  transform: translate(4px, -50%);
+  pointer-events: auto;
+  background: var(--surface-code);
+  border: 1px solid rgba(var(--green-rgb, 126,200,160), 0.5);
+  border-radius: var(--radius-sm);
+  color: var(--green);
+  cursor: pointer;
+  padding: 1px 6px;
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  line-height: 1.5;
+  box-shadow: var(--shadow-sm);
+  opacity: 0;
+  transition: opacity var(--transition-fast), background 0.1s, color 0.1s;
+  z-index: calc(var(--z-editor-overlay) + 1);
+  white-space: nowrap;
+  user-select: none;
+}
+
+.aimo-accept-btn--visible {
+  opacity: 1;
+}
+
+.aimo-accept-btn:hover {
+  opacity: 1;
+  background: rgba(var(--green-rgb, 126,200,160), 0.18);
+  color: var(--green);
+  border-color: rgba(var(--green-rgb, 126,200,160), 0.8);
+}

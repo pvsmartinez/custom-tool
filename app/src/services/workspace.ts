@@ -7,17 +7,15 @@ import {
   exists,
   remove,
   copyFile,
+  rename,
 } from '@tauri-apps/plugin-fs';
 import { invoke } from '@tauri-apps/api/core';
 import type { Workspace, WorkspaceConfig, RecentWorkspace, FileTreeNode } from '../types';
+import { CONFIG_DIR, WORKSPACE_SKIP } from './config';
 
-const RECENTS_KEY = 'custom-tool-recent-workspaces';
-const CONFIG_DIR = 'customtool';
+const RECENTS_KEY = 'cafezin-recent-workspaces';
 const CONFIG_FILE = 'config.json';
 const AGENT_FILE = 'AGENT.md';
-
-// Directory/file names to skip when building the file tree
-const SKIP_NAMES = new Set(['node_modules', '.git', '.customtool', 'customtool', 'target', '.DS_Store']);
 
 /**
  * Recursively build a file tree starting at `dirAbsPath`.
@@ -39,7 +37,7 @@ async function buildFileTree(
   const nodes: FileTreeNode[] = [];
   for (const entry of entries) {
     if (!entry.name) continue;
-    if (SKIP_NAMES.has(entry.name)) continue;
+    if (WORKSPACE_SKIP.has(entry.name)) continue;
     if (entry.name.startsWith('.')) continue;
 
     const relPath = relBase ? `${relBase}/${entry.name}` : entry.name;
@@ -66,7 +64,7 @@ export async function pickWorkspaceFolder(): Promise<string | null> {
 
 /** Load (or create) workspace config + agent context + file list. */
 export async function loadWorkspace(folderPath: string): Promise<Workspace> {
-  // 1. Ensure .customtool/ dir exists
+  // 1. Ensure cafezin/ dir exists
   const configDir = `${folderPath}/${CONFIG_DIR}`;
   const configPath = `${configDir}/${CONFIG_FILE}`;
 
@@ -108,18 +106,9 @@ export async function loadWorkspace(folderPath: string): Promise<Workspace> {
     await invoke('git_init', { path: folderPath });
   } catch { /* not fatal */ }
 
-  // 5. List .md files (top-level only for now)
-  let files: string[] = [];
-  try {
-    const entries = await readDir(folderPath);
-    files = entries
-      .filter((e) => !e.isDirectory && e.name?.endsWith('.md') && e.name !== AGENT_FILE)
-      .map((e) => e.name!)
-      .sort();
-  } catch { /* not fatal */ }
-
-  // 6. Build full recursive file tree
+  // 5. Build full recursive file tree (and derive .md file list from it)
   const fileTree = await buildFileTree(folderPath);
+  const files = flatMdFiles(fileTree);
 
   const workspace: Workspace = {
     path: folderPath,
@@ -130,8 +119,8 @@ export async function loadWorkspace(folderPath: string): Promise<Workspace> {
     fileTree,
   };
 
-  // 7. Persist to recents
-  saveRecent({ path: folderPath, name: config.name, lastOpened: new Date().toISOString() });
+  // 6. Persist to recents
+  saveRecent({ path: folderPath, name: config.name, lastOpened: new Date().toISOString(), lastEditedAt: config.lastEditedAt });
 
   return workspace;
 }
@@ -152,7 +141,7 @@ export async function writeFile(workspace: Workspace, filename: string, content:
 /** Record that a file was opened — updates lastOpenedFile and recentFiles in config. */
 export async function trackFileOpen(workspace: Workspace, filename: string): Promise<Workspace> {
   const prev = workspace.config.recentFiles ?? [];
-  const recentFiles = [filename, ...prev.filter((f) => f !== filename)].slice(0, 5);
+  const recentFiles = [filename, ...prev.filter((f) => f !== filename)].slice(0, 8);
   const updated: Workspace = {
     ...workspace,
     config: { ...workspace.config, lastOpenedFile: filename, recentFiles },
@@ -203,9 +192,9 @@ export async function createCanvasFile(workspace: Workspace, filename: string): 
   }
 }
 
-/** Delete a file from the workspace. */
-export async function deleteFile(workspace: Workspace, relPath: string): Promise<void> {
-  await remove(`${workspace.path}/${relPath}`);
+/** Delete a file or directory from the workspace. */
+export async function deleteFile(workspace: Workspace, relPath: string, isDir = false): Promise<void> {
+  await remove(`${workspace.path}/${relPath}`, isDir ? { recursive: true } : undefined);
 }
 
 /** Duplicate a file. Returns the relative path of the new copy. */
@@ -239,6 +228,189 @@ export async function duplicateFile(workspace: Workspace, relPath: string): Prom
   return candidate;
 }
 
+/** Rename (or move) a file to a new relative path within the workspace. */
+export async function renameFile(workspace: Workspace, oldRel: string, newRel: string): Promise<void> {
+  const src = `${workspace.path}/${oldRel}`;
+  const dest = `${workspace.path}/${newRel}`;
+  const parentDir = dest.substring(0, dest.lastIndexOf('/'));
+  if (parentDir && !(await exists(parentDir))) {
+    await mkdir(parentDir, { recursive: true });
+  }
+  // rename works atomically on both files and directories
+  await rename(src, dest);
+}
+
+// ── Reference update ──────────────────────────────────────────────────────────
+
+const BINARY_EXTS_REF = new Set([
+  'png','jpg','jpeg','gif','webp','avif','bmp','ico','tiff','tif','svg',
+  'pdf','mp4','webm','mov','mkv','avi','m4v','ogv','mp3','wav','aac','ogg','flac','m4a',
+  'zip','tar','gz','wasm','exe','dmg','pkg',
+]);
+
+function collectAllTextPaths(nodes: FileTreeNode[]): string[] {
+  const paths: string[] = [];
+  function walk(n: FileTreeNode) {
+    if (n.isDirectory) { n.children?.forEach(walk); return; }
+    if (n.name.endsWith('.tldr.json')) { paths.push(n.path); return; }
+    const ext = n.name.split('.').pop()?.toLowerCase() ?? '';
+    if (!BINARY_EXTS_REF.has(ext)) paths.push(n.path);
+  }
+  nodes.forEach(walk);
+  return paths;
+}
+
+/** Compute the relative path from one workspace file to another workspace file. */
+export function wsRelativePath(fromFileRel: string, toFileRel: string): string {
+  const fromDir = fromFileRel.includes('/')
+    ? fromFileRel.substring(0, fromFileRel.lastIndexOf('/'))
+    : '';
+  const fromParts = fromDir ? fromDir.split('/') : [];
+  const toParts = toFileRel.split('/');
+  let common = 0;
+  while (
+    common < fromParts.length &&
+    common < toParts.length - 1 &&
+    fromParts[common] === toParts[common]
+  ) { common++; }
+  const ups = fromParts.length - common;
+  const downs = toParts.slice(common);
+  if (ups === 0) return downs.join('/');
+  return [...Array(ups).fill('..'), ...downs].join('/');
+}
+
+/**
+ * After renaming/moving a file or folder (oldRel → newRel), scan every text
+ * file in the workspace and patch stale references.
+ *
+ * - Canvas (.tldr.json): asset src URLs contain the absolute path; we replace
+ *   the embedded absolute segment.
+ * - Text/markdown: relative path references (markdown links, src="", href="")
+ *   are recomputed per-file so the relative offsets remain correct.
+ *
+ * Pass `isDir = true` when a directory was renamed/moved so that child-path
+ * prefixes are also updated.
+ */
+export async function updateFileReferences(
+  workspace: Workspace,
+  fileTree: FileTreeNode[],
+  oldRel: string,
+  newRel: string,
+  isDir = false,
+): Promise<void> {
+  if (oldRel === newRel) return;
+  const wsPath = workspace.path;
+  const textPaths = collectAllTextPaths(fileTree);
+
+  for (const filePath of textPaths) {
+    // Skip the file that was just moved (its own content references are internal)
+    if (filePath === oldRel || filePath === newRel) continue;
+    if (filePath.startsWith(oldRel + '/') || filePath.startsWith(newRel + '/')) continue;
+
+    const absPath = `${wsPath}/${filePath}`;
+    let text: string;
+    try { text = await readTextFile(absPath); } catch { continue; }
+    let updated = text;
+
+    // ── 1. Canvas files: patch absolute asset:// src values ──────────────────
+    if (filePath.endsWith('.tldr.json')) {
+      // asset://localhost/abs/path  or  asset://localhost/url%20encoded/path
+      const patchAbs = (src: string, dst: string) => {
+        if (updated.includes(src)) updated = updated.split(src).join(dst);
+        const srcEnc = encodeURIComponent(src).replace(/%2F/gi, '/');
+        const dstEnc = encodeURIComponent(dst).replace(/%2F/gi, '/');
+        if (srcEnc !== src && updated.includes(srcEnc)) {
+          updated = updated.split(srcEnc).join(dstEnc);
+        }
+      };
+
+      if (isDir) {
+        // patch all children: oldRel/foo → newRel/foo
+        patchAbs(`${wsPath}/${oldRel}/`, `${wsPath}/${newRel}/`);
+      } else {
+        patchAbs(`${wsPath}/${oldRel}`, `${wsPath}/${newRel}`);
+      }
+    } else {
+      // ── 2. Text/markdown: patch relative path references ──────────────────
+      // We build the relative path from this file to old and new targets,
+      // then replace each pattern we might find in markdown / HTML / JSON.
+
+      const patchRelPattern = (oldTarget: string, newTarget: string) => {
+        if (!oldTarget) return;
+        // Patterns that typically surround a path: (), "", '', bare in JSON
+        const fenced = [
+          [`(${oldTarget})`,       `(${newTarget})`],
+          [`"${oldTarget}"`,       `"${newTarget}"`],
+          [`'${oldTarget}'`,       `'${newTarget}'`],
+          // with ./ prefix variant
+          [`(./${oldTarget})`,     `(./${newTarget})`],
+          [`"./${oldTarget}"`,     `"./${newTarget}"`],
+          [`'./${oldTarget}'`,     `'./${newTarget}'`],
+        ];
+        for (const [from, to] of fenced) {
+          if (updated.includes(from)) updated = updated.split(from).join(to);
+        }
+      };
+
+      if (isDir) {
+        // patch references to any file under the folder (prefix match)
+        const oldPrefix = wsRelativePath(filePath, oldRel);
+        const newPrefix = wsRelativePath(filePath, newRel);
+        patchRelPattern(oldPrefix + '/', newPrefix + '/');
+      } else {
+        const oldRelRef = wsRelativePath(filePath, oldRel);
+        const newRelRef = wsRelativePath(filePath, newRel);
+        patchRelPattern(oldRelRef, newRelRef);
+      }
+    }
+
+    if (updated !== text) {
+      try { await writeTextFile(absPath, updated); } catch { /* skip */ }
+    }
+  }
+}
+
+/** Move a file or folder into a destination directory. Returns the new relative path. */
+export async function moveFile(workspace: Workspace, srcRel: string, destDirRel: string): Promise<string> {
+  const name = srcRel.split('/').pop()!;
+  const newRel = destDirRel ? `${destDirRel}/${name}` : name;
+  if (newRel === srcRel) return srcRel; // same location — no-op
+  const src = `${workspace.path}/${srcRel}`;
+  const dest = `${workspace.path}/${newRel}`;
+  const destDir = `${workspace.path}/${destDirRel}`;
+  if (destDirRel && !(await exists(destDir))) {
+    await mkdir(destDir, { recursive: true });
+  }
+  await rename(src, dest);
+  return newRel;
+}
+
+/** Duplicate a folder recursively. Returns the new relative path. */
+export async function duplicateFolder(workspace: Workspace, relPath: string): Promise<string> {
+  const dupBase = `${relPath} copy`;
+  let candidate = dupBase;
+  let n = 2;
+  while (await exists(`${workspace.path}/${candidate}`)) {
+    candidate = `${dupBase} ${n}`;
+    n++;
+  }
+  await copyDirRecursive(`${workspace.path}/${relPath}`, `${workspace.path}/${candidate}`);
+  return candidate;
+}
+
+async function copyDirRecursive(src: string, dest: string): Promise<void> {
+  await mkdir(dest, { recursive: true });
+  const entries = await readDir(src);
+  for (const entry of entries) {
+    if (!entry.name) continue;
+    if (entry.isDirectory) {
+      await copyDirRecursive(`${src}/${entry.name}`, `${dest}/${entry.name}`);
+    } else {
+      await copyFile(`${src}/${entry.name}`, `${dest}/${entry.name}`);
+    }
+  }
+}
+
 /** Create a new directory (and any missing parents). */
 export async function createFolder(workspace: Workspace, relPath: string): Promise<void> {
   const absPath = `${workspace.path}/${relPath}`;
@@ -247,18 +419,32 @@ export async function createFolder(workspace: Workspace, relPath: string): Promi
   }
 }
 
-/** Reload file list for a workspace (call after creating new files). */
-export async function refreshFiles(workspace: Workspace): Promise<string[]> {
-  const entries = await readDir(workspace.path);
-  return entries
-    .filter((e) => !e.isDirectory && e.name?.endsWith('.md') && e.name !== AGENT_FILE)
-    .map((e) => e.name!)
-    .sort();
+/** Derive the flat list of markdown file paths from an already-built file tree.
+ * Avoids a second readDir pass — use this instead of the old refreshFiles().
+ */
+export function flatMdFiles(nodes: FileTreeNode[]): string[] {
+  const paths: string[] = [];
+  function walk(n: FileTreeNode) {
+    if (n.isDirectory) { n.children?.forEach(walk); return; }
+    if (n.name.endsWith('.md') && n.name !== AGENT_FILE) paths.push(n.path);
+  }
+  nodes.forEach(walk);
+  return paths.sort();
 }
 
 /** Rebuild the full file tree for a workspace (call after creating/deleting files). */
 export async function refreshFileTree(workspace: Workspace): Promise<FileTreeNode[]> {
   return buildFileTree(workspace.path);
+}
+
+/** Refresh both the file tree and the derived .md file list in a single pass.
+ * The canonical helper for rebuilding workspace state after any file-system mutation.
+ */
+export async function refreshWorkspaceFiles(
+  workspace: Workspace,
+): Promise<{ files: string[]; fileTree: FileTreeNode[] }> {
+  const fileTree = await buildFileTree(workspace.path);
+  return { files: flatMdFiles(fileTree), fileTree };
 }
 
 // ── Recents ──────────────────────────────────────────────────

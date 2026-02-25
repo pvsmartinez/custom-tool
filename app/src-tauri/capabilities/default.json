@@ -7,18 +7,57 @@
     "core:default",
     "opener:default",
     "dialog:default",
-    "fs:default",
-    "http:default",
-    { "identifier": "http:allow-fetch", "allow": [{ "url": "https://api.githubcopilot.com/**" }, { "url": "https://api.github.com/**" }, { "url": "https://github.com/**" }, { "url": "https://api.duckduckgo.com/**" }, { "url": "https://api.pexels.com/**" }] },
-    { "identifier": "http:allow-fetch-send", "allow": [{ "url": "https://api.githubcopilot.com/**" }, { "url": "https://api.github.com/**" }, { "url": "https://github.com/**" }, { "url": "https://api.duckduckgo.com/**" }, { "url": "https://api.pexels.com/**" }] },
+    { "identifier": "http:allow-fetch", "allow": [
+      { "url": "https://api.githubcopilot.com/**" },
+      { "url": "https://api.github.com/**" },
+      { "url": "https://github.com/**" },
+      { "url": "https://api.duckduckgo.com/**" },
+      { "url": "https://api.pexels.com/**" },
+      { "url": "https://images.pexels.com/**" },
+      { "url": "https://oauth2.googleapis.com/**" },
+      { "url": "https://www.googleapis.com/**" },
+      { "url": "https://slides.googleapis.com/**" },
+      { "url": "https://accounts.google.com/**" },
+      { "url": "https://api.groq.com/**" }
+    ] },
+    { "identifier": "http:allow-fetch-send", "allow": [
+      { "url": "https://api.githubcopilot.com/**" },
+      { "url": "https://api.github.com/**" },
+      { "url": "https://github.com/**" },
+      { "url": "https://api.duckduckgo.com/**" },
+      { "url": "https://api.pexels.com/**" },
+      { "url": "https://images.pexels.com/**" },
+      { "url": "https://oauth2.googleapis.com/**" },
+      { "url": "https://www.googleapis.com/**" },
+      { "url": "https://slides.googleapis.com/**" },
+      { "url": "https://accounts.google.com/**" },
+      { "url": "https://api.groq.com/**" }
+    ] },
+    { "identifier": "http:allow-fetch-read-body", "allow": [
+      { "url": "https://api.githubcopilot.com/**" },
+      { "url": "https://api.github.com/**" },
+      { "url": "https://github.com/**" },
+      { "url": "https://api.duckduckgo.com/**" },
+      { "url": "https://api.pexels.com/**" },
+      { "url": "https://images.pexels.com/**" },
+      { "url": "https://oauth2.googleapis.com/**" },
+      { "url": "https://www.googleapis.com/**" },
+      { "url": "https://slides.googleapis.com/**" },
+      { "url": "https://accounts.google.com/**" },
+      { "url": "https://api.groq.com/**" }
+    ] },
     { "identifier": "fs:allow-read-text-file",  "allow": [{ "path": "$HOME/**" }, { "path": "$HOME/**/.*" }, { "path": "$HOME/**/.*/**" }] },
+    { "identifier": "fs:allow-read-file",        "allow": [{ "path": "$HOME/**" }, { "path": "$HOME/**/.*" }, { "path": "$HOME/**/.*/**" }] },
     { "identifier": "fs:allow-write-text-file", "allow": [{ "path": "$HOME/**" }, { "path": "$HOME/**/.*" }, { "path": "$HOME/**/.*/**" }] },
     { "identifier": "fs:allow-write-file",      "allow": [{ "path": "$HOME/**" }, { "path": "$HOME/**/.*" }, { "path": "$HOME/**/.*/**" }] },
     { "identifier": "fs:allow-read-dir",        "allow": [{ "path": "$HOME/**" }, { "path": "$HOME/**/.*" }, { "path": "$HOME/**/.*/**" }] },
     { "identifier": "fs:allow-mkdir",           "allow": [{ "path": "$HOME/**" }, { "path": "$HOME/**/.*" }, { "path": "$HOME/**/.*/**" }] },
     { "identifier": "fs:allow-exists",          "allow": [{ "path": "$HOME/**" }, { "path": "$HOME/**/.*" }, { "path": "$HOME/**/.*/**" }] },
     { "identifier": "fs:allow-remove",          "allow": [{ "path": "$HOME/**" }, { "path": "$HOME/**/.*" }, { "path": "$HOME/**/.*/**" }] },
-    { "identifier": "fs:allow-copy-file",       "allow": [{ "path": "$HOME/**" }, { "path": "$HOME/**/.*" }, { "path": "$HOME/**/.*/**" }] }
+    { "identifier": "fs:allow-copy-file",       "allow": [{ "path": "$HOME/**" }, { "path": "$HOME/**/.*" }, { "path": "$HOME/**/.*/**" }] },
+    { "identifier": "fs:allow-rename",          "allow": [{ "path": "$HOME/**" }, { "path": "$HOME/**/.*" }, { "path": "$HOME/**/.*/**" }] },
+    { "identifier": "fs:allow-watch",           "allow": [{ "path": "$HOME/**" }, { "path": "$HOME/**/.*" }, { "path": "$HOME/**/.*/**" }] },
+    { "identifier": "fs:allow-unwatch",         "allow": [{ "path": "$HOME/**" }, { "path": "$HOME/**/.*" }, { "path": "$HOME/**/.*/**" }] }
   ]
 }
 

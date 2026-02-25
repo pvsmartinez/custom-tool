@@ -1,0 +1,206 @@
+/* ── FindReplaceBar ────────────────────────────────────────────────── */
+
+.frb-root {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: var(--z-panel);
+  display: flex;
+  align-items: flex-start;
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-top: none;
+  border-right: none;
+  border-radius: 0 0 0 8px;
+  box-shadow: var(--shadow-md);
+  padding: 6px 8px 6px 4px;
+  gap: var(--space-2);
+  min-width: 360px;
+  max-width: 560px;
+  animation: frb-slide-in var(--transition-fast);
+}
+
+@keyframes frb-slide-in {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.frb-toggle {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: var(--font-size-xs);
+  padding: 4px 2px;
+  flex-shrink: 0;
+  line-height: 1;
+  margin-top: var(--space-1);
+}
+.frb-toggle:hover { color: var(--text); }
+
+.frb-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.frb-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.frb-replace-row {
+  margin-top: var(--space-1);
+}
+
+.frb-input-wrap {
+  position: relative;
+  flex: 1;
+}
+
+.frb-input {
+  width: 100%;
+  background: var(--surface-deep);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: var(--font-size-base);
+  padding: 4px 60px 4px 8px;
+  outline: none;
+  transition: border-color var(--transition-fast);
+  box-sizing: border-box;
+}
+.frb-input:focus {
+  border-color: var(--accent);
+}
+.frb-input--replace {
+  padding-right: var(--space-4);
+}
+
+.frb-count {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+/* ── Option toggles (Aa / [W] / .*) ── */
+.frb-options {
+  display: flex;
+  gap: var(--space-1);
+  flex-shrink: 0;
+}
+
+.frb-opt {
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  padding: 3px 5px;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  line-height: 1;
+  transition: color 0.1s, background 0.1s, border-color 0.1s;
+}
+.frb-opt:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--surface2);
+}
+.frb-opt.active {
+  color: var(--accent);
+  background: rgba(var(--accent-rgb), 0.12);
+  border-color: rgba(var(--accent-rgb), 0.35);
+}
+.frb-opt:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+/* ── Navigation arrows ── */
+.frb-nav {
+  display: flex;
+  gap: 1px;
+  flex-shrink: 0;
+}
+
+.frb-nav-btn {
+  background: none;
+  border: 1px solid var(--border2);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: var(--font-size-base);
+  padding: 3px 7px;
+  cursor: pointer;
+  line-height: 1;
+  transition: color 0.1s, background 0.1s;
+}
+.frb-nav-btn:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--surface2);
+}
+.frb-nav-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+/* ── Replace buttons ── */
+.frb-replace-actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+.frb-rep-btn {
+  background: none;
+  border: 1px solid var(--border2);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: var(--font-size-sm);
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+.frb-rep-btn:hover:not(:disabled) {
+  background: rgba(var(--accent-rgb), 0.12);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.frb-rep-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+/* ── Close ── */
+.frb-close {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: var(--font-size-base);
+  padding: 4px 5px;
+  cursor: pointer;
+  flex-shrink: 0;
+  border-radius: var(--radius-sm);
+  transition: color 0.1s, background 0.1s;
+}
+.frb-close:hover {
+  color: var(--red);
+  background: rgba(var(--red-rgb, 201,117,112), 0.1);
+}
+
+/* ── CodeMirror search highlight override ── */
+.cm-searchMatch {
+  background: rgba(var(--yellow-rgb, 212,169,106), 0.25) !important;
+  border-radius: 2px;
+}
+.cm-searchMatch-selected,
+.cm-searchMatch.cm-searchMatch-selected {
+  background: var(--accent-border) !important;
+}

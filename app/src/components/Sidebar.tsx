@@ -1,41 +1,87 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
+import { X, Check, CaretLeft, CaretRight, CaretDown, Play, FolderSimple, Copy, Warning, FolderPlus, Minus } from '@phosphor-icons/react';
 import { invoke } from '@tauri-apps/api/core';
-import { createFile, createCanvasFile, createFolder, refreshFiles, refreshFileTree, deleteFile, duplicateFile } from '../services/workspace';
+import { revealItemInDir } from '@tauri-apps/plugin-opener';
+import { createFile, createCanvasFile, createFolder, refreshWorkspaceFiles, deleteFile, duplicateFile, duplicateFolder, renameFile, moveFile, updateFileReferences } from '../services/workspace';
 import SyncModal from './SyncModal';
+import ProjectSearchPanel from './ProjectSearchPanel';
 import type { Workspace, FileTreeNode, AIEditMark } from '../types';
+import { loadWorkspaceSession, saveWorkspaceSession } from '../services/workspaceSession';
 import './Sidebar.css';
 
 // ── File-type icon helper ───────────────────────────────────────────────────
-function fileIcon(name: string): string {
+function fileIcon(name: string): React.ReactNode {
   if (name.endsWith('.tldr.json')) return '◈';
   const ext = name.split('.').pop()?.toLowerCase() ?? '';
-  if (['md', 'mdx'].includes(ext)) return '◎';
+  if (['md', 'mdx'].includes(ext)) return '≣';
   if (['ts', 'tsx'].includes(ext)) return 'TS';
   if (['js', 'jsx', 'mjs'].includes(ext)) return 'JS';
   if (['json', 'jsonc'].includes(ext)) return '{}';
   if (['css', 'scss', 'less'].includes(ext)) return '#';
   if (['html', 'htm'].includes(ext)) return '<>';
-  if (['rs'].includes(ext)) return '⛭';
+  if (ext === 'rs') return 'Rs';
+  if (ext === 'py') return 'Py';
+  if (ext === 'go') return 'Go';
+  if (['c', 'cpp', 'h', 'hpp'].includes(ext)) return 'C';
+  if (ext === 'java') return 'Jv';
+  if (['kt', 'kts'].includes(ext)) return 'Kt';
+  if (ext === 'swift') return 'Sw';
+  if (ext === 'rb') return 'Rb';
+  if (ext === 'php') return 'Php';
   if (['toml', 'yaml', 'yml'].includes(ext)) return '≡';
-  if (['sh', 'bash', 'zsh'].includes(ext)) return '$_';
-  if (['mp4', 'webm', 'mov', 'm4v', 'mkv', 'ogv', 'avi'].includes(ext)) return '▶';
+  if (['sh', 'bash', 'zsh', 'fish'].includes(ext)) return '$';
+  if (ext === 'pdf') return 'PDF';
+  if (['mp4', 'webm', 'mov', 'm4v', 'mkv', 'ogv', 'avi'].includes(ext)) return <Play weight="thin" size={11} />;
   if (ext === 'gif') return 'GIF';
-  if (['png', 'jpg', 'jpeg', 'svg', 'webp', 'bmp', 'ico', 'avif', 'tiff', 'tif'].includes(ext)) return '⬡';
+  if (['mp3', 'wav', 'aac', 'ogg', 'flac', 'm4a'].includes(ext)) return '♪';
+  if (['png', 'jpg', 'jpeg', 'svg', 'webp', 'bmp', 'ico', 'avif', 'tiff', 'tif'].includes(ext)) return '⊡';
   return '·';
 }
 
-// ── Editable file types for the create picker ──────────────────────────────
-const EDITABLE_TYPES = [
-  { ext: '.md',   label: 'MD' },
-  { ext: '.ts',   label: 'TS' },
-  { ext: '.tsx',  label: 'TSX' },
-  { ext: '.js',   label: 'JS' },
+function fileIconCls(name: string): string {
+  if (name.endsWith('.tldr.json')) return 'sidebar-icon--canvas';
+  const ext = name.split('.').pop()?.toLowerCase() ?? '';
+  if (['md', 'mdx'].includes(ext)) return 'sidebar-icon--md';
+  if (['ts', 'tsx'].includes(ext)) return 'sidebar-icon--ts';
+  if (['js', 'jsx', 'mjs'].includes(ext)) return 'sidebar-icon--js';
+  if (['json', 'jsonc'].includes(ext)) return 'sidebar-icon--json';
+  if (['css', 'scss', 'less'].includes(ext)) return 'sidebar-icon--css';
+  if (['html', 'htm'].includes(ext)) return 'sidebar-icon--html';
+  if (ext === 'rs') return 'sidebar-icon--rs';
+  if (ext === 'py') return 'sidebar-icon--py';
+  if (ext === 'go') return 'sidebar-icon--go';
+  if (['c', 'cpp', 'h', 'hpp'].includes(ext)) return 'sidebar-icon--c';
+  if (['java', 'kt', 'kts'].includes(ext)) return 'sidebar-icon--java';
+  if (ext === 'swift') return 'sidebar-icon--swift';
+  if (['rb', 'php'].includes(ext)) return 'sidebar-icon--rb';
+  if (['toml', 'yaml', 'yml'].includes(ext)) return 'sidebar-icon--cfg';
+  if (['sh', 'bash', 'zsh', 'fish'].includes(ext)) return 'sidebar-icon--sh';
+  if (ext === 'pdf') return 'sidebar-icon--pdf';
+  if (['mp4', 'webm', 'mov', 'm4v', 'mkv', 'ogv', 'avi'].includes(ext)) return 'sidebar-icon--video';
+  if (['gif', 'mp3', 'wav', 'aac', 'ogg', 'flac', 'm4a'].includes(ext)) return 'sidebar-icon--media';
+  if (['png', 'jpg', 'jpeg', 'svg', 'webp', 'bmp', 'ico', 'avif', 'tiff', 'tif'].includes(ext)) return 'sidebar-icon--image';
+  return '';
+}
+
+// ── File-type groups for the three-category creator ────────────────────────
+type FileCategory = 'canvas' | 'text' | 'code';
+
+const TEXT_TYPES = [
+  { ext: '.md',   label: 'Markdown' },
+  { ext: '.txt',  label: 'Plain text' },
   { ext: '.json', label: 'JSON' },
-  { ext: '.css',  label: 'CSS' },
+];
+
+const CODE_TYPES = [
   { ext: '.html', label: 'HTML' },
-  { ext: '.py',   label: 'PY' },
-  { ext: '.sh',   label: 'SH' },
-  { ext: '.txt',  label: 'TXT' },
+  { ext: '.js',   label: 'JavaScript' },
+  { ext: '.ts',   label: 'TypeScript' },
+  { ext: '.tsx',  label: 'TSX' },
+  { ext: '.css',  label: 'CSS' },
+  { ext: '.py',   label: 'Python' },
+  { ext: '.rs',   label: 'Rust' },
+  { ext: '.yaml', label: 'YAML' },
+  { ext: '.sh',   label: 'Shell' },
 ];
 
 // ── Recursive tree node ─────────────────────────────────────────────────────
@@ -45,6 +91,7 @@ interface TreeNodeProps {
   activeFile: string | null;
   dirtyFiles: Set<string>;
   unseenAiFiles: Set<string>;
+  lockedFiles?: Set<string>;
   expandedDirs: Set<string>;
   onToggleDir: (path: string) => void;
   onFileSelect: (path: string) => void;
@@ -52,27 +99,84 @@ interface TreeNodeProps {
   onContextMenu: (e: React.MouseEvent, path: string, isDir: boolean) => void;
   onDeleteFile: (path: string) => void;
   onDuplicateFile: (path: string) => void;
+  // rename
+  renamingPath: string | null;
+  renameValue: string;
+  renameInputRef: React.RefObject<HTMLInputElement | null>;
+  onRenameStart: (path: string, currentName: string) => void;
+  onRenameChange: (val: string) => void;
+  onRenameConfirm: (oldPath: string) => void;
+  onRenameCancel: () => void;
+  // drag-to-folder
+  dragOverDir: string | null;
+  onDirDragEnter: (e: React.DragEvent, dirPath: string) => void;
+  onDirDragLeave: (e: React.DragEvent, dirPath: string) => void;
+  onDirDrop: (e: React.DragEvent, dirPath: string) => void;
+  // multi-select
+  multiSelected: Set<string>;
+  onMultiToggle: (path: string) => void;
 }
 
 const DRAGGABLE_IMAGE_EXTS = new Set(['png','jpg','jpeg','gif','webp','svg','avif','bmp','ico','tiff','tif']);
 
-function TreeNodeItem({ node, depth, activeFile, dirtyFiles, unseenAiFiles, expandedDirs, onToggleDir, onFileSelect, onStartCreate, onContextMenu, onDeleteFile, onDuplicateFile }: TreeNodeProps) {
+function TreeNodeItem({
+  node, depth, activeFile, dirtyFiles, unseenAiFiles, lockedFiles, expandedDirs,
+  onToggleDir, onFileSelect, onStartCreate, onContextMenu, onDeleteFile, onDuplicateFile,
+  renamingPath, renameValue, renameInputRef, onRenameStart, onRenameChange, onRenameConfirm, onRenameCancel,
+  dragOverDir, onDirDragEnter, onDirDragLeave, onDirDrop,
+  multiSelected, onMultiToggle,
+}: TreeNodeProps) {
   const indent = 8 + depth * 14;
 
   if (node.isDirectory) {
     const isExpanded = expandedDirs.has(node.path);
+    const isDragTarget = dragOverDir === node.path;
+    const isRenaming = renamingPath === node.path;
     return (
       <>
         <button
-          className="sidebar-tree-row sidebar-tree-dir"
+          className={`sidebar-tree-row sidebar-tree-dir${isDragTarget ? ' drag-over' : ''}`}
           style={{ paddingLeft: indent }}
-          onClick={() => onToggleDir(node.path)}
+          draggable={!isRenaming}
+          onClick={() => !isRenaming && onToggleDir(node.path)}
           onContextMenu={(e) => { e.preventDefault(); onContextMenu(e, node.path, true); }}
+          onDoubleClick={(e) => { e.stopPropagation(); onRenameStart(node.path, node.name); }}
+          onDragStart={!isRenaming ? (e) => {
+            e.stopPropagation();
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/x-workspace-file', node.path);
+            const ghost = document.createElement('div');
+            ghost.textContent = `⊟ ${node.name}`;
+            ghost.style.cssText = 'position:fixed;top:-200px;background:#261f16;color:#c4b49a;font-size:12px;padding:4px 10px;border-radius:6px;border:1px solid #3b3026;pointer-events:none';
+            document.body.appendChild(ghost);
+            e.dataTransfer.setDragImage(ghost, 0, 0);
+            requestAnimationFrame(() => document.body.removeChild(ghost));
+          } : undefined}
+          onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
+          onDragEnter={(e) => onDirDragEnter(e, node.path)}
+          onDragLeave={(e) => onDirDragLeave(e, node.path)}
+          onDrop={(e) => onDirDrop(e, node.path)}
           title={node.path}
         >
-          <span className="sidebar-tree-arrow">{isExpanded ? '▾' : '▸'}</span>
-          <span className="sidebar-tree-icon sidebar-tree-icon--dir">⊟</span>
-          <span className="sidebar-tree-name">{node.name}</span>
+          <span className="sidebar-tree-arrow">{isExpanded ? <CaretDown weight="thin" size={11} /> : <CaretRight weight="thin" size={11} />}</span>
+          <span className="sidebar-tree-icon sidebar-tree-icon--dir"><FolderSimple weight="thin" size={13} /></span>
+          {isRenaming ? (
+            <input
+              ref={renameInputRef as React.RefObject<HTMLInputElement>}
+              className="sidebar-rename-input"
+              value={renameValue}
+              onChange={(e) => onRenameChange(e.target.value)}
+              onClick={(e) => e.stopPropagation()}
+              onKeyDown={(e) => {
+                e.stopPropagation();
+                if (e.key === 'Enter') onRenameConfirm(node.path);
+                if (e.key === 'Escape') onRenameCancel();
+              }}
+              onBlur={() => onRenameCancel()}
+            />
+          ) : (
+            <span className="sidebar-tree-name">{node.name}</span>
+          )}
           <span
             className="sidebar-tree-action"
             role="button"
@@ -88,6 +192,7 @@ function TreeNodeItem({ node, depth, activeFile, dirtyFiles, unseenAiFiles, expa
             activeFile={activeFile}
             dirtyFiles={dirtyFiles}
             unseenAiFiles={unseenAiFiles}
+            lockedFiles={lockedFiles}
             expandedDirs={expandedDirs}
             onToggleDir={onToggleDir}
             onFileSelect={onFileSelect}
@@ -95,6 +200,19 @@ function TreeNodeItem({ node, depth, activeFile, dirtyFiles, unseenAiFiles, expa
             onContextMenu={onContextMenu}
             onDeleteFile={onDeleteFile}
             onDuplicateFile={onDuplicateFile}
+            renamingPath={renamingPath}
+            renameValue={renameValue}
+            renameInputRef={renameInputRef}
+            onRenameStart={onRenameStart}
+            onRenameChange={onRenameChange}
+            onRenameConfirm={onRenameConfirm}
+            onRenameCancel={onRenameCancel}
+            dragOverDir={dragOverDir}
+            onDirDragEnter={onDirDragEnter}
+            onDirDragLeave={onDirDragLeave}
+            onDirDrop={onDirDrop}
+            multiSelected={multiSelected}
+            onMultiToggle={onMultiToggle}
           />
         ))}
       </>
@@ -103,51 +221,95 @@ function TreeNodeItem({ node, depth, activeFile, dirtyFiles, unseenAiFiles, expa
 
   const isDirty = dirtyFiles.has(node.path);
   const hasUnseenAi = unseenAiFiles.has(node.path);
+  const isLocked = !!lockedFiles?.has(node.path);
   const ext = node.name.split('.').pop()?.toLowerCase() ?? '';
   const isImage = DRAGGABLE_IMAGE_EXTS.has(ext);
+  const isRenaming = renamingPath === node.path;
+  // Parent directory of this file ('' = root)
+  const parentDir = node.path.includes('/') ? node.path.substring(0, node.path.lastIndexOf('/')) : '';
+
+  function handleDragStart(e: React.DragEvent) {
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/x-workspace-file', node.path);
+    const ghost = document.createElement('div');
+    ghost.textContent = node.name;
+    ghost.style.cssText = 'position:fixed;top:-200px;background:#261f16;color:#c4b49a;font-size:12px;padding:4px 10px;border-radius:6px;border:1px solid #3b3026;pointer-events:none';
+    document.body.appendChild(ghost);
+    e.dataTransfer.setDragImage(ghost, 0, 0);
+    requestAnimationFrame(() => document.body.removeChild(ghost));
+  }
 
   return (
     <button
-      className={`sidebar-tree-row sidebar-tree-file ${activeFile === node.path ? 'active' : ''}${hasUnseenAi ? ' unseen-ai' : ''}${isImage ? ' draggable-image' : ''}`}
+      className={`sidebar-tree-row sidebar-tree-file ${activeFile === node.path ? 'active' : ''}${hasUnseenAi ? ' unseen-ai' : ''}${isImage ? ' draggable-image' : ''}${isLocked ? ' copilot-locked' : ''}${multiSelected.has(node.path) ? ' multi-selected' : ''}`}
       style={{ paddingLeft: indent + 16 }}
-      draggable={isImage}
-      onDragStart={isImage ? (e) => {
-        e.dataTransfer.effectAllowed = 'copy';
-        e.dataTransfer.setData('text/x-workspace-file', node.path);
-        // Ghost label
-        const ghost = document.createElement('div');
-        ghost.textContent = node.name;
-        ghost.style.cssText = 'position:fixed;top:-200px;background:#282c34;color:#abb2bf;font-size:12px;padding:4px 10px;border-radius:6px;border:1px solid #3e4451;pointer-events:none';
-        document.body.appendChild(ghost);
-        e.dataTransfer.setDragImage(ghost, 0, 0);
-        requestAnimationFrame(() => document.body.removeChild(ghost));
-      } : undefined}
-      onClick={() => onFileSelect(node.path)}
+      draggable={!isRenaming}
+      onDragStart={!isRenaming ? handleDragStart : undefined}
+      onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
+      onDragEnter={(e) => onDirDragEnter(e, parentDir)}
+      onDragLeave={(e) => onDirDragLeave(e, parentDir)}
+      onDrop={(e) => onDirDrop(e, parentDir)}
+      onClick={(e) => {
+        if (!isRenaming) {
+          if (e.metaKey || e.ctrlKey) {
+            e.stopPropagation();
+            onMultiToggle(node.path);
+            return;
+          }
+          onFileSelect(node.path);
+        }
+      }}
+      onDoubleClick={(e) => { e.stopPropagation(); onRenameStart(node.path, node.name); }}
       onContextMenu={(e) => { e.preventDefault(); onContextMenu(e, node.path, false); }}
-      title={isImage ? `${node.path}\nDrag to canvas to add as image` : node.path}
+      title={isImage ? `${node.path}\nDrag to canvas or folder` : node.path}
     >
-      <span className="sidebar-tree-icon">{fileIcon(node.name)}</span>
-      <span className="sidebar-tree-name">{node.name}</span>
+      <span className={`sidebar-tree-icon ${fileIconCls(node.name)}`}>{fileIcon(node.name)}</span>
+      {isRenaming ? (
+        <input
+          ref={renameInputRef as React.RefObject<HTMLInputElement>}
+          className="sidebar-rename-input"
+          value={renameValue}
+          onChange={(e) => onRenameChange(e.target.value)}
+          onClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => {
+            e.stopPropagation();
+            if (e.key === 'Enter') onRenameConfirm(node.path);
+            if (e.key === 'Escape') onRenameCancel();
+          }}
+          onBlur={() => onRenameCancel()}
+        />
+      ) : (
+        <span className="sidebar-tree-name">{node.name}</span>
+      )}
       {hasUnseenAi && <span className="sidebar-ai-dot" title="Unseen AI edits" />}
       {isDirty && <span className="sidebar-dirty-dot" title="Unsaved changes" />}
-      <span className="sidebar-file-actions" onClick={(e) => e.stopPropagation()}>
-        <span
-          role="button"
-          className="sidebar-file-action"
-          title="Duplicate"
-          onClick={() => onDuplicateFile(node.path)}
-          onKeyDown={(e) => e.key === 'Enter' && onDuplicateFile(node.path)}
-          tabIndex={0}
-        >⧉</span>
-        <span
-          role="button"
-          className="sidebar-file-action sidebar-file-action--delete"
-          title="Delete"
-          onClick={() => onDeleteFile(node.path)}
-          onKeyDown={(e) => e.key === 'Enter' && onDeleteFile(node.path)}
-          tabIndex={0}
-        >✕</span>
-      </span>
+      {!isRenaming && (
+        <span className="sidebar-file-actions" onClick={(e) => e.stopPropagation()}>
+          <span
+            role="button"
+            className="sidebar-file-action"
+            title="Rename (double-click)"
+            onClick={() => onRenameStart(node.path, node.name)}
+            tabIndex={0}
+          >✎</span>
+          <span
+            role="button"
+            className="sidebar-file-action"
+            title="Duplicate"
+            onClick={() => onDuplicateFile(node.path)}
+            onKeyDown={(e) => e.key === 'Enter' && onDuplicateFile(node.path)}
+            tabIndex={0}
+          >⧉</span>
+          <span
+            role="button"
+            className="sidebar-file-action sidebar-file-action--delete"
+            title="Delete"
+            onClick={() => onDeleteFile(node.path)}
+            onKeyDown={(e) => e.key === 'Enter' && onDeleteFile(node.path)}
+            tabIndex={0}
+          ><X weight="thin" size={12} /></span>
+        </span>
+      )}
     </button>
   );
 }
@@ -167,8 +329,9 @@ interface SidebarProps {
   onWorkspaceChange: (workspace: Workspace) => void;
   onUpdate: () => void;
   onSyncComplete: () => void;
-  onGoogleOpen: () => void;
   onOpenAIReview: () => void;
+  // (kept in props so parent can still trigger highlight+jump without popup)
+  onReviewAllMarks: () => void;
   onAIPrev: () => void;
   onAINext: () => void;
   /** Called when user clicks Switch Workspace — parent handles confirmation + navigation */
@@ -176,6 +339,17 @@ interface SidebarProps {
   onImageSearch: () => void;
   /** Called after a file is deleted — parent should clear it from active state */
   onFileDeleted: (relPath: string) => void;
+  /** Called when a search result line is clicked */
+  onSearchFileOpen: (relPath: string, lineNo?: number, matchText?: string) => void;
+  /** Files currently being written by the Copilot agent */
+  lockedFiles?: Set<string>;
+  /** Current sidebar panel mode */
+  sidebarMode: 'explorer' | 'search';
+  onSidebarModeChange: (mode: 'explorer' | 'search') => void;
+  /** Open terminal panel and cd to this relative directory ('' = workspace root) */
+  onOpenTerminalAt?: (relDir: string) => void;
+  /** If provided, assigned to startCreating('','file') so parent can trigger new-file via ⌘T/⌘N */
+  newFileRef?: { current: (() => void) | null };
 }
 
 export default function Sidebar({
@@ -190,31 +364,168 @@ export default function Sidebar({
   onWorkspaceChange,
   onUpdate: _onUpdate,
   onSyncComplete,
-  onGoogleOpen: _onGoogleOpen,
-  onOpenAIReview,
+  onOpenAIReview: _onOpenAIReview,
+  onReviewAllMarks,
   onAIPrev,
   onAINext,
   onSwitchWorkspace,
   onImageSearch,
   onFileDeleted,
+  onSearchFileOpen,
+  lockedFiles,
+  sidebarMode,
+  onSidebarModeChange,
+  onOpenTerminalAt,
+  newFileRef,
 }: SidebarProps) {
   // ── Creator state ──────────────────────────────────────────────────────────
   /** null = hidden; '' = root; 'path/to/dir' = inside that dir */
   const [creatingIn, setCreatingIn] = useState<string | null>(null);
   const [creatingKind, setCreatingKind] = useState<'file' | 'folder'>('file');
   const [newName, setNewName] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState<FileCategory>('text');
   const [selectedExt, setSelectedExt] = useState('.md');
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; path: string; isDir: boolean } | null>(null);
+  const [movePicker, setMovePicker] = useState<{ path: string; x: number; y: number } | null>(null);
   const createInputRef = useRef<HTMLInputElement>(null);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'done' | 'error'>('idle');
   const [showSyncModal, setShowSyncModal] = useState(false);
   const [gitChangedCount, setGitChangedCount] = useState(0);
 
+  // Wire the external new-file trigger ref so ⌘T/⌘N in App can open the creator
+  useEffect(() => {
+    if (!newFileRef) return;
+    newFileRef.current = () => startCreating('', 'file');
+    return () => { if (newFileRef) newFileRef.current = null; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [newFileRef]);
+
+  function isDirectory(relPath: string): boolean {
+    function findDir(n: FileTreeNode): boolean {
+      if (n.path === relPath && n.isDirectory) return true;
+      return (n.children ?? []).some(findDir);
+    }
+    return workspace.fileTree.some(findDir);
+  }
+
+  // ── Rename state ───────────────────────────────────────────────────────────
+  const [renamingPath, setRenamingPath] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const renameInputRef = useRef<HTMLInputElement>(null);
+
+  function startRename(path: string, currentName: string) {
+    setRenamingPath(path);
+    setRenameValue(currentName);
+    setContextMenu(null);
+    setTimeout(() => {
+      renameInputRef.current?.focus();
+      renameInputRef.current?.select();
+    }, 30);
+  }
+
+  function cancelRename() {
+    setRenamingPath(null);
+    setRenameValue('');
+  }
+
+  async function confirmRename(oldPath: string) {
+    const trimmed = renameValue.trim();
+    if (!trimmed) { cancelRename(); return; }
+    // Compute new path: same directory, new name
+    const slashIdx = oldPath.lastIndexOf('/');
+    const dir = slashIdx >= 0 ? oldPath.substring(0, slashIdx) : '';
+    const newPath = dir ? `${dir}/${trimmed}` : trimmed;
+    if (newPath === oldPath) { cancelRename(); return; }
+    const dir_ = isDirectory(oldPath);
+    await updateFileReferences(workspace, workspace.fileTree, oldPath, newPath, dir_);
+    await renameFile(workspace, oldPath, newPath);
+    const { files, fileTree } = await refreshWorkspaceFiles(workspace);
+    onWorkspaceChange({ ...workspace, files, fileTree });
+    // If the renamed file was the active one, notify parent
+    if (activeFile === oldPath) onFileSelect(newPath);
+    cancelRename();
+  }
+
+  // ── Drag-to-folder state ───────────────────────────────────────────────────
+  const [dragOverDir, setDragOverDir] = useState<string | null>(null);
+  // Per-dir enter counter so child-element enter/leave events don't false-fire.
+  const dragCounters = useRef(new Map<string, number>());
+
+  // ── Multi-select state ─────────────────────────────────────────────────────
+  const [multiSelected, setMultiSelected] = useState<Set<string>>(new Set());
+
+  function handleMultiToggle(path: string) {
+    setMultiSelected((prev) => {
+      const s = new Set(prev);
+      if (s.has(path)) s.delete(path); else s.add(path);
+      return s;
+    });
+  }
+
+  async function handleBulkDelete() {
+    const paths = [...multiSelected];
+    if (!window.confirm(`Delete ${paths.length} file(s)?`)) return;
+    for (const p of paths) {
+      await deleteFile(workspace, p);
+      onFileDeleted(p);
+    }
+    const { files, fileTree } = await refreshWorkspaceFiles(workspace);
+    onWorkspaceChange({ ...workspace, files, fileTree });
+    setMultiSelected(new Set());
+  }
+
+  function handleDirDragEnter(e: React.DragEvent, dirPath: string) {
+    e.preventDefault();
+    e.stopPropagation(); // prevent parent folders from also receiving dragEnter
+    const n = (dragCounters.current.get(dirPath) ?? 0) + 1;
+    dragCounters.current.set(dirPath, n);
+    setDragOverDir(dirPath);
+  }
+
+  function handleDirDragLeave(_e: React.DragEvent, dirPath: string) {
+    const n = (dragCounters.current.get(dirPath) ?? 1) - 1;
+    if (n <= 0) {
+      dragCounters.current.delete(dirPath);
+      setDragOverDir((prev) => (prev === dirPath ? null : prev));
+    } else {
+      dragCounters.current.set(dirPath, n);
+    }
+  }
+
+  async function handleDirDrop(e: React.DragEvent, destDir: string) {
+    e.preventDefault();
+    e.stopPropagation();
+    // Reset this dir's counter and clear highlight
+    dragCounters.current.delete(destDir);
+    setDragOverDir(null);
+    const srcRel = e.dataTransfer.getData('text/x-workspace-file');
+    if (!srcRel) return;
+    // Prevent dropping a folder into itself or any descendant
+    if (destDir === srcRel || destDir.startsWith(srcRel + '/')) return;
+    // Don't move into own parent (no-op)
+    const srcDir = srcRel.includes('/') ? srcRel.substring(0, srcRel.lastIndexOf('/')) : '';
+    if (srcDir === destDir) return;
+    const isDir_ = isDirectory(srcRel);
+    const newRel = destDir ? `${destDir}/${srcRel.split('/').pop()!}` : srcRel.split('/').pop()!;
+    await updateFileReferences(workspace, workspace.fileTree, srcRel, newRel, isDir_);
+    await moveFile(workspace, srcRel, destDir);
+    const { files, fileTree } = await refreshWorkspaceFiles(workspace);
+    onWorkspaceChange({ ...workspace, files, fileTree });
+    if (activeFile === srcRel || activeFile?.startsWith(srcRel + '/')) onFileSelect(newRel);
+  }
+
   async function handleDeleteFile(relPath: string) {
     const name = relPath.split('/').pop() ?? relPath;
-    if (!window.confirm(`Delete "${name}"?\n\nThis will be tracked in git and can be reverted via Sync.`)) return;
-    await deleteFile(workspace, relPath);
-    const [files, fileTree] = await Promise.all([refreshFiles(workspace), refreshFileTree(workspace)]);
+    const isDir = workspace.fileTree.some(function findDir(n: FileTreeNode): boolean {
+      if (n.path === relPath && n.isDirectory) return true;
+      return (n.children ?? []).some(findDir);
+    });
+    const msg = isDir
+      ? `Delete folder "${name}" and all its contents?\n\nThis will be tracked in git and can be reverted via Sync.`
+      : `Delete "${name}"?\n\nThis will be tracked in git and can be reverted via Sync.`;
+    if (!window.confirm(msg)) return;
+    await deleteFile(workspace, relPath, isDir);
+    const { files, fileTree } = await refreshWorkspaceFiles(workspace);
     onWorkspaceChange({ ...workspace, files, fileTree });
     onFileDeleted(relPath);
     setContextMenu(null);
@@ -222,10 +533,46 @@ export default function Sidebar({
 
   async function handleDuplicateFile(relPath: string) {
     const dupPath = await duplicateFile(workspace, relPath);
-    const [files, fileTree] = await Promise.all([refreshFiles(workspace), refreshFileTree(workspace)]);
+    const { files, fileTree } = await refreshWorkspaceFiles(workspace);
     onWorkspaceChange({ ...workspace, files, fileTree });
     onFileSelect(dupPath);
     setContextMenu(null);
+  }
+
+  async function handleDuplicateFolder(relPath: string) {
+    await duplicateFolder(workspace, relPath);
+    const { files, fileTree } = await refreshWorkspaceFiles(workspace);
+    onWorkspaceChange({ ...workspace, files, fileTree });
+    setContextMenu(null);
+  }
+
+  async function handleMoveToFolder(srcPath: string, destDir: string) {
+    setMovePicker(null);
+    const srcDir = srcPath.includes('/') ? srcPath.substring(0, srcPath.lastIndexOf('/')) : '';
+    if (destDir === srcDir) return; // already there
+    if (destDir === srcPath || destDir.startsWith(srcPath + '/')) return; // can't move into self
+    const isDir_ = isDirectory(srcPath);
+    const newRel = destDir ? `${destDir}/${srcPath.split('/').pop()!}` : srcPath.split('/').pop()!;
+    await updateFileReferences(workspace, workspace.fileTree, srcPath, newRel, isDir_);
+    await moveFile(workspace, srcPath, destDir);
+    const { files, fileTree } = await refreshWorkspaceFiles(workspace);
+    onWorkspaceChange({ ...workspace, files, fileTree });
+    if (activeFile === srcPath || activeFile?.startsWith(srcPath + '/')) onFileSelect(newRel);
+  }
+
+  // Flatten fileTree into all folder paths, excluding src and its descendants
+  function getAllFolders(nodes: FileTreeNode[], exclude?: string): string[] {
+    const result: string[] = [];
+    function walk(arr: FileTreeNode[]) {
+      for (const n of arr) {
+        if (!n.isDirectory) continue;
+        if (exclude && (n.path === exclude || n.path.startsWith(exclude + '/'))) continue;
+        result.push(n.path);
+        if (n.children) walk(n.children);
+      }
+    }
+    walk(nodes);
+    return result;
   }
 
   // Poll git status every 30s so the sync button reflects uncommitted changes
@@ -245,12 +592,26 @@ export default function Sidebar({
   // Derive set of files with unreviewed AI edits for tree highlighting
   const unseenAiFiles = new Set(aiMarks.filter((m) => !m.reviewed).map((m) => m.fileRelPath));
 
-  // Start with root-level directories expanded
+  // Start with root-level directories expanded; restore from last session if available
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(() => {
+    const session = loadWorkspaceSession(workspace.path);
+    if (session.expandedDirs.length > 0) {
+      return new Set(session.expandedDirs);
+    }
+    // Default: expand root-level directories
     const initial = new Set<string>();
     workspace.fileTree.forEach((n) => { if (n.isDirectory) initial.add(n.path); });
     return initial;
   });
+
+  // Persist expanded dirs (debounced, 800 ms)
+  useEffect(() => {
+    const id = setTimeout(() => {
+      saveWorkspaceSession(workspace.path, { expandedDirs: Array.from(expandedDirs) });
+    }, 800);
+    return () => clearTimeout(id);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expandedDirs]);
 
   const handleToggleDir = useCallback((path: string) => {
     setExpandedDirs((prev) => {
@@ -265,10 +626,19 @@ export default function Sidebar({
     setCreatingIn(inPath);
     setCreatingKind(kind);
     setNewName('');
+    setSelectedCategory('text');
     setSelectedExt('.md');
     setContextMenu(null);
     // Focus input after state update
     setTimeout(() => createInputRef.current?.focus(), 30);
+  }
+
+  function selectCategory(cat: FileCategory) {
+    setSelectedCategory(cat);
+    if (cat === 'canvas') setSelectedExt('.tldr.json');
+    else if (cat === 'text')  setSelectedExt('.md');
+    else                      setSelectedExt('.ts');
+    setTimeout(() => createInputRef.current?.focus(), 0);
   }
 
   function cancelCreating() {
@@ -277,15 +647,32 @@ export default function Sidebar({
   }
 
   function handleContextMenu(e: React.MouseEvent, path: string, isDir: boolean) {
-    setContextMenu({ x: e.clientX, y: e.clientY, path, isDir });
+    // Clamp to viewport so menu never overflows the screen edge
+    const MENU_W = 192;
+    const MENU_H = isDir ? 275 : 345;
+    const cx = Math.min(e.clientX, window.innerWidth  - MENU_W - 6);
+    const cy = Math.min(e.clientY, window.innerHeight - MENU_H - 6);
+    setContextMenu({ x: cx, y: cy, path, isDir });
   }
 
   useEffect(() => {
     if (!contextMenu) return;
     function close() { setContextMenu(null); }
+    function onKey(e: KeyboardEvent) { if (e.key === 'Escape') { setContextMenu(null); } }
+    window.addEventListener('click', close);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('click', close);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [contextMenu]);
+
+  useEffect(() => {
+    if (!movePicker) return;
+    function close() { setMovePicker(null); }
     window.addEventListener('click', close);
     return () => window.removeEventListener('click', close);
-  }, [contextMenu]);
+  }, [movePicker]);
 
   async function handleCreate() {
     if (!newName.trim() || creatingIn === null) return;
@@ -294,7 +681,7 @@ export default function Sidebar({
 
     if (creatingKind === 'folder') {
       await createFolder(workspace, `${prefix}${baseName}`);
-      const [files, fileTree] = await Promise.all([refreshFiles(workspace), refreshFileTree(workspace)]);
+      const { files, fileTree } = await refreshWorkspaceFiles(workspace);
       onWorkspaceChange({ ...workspace, files, fileTree });
       // Auto-expand the new folder
       const newPath = `${prefix}${baseName}`;
@@ -315,7 +702,7 @@ export default function Sidebar({
       await createFile(workspace, relPath);
     }
 
-    const [files, fileTree] = await Promise.all([refreshFiles(workspace), refreshFileTree(workspace)]);
+    const { files, fileTree } = await refreshWorkspaceFiles(workspace);
     onWorkspaceChange({ ...workspace, files, fileTree });
     if (creatingIn) setExpandedDirs((prev) => { const s = new Set(prev); s.add(creatingIn!); return s; });
     cancelCreating();
@@ -356,17 +743,81 @@ export default function Sidebar({
         ) : null}
       </div>
 
+      {/* Mode tabs */}
+      <div className="sidebar-tabs">
+        <button
+          className={`sidebar-tab${sidebarMode === 'explorer' ? ' active' : ''}`}
+          onClick={() => onSidebarModeChange('explorer')}
+          title="Explorer"
+        >⋟ Files</button>
+        <button
+          className={`sidebar-tab${sidebarMode === 'search' ? ' active' : ''}`}
+          onClick={() => onSidebarModeChange('search')}
+          title="Search workspace (⌘⇧F)"
+        >⌕ Search</button>
+      </div>
+
+      {/* ── SEARCH MODE ─────────────────────────────────────────── */}
+      {sidebarMode === 'search' && (
+        <ProjectSearchPanel
+          workspace={workspace}
+          onOpenFile={(relPath, lineNo, matchText) => {
+            onSearchFileOpen(relPath, lineNo, matchText);
+          }}
+        />
+      )}
+
+      {/* ── EXPLORER MODE ────────────────────────────────────────── */}
+      {sidebarMode === 'explorer' && (
+        <>
+
       {/* Explorer label with hover create actions */}
       <div className="sidebar-explorer-label">
         <span>EXPLORER</span>
         <div className="sidebar-explorer-actions">
           <button className="sidebar-explorer-action" title="New file" onClick={() => startCreating('')}>+</button>
-          <button className="sidebar-explorer-action" title="New folder" onClick={() => startCreating('', 'folder')}>⊞</button>
+          <button className="sidebar-explorer-action" title="New folder" onClick={() => startCreating('', 'folder')}><FolderPlus weight="thin" size={13} /></button>
+          <button className="sidebar-explorer-action" title="Collapse all folders" onClick={() => setExpandedDirs(new Set())}><Minus weight="thin" size={13} /></button>
         </div>
       </div>
 
+      {/* Multi-select bulk action bar */}
+      {multiSelected.size > 0 && (
+        <div className="sidebar-multiselect-bar">
+          <span className="sidebar-multiselect-count">{multiSelected.size} selected</span>
+          <button
+            className="sidebar-multiselect-delete"
+            onClick={handleBulkDelete}
+            title="Delete selected files"
+          >Delete</button>
+          <button
+            className="sidebar-multiselect-clear"
+            onClick={() => setMultiSelected(new Set())}
+            title="Clear selection"
+          ><X weight="thin" size={12} /></button>
+        </div>
+      )}
+
       {/* File tree */}
-      <div className="sidebar-files">
+      <div
+        className={`sidebar-files${dragOverDir === '__root__' ? ' drag-over-root' : ''}`}
+        onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
+        onDragEnter={(e) => { if (e.currentTarget === e.target) { dragCounters.current.set('__root__', (dragCounters.current.get('__root__') ?? 0) + 1); setDragOverDir('__root__'); } }}
+        onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) { dragCounters.current.delete('__root__'); setDragOverDir(null); } }}
+        onDrop={async (e) => {
+          // Only handle drops directly on the container (not on a folder child)
+          setDragOverDir(null);
+          dragCounters.current.delete('__root__');
+          const srcRel = e.dataTransfer.getData('text/x-workspace-file');
+          if (!srcRel) return;
+          const srcDir = srcRel.includes('/') ? srcRel.substring(0, srcRel.lastIndexOf('/')) : '';
+          if (!srcDir) return; // already at root
+          const newRel = await moveFile(workspace, srcRel, '');
+          const { files, fileTree } = await refreshWorkspaceFiles(workspace);
+          onWorkspaceChange({ ...workspace, files, fileTree });
+          if (activeFile === srcRel) onFileSelect(newRel);
+        }}
+      >
         {workspace.fileTree.length === 0 && (
           <div className="sidebar-empty">No files yet</div>
         )}
@@ -378,6 +829,7 @@ export default function Sidebar({
             activeFile={activeFile}
             dirtyFiles={dirtyFiles}
             unseenAiFiles={unseenAiFiles}
+            lockedFiles={lockedFiles}
             expandedDirs={expandedDirs}
             onToggleDir={handleToggleDir}
             onFileSelect={onFileSelect}
@@ -385,6 +837,19 @@ export default function Sidebar({
             onContextMenu={handleContextMenu}
             onDeleteFile={handleDeleteFile}
             onDuplicateFile={handleDuplicateFile}
+            renamingPath={renamingPath}
+            renameValue={renameValue}
+            renameInputRef={renameInputRef}
+            onRenameStart={startRename}
+            onRenameChange={setRenameValue}
+            onRenameConfirm={confirmRename}
+            onRenameCancel={cancelRename}
+            dragOverDir={dragOverDir}
+            onDirDragEnter={handleDirDragEnter}
+            onDirDragLeave={handleDirDragLeave}
+            onDirDrop={handleDirDrop}
+            multiSelected={multiSelected}
+            onMultiToggle={handleMultiToggle}
           />
         ))}
       </div>
@@ -402,7 +867,14 @@ export default function Sidebar({
           <div className="sidebar-ai-section">
             <div className="sidebar-ai-section-label">
               <span>AI EDITS</span>
-              <span className="sidebar-ai-total">{unreviewed.length}</span>
+              <div className="sidebar-ai-label-right">
+                <span className="sidebar-ai-total">{unreviewed.length}</span>
+                <button
+                  className="sidebar-ai-review-all"
+                  onClick={(e) => { e.stopPropagation(); onReviewAllMarks(); }}
+                  title="Mark all AI edits as reviewed"
+                ><Check weight="thin" size={13} /></button>
+              </div>
             </div>
             {Array.from(byFile.entries()).map(([file, count]) => (
               <button
@@ -410,8 +882,6 @@ export default function Sidebar({
                 className={`sidebar-ai-file-row ${activeFile === file ? 'active' : ''}`}
                 onClick={() => {
                   onFileSelect(file);
-                  // Slight delay so file loads before review opens
-                  setTimeout(onOpenAIReview, 120);
                 }}
                 title={file}
               >
@@ -423,33 +893,79 @@ export default function Sidebar({
         );
       })()}
 
-      {/* Footer actions */}
+      </>
+      )} {/* end explorer mode */}
+
+      {/* Footer actions — always visible */}
       <div className="sidebar-footer">
         {/* ── Inline creator ── */}
         {creatingIn !== null && (
           <div className="sidebar-creator">
             <div className="sidebar-creator-context">
-              <span className="sidebar-creator-kind">{creatingKind === 'folder' ? '⊞ folder' : '+ file'}</span>
+              <span className="sidebar-creator-kind">{creatingKind === 'folder' ? <><FolderPlus weight="thin" size={13} /> folder</> : '+ file'}</span>
               {creatingIn ? <span className="sidebar-creator-path">in {creatingIn}</span> : <span className="sidebar-creator-path">at root</span>}
-              <button className="sidebar-creator-cancel" onClick={cancelCreating} title="Cancel (Esc)">✕</button>
+              <button type="button" className="sidebar-creator-cancel" onClick={cancelCreating} title="Cancel (Esc)"><X weight="thin" size={13} /></button>
             </div>
             {creatingKind === 'file' && (
               <>
-                <div className="sidebar-creator-types">
-                  {EDITABLE_TYPES.map((t) => (
-                    <button
-                      key={t.ext}
-                      className={`sidebar-type-pill${selectedExt === t.ext ? ' active' : ''}`}
-                      onClick={() => setSelectedExt(t.ext)}
-                    >{t.label}</button>
-                  ))}
+                {/* ── Category tabs ── */}
+                <div className="sidebar-creator-categories">
+                  <button
+                    type="button"
+                    className={`sidebar-creator-cat${selectedCategory === 'canvas' ? ' active canvas' : ''}`}
+                    onClick={() => selectCategory('canvas')}
+                    title="Canvas (tldraw slide deck)"
+                  >
+                    <span className="scc-icon">◈</span>
+                    <span className="scc-label">Canvas</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`sidebar-creator-cat${selectedCategory === 'text' ? ' active text' : ''}`}
+                    onClick={() => selectCategory('text')}
+                    title="Text / document file"
+                  >
+                    <span className="scc-icon">◎</span>
+                    <span className="scc-label">Text</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`sidebar-creator-cat${selectedCategory === 'code' ? ' active code' : ''}`}
+                    onClick={() => selectCategory('code')}
+                    title="Code / source file"
+                  >
+                    <span className="scc-icon">&lt;/&gt;</span>
+                    <span className="scc-label">Code</span>
+                  </button>
                 </div>
-                <button
-                  className={`sidebar-canvas-btn${selectedExt === '.tldr.json' ? ' active' : ''}`}
-                  onClick={() => setSelectedExt(selectedExt === '.tldr.json' ? '.md' : '.tldr.json')}
-                >
-                  ◈ Canvas
-                </button>
+
+                {/* ── Sub-options for Text ── */}
+                {selectedCategory === 'text' && (
+                  <div className="sidebar-creator-subtypes">
+                    {TEXT_TYPES.map((t) => (
+                      <button
+                        key={t.ext}
+                        type="button"
+                        className={`sidebar-type-pill${selectedExt === t.ext ? ' active' : ''}`}
+                        onClick={() => { setSelectedExt(t.ext); setTimeout(() => createInputRef.current?.focus(), 0); }}
+                      >{t.label}</button>
+                    ))}
+                  </div>
+                )}
+
+                {/* ── Sub-options for Code ── */}
+                {selectedCategory === 'code' && (
+                  <div className="sidebar-creator-subtypes">
+                    {CODE_TYPES.map((t) => (
+                      <button
+                        key={t.ext}
+                        type="button"
+                        className={`sidebar-type-pill${selectedExt === t.ext ? ' active' : ''}`}
+                        onClick={() => { setSelectedExt(t.ext); setTimeout(() => createInputRef.current?.focus(), 0); }}
+                      >{t.label}</button>
+                    ))}
+                  </div>
+                )}
               </>
             )}
             <div className="sidebar-new-file-form">
@@ -465,7 +981,7 @@ export default function Sidebar({
                   if (e.key === 'Escape') cancelCreating();
                 }}
               />
-              <button className="sidebar-btn-confirm" onClick={handleCreate}>✓</button>
+              <button type="button" className="sidebar-btn-confirm" onClick={handleCreate}><Check weight="thin" size={13} /></button>
             </div>
           </div>
         )}
@@ -478,8 +994,8 @@ export default function Sidebar({
           <span className="sidebar-sync-label">
             {syncStatus === 'idle'    && '⇅ Sync'}
             {syncStatus === 'syncing' && '⇅ Syncing…'}
-            {syncStatus === 'done'    && '✓ Synced'}
-            {syncStatus === 'error'   && '⚠ Sync failed'}
+            {syncStatus === 'done'    && <><Check weight="thin" size={13} />{' Synced'}</>}
+            {syncStatus === 'error'   && <><Warning weight="thin" size={13} />{' Sync failed'}</>}
           </span>
           {syncStatus === 'idle' && gitChangedCount > 0 && (
             <span className="sidebar-sync-badge">{gitChangedCount}</span>
@@ -490,8 +1006,7 @@ export default function Sidebar({
           <div className="sidebar-ai-nav-bar">
             <button
               className="sidebar-ai-nav-preview"
-              onClick={onOpenAIReview}
-              title="Preview AI edits"
+              title="AI edits pending in this file"
             >
               ✦ AI edits
               <span className="sidebar-ai-nav-total">{aiNavCount}</span>
@@ -502,18 +1017,17 @@ export default function Sidebar({
                 onClick={onAIPrev}
                 disabled={aiNavCount < 2}
                 title="Previous AI edit"
-              >‹</button>
+              ><CaretLeft weight="thin" size={14} /></button>
               <span
                 className="sidebar-ai-nav-pos"
-                onClick={onOpenAIReview}
-                title="Review all AI edits"
+                title="AI edit position"
               >{aiNavIndex + 1}/{aiNavCount}</span>
               <button
                 className="sidebar-ai-nav-arrow"
                 onClick={onAINext}
                 disabled={aiNavCount < 2}
                 title="Next AI edit"
-              >›</button>
+              ><CaretRight weight="thin" size={14} /></button>
             </div>
           </div>
         )}
@@ -527,7 +1041,7 @@ export default function Sidebar({
         </button>
         */}
         <button className="sidebar-btn sidebar-btn-images" onClick={onImageSearch}>
-          🖼 Images
+          ⊡ Images
         </button>
         <button className="sidebar-btn sidebar-btn-folder" onClick={handleOpenWorkspace}>
           ⊘ Switch workspace
@@ -554,22 +1068,76 @@ export default function Sidebar({
             ? contextMenu.path
             : (contextMenu.path.includes('/') ? contextMenu.path.substring(0, contextMenu.path.lastIndexOf('/')) : '');
           startCreating(inPath, 'file');
-        }}>+ New file here</button>
+        }}><span className="sidebar-ctx-icon">+</span> New file here</button>
         <button onClick={() => {
           const inPath = contextMenu.isDir
             ? contextMenu.path
             : (contextMenu.path.includes('/') ? contextMenu.path.substring(0, contextMenu.path.lastIndexOf('/')) : '');
           startCreating(inPath, 'folder');
-        }}>⊞ New folder here</button>
+        }}><span className="sidebar-ctx-icon"><FolderPlus weight="thin" size={13} /></span> New folder here</button>
+        <div className="sidebar-context-separator" />
+        <button onClick={() => {
+          const name = contextMenu.path.split('/').pop() ?? contextMenu.path;
+          startRename(contextMenu.path, name);
+        }}><span className="sidebar-ctx-icon">✎</span> Rename</button>
+        <button onClick={() => {
+          revealItemInDir(`${workspace.path}/${contextMenu.path}`);
+          setContextMenu(null);
+        }}><span className="sidebar-ctx-icon">⊙</span> Show in Finder</button>
+        <button onClick={() => {
+          const dir = contextMenu.isDir
+            ? contextMenu.path
+            : (contextMenu.path.includes('/') ? contextMenu.path.substring(0, contextMenu.path.lastIndexOf('/')) : '');
+          onOpenTerminalAt?.(dir);
+          setContextMenu(null);
+        }}><span className="sidebar-ctx-icon">$</span> Open in Terminal</button>
         {!contextMenu.isDir && (
-          <>
-            <div className="sidebar-context-separator" />
-            <button onClick={() => handleDuplicateFile(contextMenu.path)}>⧉ Duplicate</button>
-            <button className="sidebar-context-delete" onClick={() => handleDeleteFile(contextMenu.path)}>✕ Delete</button>
-          </>
+          <button onClick={() => {
+            navigator.clipboard.writeText(contextMenu.path).catch(() => {});
+            setContextMenu(null);
+          }}><span className="sidebar-ctx-icon"><Copy weight="thin" size={13} /></span> Copy path</button>
         )}
+        <button onClick={() => {
+          const folders = getAllFolders(workspace.fileTree, contextMenu.path);
+          const pickerH = Math.min(folders.length * 32 + 88, 320);
+          setMovePicker({ path: contextMenu.path, x: contextMenu.x, y: Math.min(contextMenu.y, window.innerHeight - pickerH - 6) });
+          setContextMenu(null);
+        }}><span className="sidebar-ctx-icon">→</span> Move to…</button>
+        <div className="sidebar-context-separator" />
+        {contextMenu.isDir
+          ? <button onClick={() => handleDuplicateFolder(contextMenu.path)}><span className="sidebar-ctx-icon">⧉</span> Duplicate folder</button>
+          : <button onClick={() => handleDuplicateFile(contextMenu.path)}><span className="sidebar-ctx-icon">⧉</span> Duplicate</button>
+        }
+        <div className="sidebar-context-separator" />
+        <button className="sidebar-context-delete" onClick={() => handleDeleteFile(contextMenu.path)}><span className="sidebar-ctx-icon"><X weight="thin" size={13} /></span> Delete</button>
       </div>
     )}
+    {/* ── Move-to folder picker ── */}
+    {movePicker && (() => {
+      const folders = getAllFolders(workspace.fileTree, movePicker.path);
+      const name = movePicker.path.split('/').pop() ?? movePicker.path;
+      return (
+        <div
+          className="sidebar-move-picker"
+          style={{ left: movePicker.x, top: movePicker.y }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="sidebar-move-picker-title">Move "{name}" to…</div>
+          <div className="sidebar-move-picker-list">
+            <button onClick={() => handleMoveToFolder(movePicker.path, '')}>
+              <span className="sidebar-move-picker-icon"><FolderSimple weight="thin" size={13} /></span> / root
+            </button>
+            {folders.map((f) => (
+              <button key={f} onClick={() => handleMoveToFolder(movePicker.path, f)}>
+                <span className="sidebar-move-picker-icon"><FolderSimple weight="thin" size={13} /></span> {f}
+              </button>
+            ))}
+            {folders.length === 0 && <div className="sidebar-move-picker-empty">No other folders</div>}
+          </div>
+          <button className="sidebar-move-picker-cancel" onClick={() => setMovePicker(null)}>Cancel</button>
+        </div>
+      );
+    })()}
     </>
   );
 }

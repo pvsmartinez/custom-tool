@@ -94,7 +94,7 @@ export default function UpdateModal({ open, projectRoot, onClose }: UpdateModalP
 
         {/* Header */}
         <div className="um-header">
-          <span className="um-title">↑ Update custom-tool</span>
+          <span className="um-title">↑ Update Cafezin</span>
           <button className="um-close" onClick={onClose} title="Close">✕</button>
         </div>
 

@@ -6,21 +6,21 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 200;
+  z-index: var(--z-panel);
 }
 
 /* ── Modal ─────────────────────────────────────────────────────────────────── */
 .gpanel-modal {
-  background: #21252b;
-  border: 1px solid #3e4451;
-  border-radius: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius-lg);
   width: 520px;
   max-width: calc(100vw - 48px);
   max-height: calc(100vh - 80px);
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow-lg);
 }
 
 /* ── Header ────────────────────────────────────────────────────────────────── */
@@ -29,47 +29,47 @@
   align-items: center;
   justify-content: space-between;
   padding: 14px 16px 12px;
-  border-bottom: 1px solid #2c313a;
+  border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
 
 .gpanel-header-left {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-4);
 }
 
 .gpanel-icon {
   color: #4285f4;
-  font-size: 16px;
+  font-size: var(--font-size-lg);
 }
 
 .gpanel-title {
-  font-size: 14px;
+  font-size: var(--font-size-md);
   font-weight: 600;
-  color: #abb2bf;
+  color: var(--text);
 }
 
 .gpanel-close {
   background: none;
   border: none;
-  color: #636d83;
-  font-size: 14px;
+  color: var(--text-muted);
+  font-size: var(--font-size-md);
   cursor: pointer;
   padding: 4px 6px;
-  border-radius: 4px;
-  transition: color 0.12s, background 0.12s;
+  border-radius: var(--radius-sm);
+  transition: color var(--transition-fast), background var(--transition-fast);
 }
-.gpanel-close:hover { color: #abb2bf; background: #2c313a; }
+.gpanel-close:hover { color: var(--text); background: var(--surface2); }
 
 /* ── Body ──────────────────────────────────────────────────────────────────── */
 .gpanel-body {
   flex: 1;
   overflow-y: auto;
-  padding: 20px;
+  padding: var(--space-7);
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--space-6);
 }
 
 /* ── Connect state ─────────────────────────────────────────────────────────── */
@@ -83,28 +83,28 @@
 }
 
 .gpanel-desc {
-  font-size: 13px;
-  color: #abb2bf;
+  font-size: var(--font-size-base);
+  color: var(--text);
   line-height: 1.6;
   max-width: 380px;
 }
 
 .gpanel-scopes-note {
-  font-size: 11px;
-  color: #636d83;
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
 }
 
 .gpanel-scopes-note code {
-  background: #2c313a;
-  border-radius: 3px;
+  background: var(--surface2);
+  border-radius: var(--radius-sm);
   padding: 1px 5px;
-  font-size: 11px;
-  color: #e5c07b;
+  font-size: var(--font-size-xs);
+  color: var(--yellow);
 }
 
 .gpanel-hint {
-  font-size: 11px;
-  color: #636d83;
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
   text-align: center;
 }
 
@@ -112,20 +112,20 @@
 .gpanel-account {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-4);
 }
 
 .gpanel-account-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #98c379;
+  background: var(--green);
   flex-shrink: 0;
 }
 
 .gpanel-account-email {
-  font-size: 13px;
-  color: #abb2bf;
+  font-size: var(--font-size-base);
+  color: var(--text);
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -135,7 +135,7 @@
 /* ── Divider ───────────────────────────────────────────────────────────────── */
 .gpanel-divider {
   height: 1px;
-  background: #2c313a;
+  background: var(--surface2);
   flex-shrink: 0;
 }
 
@@ -150,13 +150,13 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--space-4);
 }
 
 .gpanel-section-title {
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   font-weight: 700;
-  color: #636d83;
+  color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.07em;
 }
@@ -166,7 +166,7 @@
   list-style: none;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--space-1);
 }
 
 .gpanel-file-item {
@@ -174,26 +174,26 @@
   align-items: center;
   gap: 7px;
   padding: 6px 8px;
-  background: #2c313a;
-  border-radius: 5px;
-  font-size: 12px;
+  background: var(--surface2);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
 }
 
 .gpanel-file-icon {
-  color: #61afef;
+  color: var(--accent);
   flex-shrink: 0;
 }
 
 .gpanel-file-name {
   flex: 1;
-  color: #abb2bf;
+  color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .gpanel-file-date {
-  color: #636d83;
+  color: var(--text-muted);
   flex-shrink: 0;
 }
 
@@ -206,38 +206,38 @@
 
 .gpanel-slides-actions {
   display: flex;
-  gap: 8px;
+  gap: var(--space-4);
   flex-wrap: wrap;
 }
 
 .gpanel-slides-embed {
   width: 100%;
   aspect-ratio: 16 / 9;
-  border: 1px solid #3e4451;
-  border-radius: 5px;
-  background: #1e2127;
+  border: 1px solid var(--border2);
+  border-radius: var(--radius-md);
+  background: var(--bg);
 }
 
 /* ── Shared utility ────────────────────────────────────────────────────────── */
 .gpanel-muted {
-  font-size: 12px;
-  color: #4b5263;
+  font-size: var(--font-size-sm);
+  color: var(--text-dim);
 }
 
 .gpanel-muted code {
-  background: #2c313a;
-  border-radius: 3px;
+  background: var(--surface2);
+  border-radius: var(--radius-sm);
   padding: 1px 5px;
-  color: #e5c07b;
-  font-size: 11px;
+  color: var(--yellow);
+  font-size: var(--font-size-xs);
 }
 
 .gpanel-error {
-  font-size: 12px;
-  color: #e06c75;
-  background: rgba(224, 108, 117, 0.08);
-  border: 1px solid rgba(224, 108, 117, 0.25);
-  border-radius: 5px;
+  font-size: var(--font-size-sm);
+  color: var(--red);
+  background: rgba(var(--red-rgb, 201,117,112), 0.08);
+  border: 1px solid rgba(var(--red-rgb, 201,117,112), 0.25);
+  border-radius: var(--radius-md);
   padding: 8px 10px;
 }
 
@@ -248,12 +248,12 @@
   justify-content: center;
   gap: 5px;
   border: none;
-  border-radius: 5px;
+  border-radius: var(--radius-md);
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   font-weight: 500;
   font-family: inherit;
-  transition: all 0.12s;
+  transition: all var(--transition-fast);
   white-space: nowrap;
 }
 
@@ -266,34 +266,34 @@
   background: #4285f4;
   color: #fff;
   padding: 8px 16px;
-  font-size: 13px;
+  font-size: var(--font-size-base);
 }
 .gpanel-btn-primary:not(:disabled):hover { background: #5a95f5; }
 
 .gpanel-btn-ghost {
   background: none;
-  color: #636d83;
-  border: 1px solid #3e4451;
+  color: var(--text-muted);
+  border: 1px solid var(--border2);
   padding: 5px 12px;
 }
-.gpanel-btn-ghost:not(:disabled):hover { color: #abb2bf; border-color: #636d83; }
+.gpanel-btn-ghost:not(:disabled):hover { color: var(--text); border-color: var(--text-muted); }
 
 .gpanel-btn-sm {
-  background: #2c313a;
-  color: #abb2bf;
-  border: 1px solid #3e4451;
+  background: var(--surface2);
+  color: var(--text);
+  border: 1px solid var(--border2);
   padding: 4px 10px;
 }
-.gpanel-btn-sm:not(:disabled):hover { background: #3e4451; color: #d7dae0; }
+.gpanel-btn-sm:not(:disabled):hover { background: var(--border2); color: var(--text-bright); }
 
 .gpanel-btn-xs {
   background: none;
-  color: #4b5263;
-  border: 1px solid #3e4451;
+  color: var(--text-dim);
+  border: 1px solid var(--border2);
   padding: 2px 8px;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
 }
-.gpanel-btn-xs:not(:disabled):hover { color: #abb2bf; border-color: #636d83; }
+.gpanel-btn-xs:not(:disabled):hover { color: var(--text); border-color: var(--text-muted); }
 
 /* ── Spinner ───────────────────────────────────────────────────────────────── */
 .gpanel-spinner {

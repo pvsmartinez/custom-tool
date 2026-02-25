@@ -9,6 +9,7 @@
  */
 
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { X, Check, ArrowDown } from '@phosphor-icons/react';
 import { writeFile, mkdir, exists } from '@tauri-apps/plugin-fs';
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
 import type { Editor } from 'tldraw';
@@ -52,7 +53,7 @@ interface ImageSearchPanelProps {
   onClose: () => void;
 }
 
-const LS_KEY = 'customtool_pexels_key';
+const LS_KEY = 'cafezin_pexels_key';
 const PER_PAGE = 6;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -160,8 +161,8 @@ export default function ImageSearchPanel({ workspace, canvasEditorRef, onClose }
       const filename = `${photo.id}-${slugify(photo.alt || 'photo')}.${ext}`;
       const absPath = `${imagesDir}/${filename}`;
 
-      // Download the 'large' size (~1880px) via browser fetch (CSP is null)
-      const imgRes = await fetch(photo.src.large);
+      // Download the 'large' size (~1880px) via Tauri HTTP plugin (bypasses CORS/CSP)
+      const imgRes = await tauriFetch(photo.src.large, { method: 'GET' });
       if (!imgRes.ok) throw new Error(`HTTP ${imgRes.status}`);
       const buf = await imgRes.arrayBuffer();
       await writeFile(absPath, new Uint8Array(buf));
@@ -221,7 +222,7 @@ export default function ImageSearchPanel({ workspace, canvasEditorRef, onClose }
         <div className="isp-header">
           <span className="isp-title">🖼 Image Search</span>
           <span className="isp-source">via Pexels</span>
-          <button className="isp-close" onClick={onClose} title="Close (Esc)">✕</button>
+          <button className="isp-close" onClick={onClose} title="Close (Esc)"><X weight="thin" size={14} /></button>
         </div>
 
         {/* Search bar */}
@@ -324,7 +325,7 @@ export default function ImageSearchPanel({ workspace, canvasEditorRef, onClose }
                           onClick={() => handleUse(photo, false)}
                           title="Save to workspace images/"
                         >
-                          {isSaving ? '…' : isSaved ? '✓ Saved' : '↓ Save'}
+                          {isSaving ? '…' : isSaved ? <><Check weight="thin" size={13} /> Saved</> : <><ArrowDown weight="thin" size={13} /> Save</>}
                         </button>
                         {/* Add to canvas (only if a canvas is open) */}
                         {hasCanvas && (
@@ -334,13 +335,13 @@ export default function ImageSearchPanel({ workspace, canvasEditorRef, onClose }
                             onClick={() => handleUse(photo, true)}
                             title="Save & add to active canvas"
                           >
-                            {isOnCanvas ? '✓ On canvas' : '+ Canvas'}
+                            {isOnCanvas ? <><Check weight="thin" size={13} /> On canvas</> : '+ Canvas'}
                           </button>
                         )}
                       </div>
                     </div>
                     {isSaved && !isOnCanvas && (
-                      <div className="isp-card-badge">✓</div>
+                      <div className="isp-card-badge"><Check weight="thin" size={12} /></div>
                     )}
                     {isOnCanvas && (
                       <div className="isp-card-badge isp-card-badge--canvas">◈</div>

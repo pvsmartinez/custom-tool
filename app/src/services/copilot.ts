@@ -2,8 +2,76 @@ import type { ChatMessage, CopilotStreamChunk, CopilotModel, CopilotModelInfo, T
 import { FALLBACK_MODELS, DEFAULT_MODEL } from '../types';
 import { fetch } from '@tauri-apps/plugin-http';
 import type { ToolDefinition, ToolExecutor } from '../utils/workspaceTools';
+import { appendArchiveEntry } from './copilotLog';
 
 const COPILOT_API_URL = 'https://api.githubcopilot.com/chat/completions';
+
+/**
+ * Error subclass thrown when the Copilot API returns a non-2xx response.
+ * The `detail` field contains a full diagnostic dump of the request
+ * (model, per-message summary, tool names, raw error body) suitable for
+ * copying and pasting into a bug report or the Copilot chat itself.
+ */
+export class CopilotDiagnosticError extends Error {
+  readonly detail: string;
+  constructor(message: string, detail: string) {
+    super(message);
+    this.name = 'CopilotDiagnosticError';
+    this.detail = detail;
+  }
+}
+
+/** Full text of the most recent request sent to the Copilot API (updated before every call). */
+let _lastRequestDump = '(no request made yet)';
+
+/** Returns the full dump of the most recent Copilot API request, regardless of success/failure. */
+export function getLastRequestDump(): string { return _lastRequestDump; }
+
+/** Build a human-readable dump of a request payload for diagnostics / copy-to-clipboard. */
+function buildRequestDump(
+  messages: ChatMessage[],
+  model: CopilotModel,
+  tools: ToolDefinition[] | undefined,
+  status?: number,
+  errorBody?: string,
+): string {
+  const msgLines = messages.map((m, i) => {
+    const tcIds = (m as any).tool_calls?.map((tc: any) => tc.id) ?? [];
+    const tcId  = (m as any).tool_call_id ?? null;
+    const header = `[${i}] ${m.role}${
+      tcId  ? ` (tool_call_id: ${tcId})`          : ''}${
+      tcIds.length ? ` (tool_calls: ${tcIds.join(', ')})` : ''}`;
+    // Full content — strip base64 blobs so the dump stays readable
+    let body: string;
+    if (typeof m.content === 'string') {
+      body = m.content.replace(/data:image\/[^;]+;base64,[A-Za-z0-9+/=]+/g, '[base64 image stripped]');
+    } else if (Array.isArray(m.content)) {
+      body = (m.content as any[]).map((p: any) =>
+        p.type === 'image_url'
+          ? '[image]'
+          : (typeof p.text === 'string' ? p.text : JSON.stringify(p))
+      ).join(' ');
+    } else {
+      body = String(m.content ?? '');
+    }
+    // tool_calls detail
+    const tcDetail = (m as any).tool_calls?.map((tc: any) =>
+      `\n    tool_call id=${tc.id} fn=${tc.function?.name} args=${tc.function?.arguments?.slice(0, 300)}`
+    ).join('') ?? '';
+    return `  ${header}\n    ${body.replace(/\n/g, '\n    ')}${tcDetail}`;
+  });
+  const toolNames = tools ? tools.map((t) => t.function?.name ?? (t as any).name).join(', ') : 'none';
+  const lines = [
+    `Timestamp : ${new Date().toISOString()}`,
+    `Model     : ${model}`,
+    `Tools     : ${toolNames}`,
+    `Messages  : ${messages.length}`,
+    ...msgLines,
+  ];
+  if (status !== undefined) lines.push(`Status    : ${status}`);
+  if (errorBody)            lines.push(`Error body: ${errorBody}`);
+  return lines.join('\n');
+}
 
 const EDITOR_HEADERS = {
   'Editor-Version': 'vscode/1.99.0',
@@ -11,6 +79,285 @@ const EDITOR_HEADERS = {
   'User-Agent': 'GitHubCopilotChat/0.26.0',
   'Copilot-Integration-Id': 'vscode-chat',
 };
+
+// ── Rate limit / quota tracking ────────────────────────────
+interface RateLimitInfo {
+  remaining: number | null;
+  limit: number | null;
+  /** True when the last error was a quota/budget exhaustion */ 
+  quotaExceeded: boolean;
+}
+let _lastRateLimit: RateLimitInfo = { remaining: null, limit: null, quotaExceeded: false };
+
+export function getLastRateLimit(): RateLimitInfo { return { ..._lastRateLimit }; }
+
+/** Returns true when an error message indicates the user has run out of paid tokens. */
+export function isQuotaError(msg: string): boolean {
+  const lower = msg.toLowerCase();
+  return (
+    lower.includes('insufficient_quota') ||
+    lower.includes('over their token budget') ||
+    lower.includes('tokens_quota_exceeded') ||
+    (
+      (lower.includes('429') || lower.includes('402')) &&
+      (lower.includes('quota') || lower.includes('budget') || lower.includes('billing') || lower.includes('premium'))
+    )
+  );
+}
+
+// ── Context budget ────────────────────────────────────────────────────────────
+// Trigger summarization when the estimated token count exceeds this threshold.
+// Most Copilot models have a 128k context; we leave ~38k headroom for the system
+// prompt, tool definitions, and the model's reply.
+const CONTEXT_TOKEN_LIMIT = 90_000;
+
+/**
+ * Rough token estimate: 1 token ≈ 4 characters of JSON-serialized content.
+ * Base64 data URLs are stripped before counting so they don't skew the estimate.
+ */
+export function estimateTokens(messages: ChatMessage[]): number {
+  return Math.ceil(
+    messages.reduce((sum, m) => {
+      const raw = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
+      const stripped = raw.replace(/data:image\/[^;]+;base64,[A-Za-z0-9+/=]+/g, '[img]');
+      return sum + stripped.length / 4;
+    }, 0),
+  );
+}
+
+/** Return a copy of the messages array with base64 image blobs removed (for safe log storage). */
+function stripBase64ForLog(messages: ChatMessage[]): object[] {
+  return messages.map((m) => {
+    if (typeof m.content === 'string') {
+      return { ...m, content: m.content.replace(/data:image\/[^;]+;base64,[A-Za-z0-9+/=]+/g, '[base64 image stripped]') };
+    }
+    if (Array.isArray(m.content)) {
+      return {
+        ...m,
+        content: (m.content as any[]).map((p: any) =>
+          p.type === 'image_url' ? { type: 'image_url', image_url: { url: '[stripped]' } } : p,
+        ),
+      };
+    }
+    return m;
+  });
+}
+
+/**
+ * Ask the model to produce a dense summary of the conversation, then rebuild
+ * the context window to a compact form:
+ *   1. System messages (kept verbatim)
+ *   2. First user message — the original task (preserved so the agent never forgets why it's here)
+ *   3. A synthetic user message with the [SESSION SUMMARY] noting N rounds were archived
+ *   4. The last 8 messages verbatim (recent exchanges for recency context)
+ *
+ * The full conversation snapshot (minus base64) is persisted to the workspace log
+ * so the user (or the agent itself, via read_file) can inspect what was pruned.
+ */
+async function summarizeAndCompress(
+  loop: ChatMessage[],
+  headers: Record<string, string>,
+  model: CopilotModel,
+  workspacePath: string | undefined,
+  sessionId: string,
+  round: number,
+): Promise<ChatMessage[]> {
+  const strippedForLog = stripBase64ForLog(loop);
+
+  // ── Ask the model to summarize ───────────────────────────────────────────
+  let summaryText = '[Summary unavailable — model did not respond]';
+  try {
+    const summaryRes = await fetch(COPILOT_API_URL, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        model,
+        messages: [
+          {
+            role: 'system',
+            content:
+              'You are a technical session summarizer. The agent context window is full and needs to be compressed. ' +
+              'Summarize the conversation below into a dense technical briefing covering:\n' +
+              '1. The user\'s original goal\n' +
+              '2. Everything accomplished so far — each tool call, file created/modified, canvas change made\n' +
+              '3. Current state of the workspace / canvas\n' +
+              '4. What still needs to be done to complete the user\'s goal\n' +
+              '5. Any important findings, constraints, or decisions\n\n' +
+              'Be precise and technical. Use bullet points. Aim for 400–700 words.',
+          },
+          {
+            role: 'user',
+            content:
+              `Conversation to summarize (${strippedForLog.length} messages, after round ${round}):\n\n` +
+              JSON.stringify(strippedForLog, null, 2),
+          },
+        ],
+        stream: false,
+        max_tokens: 1800,
+        temperature: 0.2,
+      }),
+    });
+    if (summaryRes.ok) {
+      const data = await summaryRes.json() as any;
+      summaryText = data?.choices?.[0]?.message?.content ?? summaryText;
+    } else {
+      const errText = await summaryRes.text();
+      console.warn('[summarizeAndCompress] model returned', summaryRes.status, errText.slice(0, 200));
+    }
+  } catch (e) {
+    console.warn('[summarizeAndCompress] fetch failed:', e);
+  }
+
+  // ── Write archive to the workspace log ──────────────────────────────────
+  if (workspacePath) {
+    await appendArchiveEntry(workspacePath, {
+      entryType: 'archive',
+      sessionId,
+      archivedAt: new Date().toISOString(),
+      round,
+      estimatedTokens: estimateTokens(loop),
+      summary: summaryText,
+      messages: strippedForLog,
+    });
+  }
+
+  // ── Rebuild compact context ─────────────────────────────────────────────
+  // Rules that must hold for the API not to 400:
+  //   1. No consecutive user messages
+  //   2. tool messages must be preceded by the assistant turn that emitted their tool_call_id
+  //   3. The sequence must end before a new user message (vision injection handles that)
+  //
+  // Structure we build:
+  //   [system msgs]
+  //   [one user msg: original task + session summary]    ← no consecutive issue
+  //   [one assistant bridge: "Resuming…"]               ← satisfies user→assistant ordering
+  //   [recent tail: last 8 msgs, vision stripped,
+  //    trimmed so it starts from the last USER turn]   ← bridgeMsg is assistant, tail must start with user
+  const systemMsgs = loop.filter((m) => m.role === 'system');
+  const firstUserMsg = loop.find(
+    (m) => m.role === 'user' && !Array.isArray(m.content),
+  );
+  const originalTask = firstUserMsg
+    ? (typeof firstUserMsg.content === 'string' ? firstUserMsg.content : JSON.stringify(firstUserMsg.content))
+    : '(original task not recoverable)';
+
+  // Last 8 messages, vision stripped
+  const rawTail = loop
+    .slice(Math.max(0, loop.length - 8))
+    .filter(
+      (m) =>
+        !(Array.isArray(m.content) &&
+          (m.content as any[]).some((p: any) => p.type === 'image_url')),
+    );
+
+  // The rebuilt context ends with bridgeMsg (role: 'assistant').
+  // The tail MUST therefore start with a USER message so we don't get
+  // consecutive assistant messages → 400 Bad Request.
+  // Find the last user message in rawTail and start from there.
+  // If rawTail has no user message (pure agentic stretch), use an empty
+  // tail — the model will resume cleanly from just the bridge.
+  let lastUserInTail = -1;
+  for (let i = rawTail.length - 1; i >= 0; i--) {
+    if (rawTail[i].role === 'user') { lastUserInTail = i; break; }
+  }
+  // Additionally, ensure there are no orphan tool messages before the first
+  // assistant in the chosen tail slice (they'd reference unknown tool_call_ids).
+  let tail = lastUserInTail >= 0 ? rawTail.slice(lastUserInTail) : [];
+
+  const summaryMsg: ChatMessage = {
+    role: 'user',
+    content:
+      `[SESSION SUMMARY — ${round} rounds archived to workspace log (cafezin/copilot-log.jsonl)]\n\n` +
+      `Original task: ${originalTask}\n\n` +
+      `Progress summary:\n${summaryText}\n\n` +
+      `---\nThe full turn-by-turn transcript is in the workspace log (read_file on ` +
+      `cafezin/copilot-log.jsonl). Continuing from here:`,
+  };
+
+  const bridgeMsg: ChatMessage = {
+    role: 'assistant',
+    content: `Understood — resuming from the session summary above. I'll continue towards the original goal.`,
+  };
+
+  return sanitizeLoop([
+    ...systemMsgs,
+    summaryMsg,
+    bridgeMsg,
+    ...tail,
+  ]);
+}
+
+/**
+ * Sanitize a message array before sending to the Copilot API.
+ * Removes structural problems that cause 400 Bad Request:
+ *   - Consecutive assistant messages  (keep last; merges content)
+ *   - Consecutive user messages       (keep last — avoids duplicate injection)
+ *   - Orphan tool messages            (no matching tool_call_id in any preceding
+ *                                      assistant turn — they'd cause a 400)
+ *   - Empty-role or undefined messages
+ */
+export function sanitizeLoop(msgs: ChatMessage[]): ChatMessage[] {
+  if (msgs.length === 0) return msgs;
+
+  // ── Pre-pass: strip UI-only fields that the Copilot API doesn't accept ──
+  // `items` (MessageItem[]) is local display metadata stored in React state.
+  // It must NOT be sent to the API — some backends return 400 Bad Request
+  // when they encounter unknown fields in message objects.
+  const stripped: ChatMessage[] = msgs.map((m) => {
+    if (!m) return m;
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { items: _items, activeFile: _af, ...clean } = m as any;
+    return clean as ChatMessage;
+  });
+  // Pass 1: resolve orphan tool messages by tracking active tool_call_ids
+  const activeTcIds = new Set<string>();
+  const pass1: ChatMessage[] = [];
+  for (const m of stripped) {
+    if (!m || !m.role) continue;
+    if (m.role === 'assistant') {
+      activeTcIds.clear();
+      if (m.tool_calls) m.tool_calls.forEach((tc) => activeTcIds.add(tc.id));
+      pass1.push(m);
+    } else if (m.role === 'tool') {
+      // Drop if the tool_call_id isn't registered from a preceding assistant
+      if (m.tool_call_id && activeTcIds.has(m.tool_call_id)) {
+        pass1.push(m);
+      }
+      // else: silently drop the orphan
+    } else {
+      // user / system — reset active tc tracking
+      if (m.role === 'user' || m.role === 'system') activeTcIds.clear();
+      pass1.push(m);
+    }
+  }
+
+  // Pass 2: collapse consecutive same-role messages
+  // (assistant→assistant and user→user are both invalid in the Copilot API)
+  const out: ChatMessage[] = [];
+  for (const m of pass1) {
+    const prev = out.length > 0 ? out[out.length - 1] : null;
+    if (prev && prev.role === m.role && m.role === 'assistant') {
+      // Merge: keep the later assistant's tool_calls; concatenate text content
+      const mergedContent = [prev.content, m.content].filter(Boolean).join('\n').trim();
+      out[out.length - 1] = {
+        ...m,
+        content: mergedContent || '',
+        tool_calls: m.tool_calls ?? prev.tool_calls,
+      };
+      continue;
+    }
+    if (prev && prev.role === m.role && m.role === 'user') {
+      // For consecutive user messages merge into one (avoids double-send artifacts)
+      const prevContent = typeof prev.content === 'string' ? prev.content : JSON.stringify(prev.content);
+      const curContent  = typeof m.content  === 'string' ? m.content  : JSON.stringify(m.content);
+      out[out.length - 1] = { ...m, content: `${prevContent}\n\n${curContent}` };
+      continue;
+    }
+    out.push(m);
+  }
+
+  return out;
+}
 
 // ── OAuth / Device Flow ──────────────────────────────────────────────────────────
 // The Copilot session-token endpoint only accepts OAuth App tokens, not PATs.
@@ -139,16 +486,22 @@ export async function streamCopilotChat(
   onDone: () => void,
   onError: (err: Error) => void,
   model: CopilotModel = DEFAULT_MODEL,
-  tools?: ToolDefinition[]
+  tools?: ToolDefinition[],
+  signal?: AbortSignal,
 ): Promise<void> {
   try {
+    if (signal?.aborted) return;
     const sessionToken = await getCopilotSessionToken();
+
+    // Capture the full request dump BEFORE sending (available even if request succeeds)
+    _lastRequestDump = buildRequestDump(messages, model, tools);
 
     // Retry up to 3 times for transient 5xx errors with exponential backoff
     const MAX_RETRIES = 3;
     let response: Awaited<ReturnType<typeof fetch>> | null = null;
     let lastError: Error | null = null;
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      if (signal?.aborted) return;
       if (attempt > 0) {
         await new Promise((r) => setTimeout(r, 1000 * 2 ** (attempt - 1)));
       }
@@ -159,6 +512,7 @@ export async function streamCopilotChat(
           'Content-Type': 'application/json',
           ...EDITOR_HEADERS,
         },
+        signal,
         body: JSON.stringify({
           model,
           messages,
@@ -182,11 +536,39 @@ export async function streamCopilotChat(
 
     if (!response.ok) {
       const errorText = await response.text();
-      // Sanitize HTML error pages (e.g. GitHub's 502 "Unicorn" page) into a clean message
-      const cleanError = errorText.trim().startsWith('<')
-        ? `GitHub returned a ${response.status} (server error) — please retry in a moment`
-        : `Copilot API error ${response.status}: ${errorText}`;
-      throw new Error(cleanError);
+
+      // Update the dump with the error status+body and log to console
+      _lastRequestDump = buildRequestDump(messages, model, tools, response.status, errorText);
+      console.error('[Copilot] API error diagnostic:\n' + _lastRequestDump);
+
+      let cleanError: string;
+      if (errorText.trim().startsWith('<')) {
+        cleanError = `GitHub returned a ${response.status} (server error) — please retry in a moment`;
+      } else {
+        try {
+          const parsed = JSON.parse(errorText);
+          const msg = parsed?.error?.message ?? parsed?.message ?? errorText;
+          cleanError = `Copilot API error ${response.status}: ${msg}`;
+        } catch {
+          cleanError = `Copilot API error ${response.status}: ${errorText}`;
+        }
+      }
+      // Track quota exhaustion so the UI can show the billing button
+      if (response.status === 429 || response.status === 402 || isQuotaError(cleanError)) {
+        _lastRateLimit = { ..._lastRateLimit, quotaExceeded: true, remaining: 0 };
+      }
+      throw new CopilotDiagnosticError(cleanError, _lastRequestDump);
+    }
+
+    // Capture rate limit headers from the first ok response
+    {
+      const remaining = response.headers.get('x-ratelimit-remaining') ?? response.headers.get('x-copilot-quota-remaining');
+      const limit = response.headers.get('x-ratelimit-limit') ?? response.headers.get('x-copilot-quota-limit');
+      _lastRateLimit = {
+        remaining: remaining !== null ? parseInt(remaining, 10) : _lastRateLimit.remaining,
+        limit: limit !== null ? parseInt(limit, 10) : _lastRateLimit.limit,
+        quotaExceeded: false,
+      };
     }
 
     const reader = response.body?.getReader();
@@ -220,6 +602,8 @@ export async function streamCopilotChat(
 
     onDone();
   } catch (err) {
+    // AbortError = intentional interrupt by the user sending a new message — swallow silently
+    if (err instanceof Error && (err.name === 'AbortError' || err.message === 'AbortError')) return;
     onError(err instanceof Error ? err : new Error(String(err)));
   }
 }
@@ -243,6 +627,14 @@ export async function copilotComplete(
   });
 }
 
+// ── Vision capability detection ────────────────────────────────────────────
+// OpenAI o-series reasoning models (o1, o3, o3-mini, o4-mini, …) do not
+// accept image_url content — the API returns 400.  Everything else (GPT-4o,
+// GPT-4.1, all Claude, all Gemini) supports vision.
+export function modelSupportsVision(modelId: string): boolean {
+  return !/^o\d/.test(modelId);
+}
+
 // ── Model discovery ──────────────────────────────────────────────────────────
 
 interface RawModel {
@@ -254,6 +646,54 @@ interface RawModel {
   multiplier?: number;
   vendor?: string;
   capabilities?: { family?: string };
+}
+
+/**
+ * Legacy / superseded model ID prefixes to hide from the picker.
+ * Entries are matched as exact IDs or as prefix + '-' (so 'gpt-4' blocks
+ * 'gpt-4' exactly but NOT 'gpt-4o', 'gpt-4.1', etc.).
+ */
+const BLOCKED_PREFIXES = [
+  'gpt-3.5',
+  'gpt-4-32k',
+  'gpt-4-turbo',
+  'gpt-4-0',           // gpt-4-0314, gpt-4-0613
+  'gpt-4-1106',
+  'gpt-4-vision',
+  'o1-mini',
+  'o1-preview',
+  'text-davinci',
+  'text-embedding',
+  'code-search',
+  'claude-3-',         // entire claude 3.x generation (3-haiku, 3-sonnet, 3-5-*, 3-7-*)
+];
+const BLOCKED_EXACT = new Set(['gpt-4', 'o1-mini']);
+
+export function isBlockedModel(id: string): boolean {
+  if (BLOCKED_EXACT.has(id)) return true;
+  return BLOCKED_PREFIXES.some((p) => id.startsWith(p));
+}
+
+/**
+ * Derive a "family key" used for deduplication.
+ * Strips trailing minor-version segments so multiple patch/minor releases of
+ * the same model family collapse into one entry (keeping the latest).
+ *
+ * Examples:
+ *   claude-sonnet-4-5  → claude-sonnet-4   (strip trailing -5)
+ *   claude-sonnet-4-6  → claude-sonnet-4   (strip trailing -6)
+ *   claude-opus-4-5    → claude-opus-4
+ *   gpt-4o             → gpt-4o            (no trailing digit group)
+ *   gpt-4.1-mini       → gpt-4.1-mini      (no trailing digit group after strip)
+ *   claude-3-5-sonnet-20241022 → blocked above by claude-3- prefix
+ */
+export function familyKey(id: string): string {
+  // Strip trailing -YYYYMMDD date stamp
+  let key = id.replace(/-\d{8}$/, '');
+  // Strip trailing single-segment minor version like -5 or -6
+  // (but NOT full model suffixes like -mini, -nano, -lite)
+  key = key.replace(/-(\d+)$/, '');
+  return key;
 }
 
 /** Fetches available models from the GitHub Copilot /models endpoint. */
@@ -271,9 +711,14 @@ export async function fetchCopilotModels(): Promise<CopilotModelInfo[]> {
     const json = await res.json() as { data?: RawModel[] };
     const raw: RawModel[] = json.data ?? [];
 
-    // Filter to chat-compatible models only
-    const models: CopilotModelInfo[] = raw
-      .filter((m) => m.id && !m.id.includes('embedding') && !m.id.includes('whisper'))
+    // Filter to chat-compatible, non-legacy models only
+    const mapped: CopilotModelInfo[] = raw
+      .filter((m) =>
+        m.id &&
+        !m.id.includes('embedding') &&
+        !m.id.includes('whisper') &&
+        !isBlockedModel(m.id),
+      )
       .map((m) => {
         const mult = m.billing_multiplier ?? m.multiplier ?? 1;
         return {
@@ -282,8 +727,23 @@ export async function fetchCopilotModels(): Promise<CopilotModelInfo[]> {
           multiplier: mult,
           isPremium: mult > 1,
           vendor: m.vendor,
+          supportsVision: modelSupportsVision(m.id),
         };
-      })
+      });
+
+    // Deduplicate by family: when two IDs share the same familyKey (e.g.
+    // claude-sonnet-4-5 and claude-sonnet-4-6 both → "claude-sonnet-4"),
+    // keep the one whose raw ID sorts last lexicographically (newest patch).
+    const byFamily = new Map<string, CopilotModelInfo>();
+    for (const m of mapped) {
+      const key = familyKey(m.id);
+      const existing = byFamily.get(key);
+      if (!existing || m.id > existing.id) {
+        byFamily.set(key, m);
+      }
+    }
+
+    const models = [...byFamily.values()]
       .sort((a, b) => a.multiplier - b.multiplier || a.name.localeCompare(b.name));
 
     return models.length > 0 ? models : FALLBACK_MODELS;
@@ -498,6 +958,9 @@ export async function runCopilotAgent(
   onDone: () => void,
   onError: (err: Error) => void,
   model: CopilotModel = DEFAULT_MODEL,
+  workspacePath?: string,
+  sessionId?: string,
+  signal?: AbortSignal,
 ): Promise<void> {
   try {
     const sessionToken = await getCopilotSessionToken();
@@ -508,21 +971,26 @@ export async function runCopilotAgent(
     };
 
     const loop = [...messages];
-    const MAX_ROUNDS = 6;
+    const MAX_ROUNDS = 50;
 
     for (let round = 0; round < MAX_ROUNDS; round++) {
+      // Early-exit if the caller aborted (user sent a new message mid-run)
+      if (signal?.aborted) return;
+
       // Streaming call to detect tool_calls and stream text
       // Retry up to 3 times for transient 5xx errors with exponential backoff
       let res: Awaited<ReturnType<typeof fetch>> | null = null;
       let lastFetchError: Error | null = null;
       for (let attempt = 0; attempt < 3; attempt++) {
+        if (signal?.aborted) return;
         if (attempt > 0) await new Promise((r) => setTimeout(r, 1000 * 2 ** (attempt - 1)));
         const r = await fetch(COPILOT_API_URL, {
           method: 'POST',
           headers,
+          signal,
           body: JSON.stringify({
             model,
-            messages: loop,
+            messages: sanitizeLoop(loop),
             tools,
             tool_choice: 'auto',
             stream: true,
@@ -541,9 +1009,18 @@ export async function runCopilotAgent(
 
       if (!res.ok) {
         const errText = await res.text();
-        const cleanMsg = errText.trim().startsWith('<')
-          ? `GitHub returned a ${res.status} (server error) — please retry in a moment`
-          : `Copilot API error ${res.status}: ${errText}`;
+        let cleanMsg: string;
+        if (errText.trim().startsWith('<')) {
+          cleanMsg = `GitHub returned a ${res.status} (server error) — please retry in a moment`;
+        } else {
+          try {
+            const parsed = JSON.parse(errText);
+            const msg = parsed?.error?.message ?? parsed?.message ?? errText;
+            cleanMsg = `Copilot API error ${res.status}: ${msg}`;
+          } catch {
+            cleanMsg = `Copilot API error ${res.status}: ${errText}`;
+          }
+        }
         throw new Error(cleanMsg);
       }
 
@@ -714,16 +1191,16 @@ export async function runCopilotAgent(
 
       // ── Tool calls: execute each one ──────────────────────────────────
       // Strip <tool_call>/<tool_response> noise from assistant text before storing.
-      // Use null (not '') for content when only tool_calls are present — matches
-      // OpenAI API spec and avoids rejection from strict backends.
+      // Use '' (not null) for content when only tool_calls are present — null causes
+      // 400 Bad Request on some Copilot backends.
       const cleanAssistantContent = fullContent
         .replace(/<(?:tool_call|invoke)[^>]*>[\s\S]*?<\/(?:tool_call|invoke)>/g, '')
         .replace(/<(?:tool_response|function_results)[^>]*>[\s\S]*?<\/(?:tool_response|function_results)>/g, '')
         .replace(/<\/?function_calls>/g, '')
-        .trim() || null;
+        .trim();
       loop.push({
         role: 'assistant',
-        content: cleanAssistantContent as any,
+        content: cleanAssistantContent,
         tool_calls: allToolCalls,
       });
 
@@ -753,41 +1230,112 @@ export async function runCopilotAgent(
         }
         onToolActivity({ ...activity, result, error: activity.error });
 
+        // Truncate very large results to avoid oversized requests (e.g. large files,
+        // base64 blobs accidentally not caught by sentinel). Keep first 8000 chars.
+        const MAX_TOOL_RESULT = 8000;
+        const safeResult = result.length > MAX_TOOL_RESULT
+          ? result.slice(0, MAX_TOOL_RESULT) + `\n[...truncated ${result.length - MAX_TOOL_RESULT} chars]`
+          : result;
         loop.push({
           role: 'tool',
           tool_call_id: tc.id,
-          name: tc.function.name,
-          content: result,
+          // Note: 'name' is NOT included — it's invalid in the tool message spec
+          // and causes 400 Bad Request on some backends.
+          content: safeResult,
         });
       }
 
-      // ── Inject canvas screenshots as vision messages ─────────────────────
-      // The canvas_screenshot tool returns a sentinel prefix so we can convert
-      // the tool result into a proper OpenAI vision message (content array).
-      // This avoids sending large base64 blobs as plain text tool results.
+      // ── Context management ────────────────────────────────────────────
+      // Check estimated token count. If we're approaching the model's limit,
+      // ask the model to summarize what happened, persist the full transcript to
+      // the workspace log, then rebuild a compact context window.
+      // If still within budget, perform lightweight deduplication only.
+      const estimatedTok = estimateTokens(loop);
+      console.debug('[agent] estimated tokens after round', round, ':', estimatedTok);
+
+      if (estimatedTok > CONTEXT_TOKEN_LIMIT) {
+        // Notify the user (shown inline in the chat stream)
+        onChunk('\n\n_[Context approaching limit — summarizing prior session and continuing...]_\n\n');
+        const compressed = await summarizeAndCompress(
+          loop,
+          headers,
+          model,
+          workspacePath,
+          sessionId ?? 's_unknown',
+          round,
+        );
+        loop.splice(0, loop.length, ...compressed);
+        console.debug('[agent] context compressed to', loop.length, 'messages (~', estimateTokens(loop), 'tokens)');
+      } else {
+        // Lightweight blind pruning: belt-and-suspenders fallback.
+        // Keeps the last MAX_KEEP_ROUNDS assistant+tool exchange groups
+        // in case token estimation is off or tool results are unusually large.
+        const MAX_KEEP_ROUNDS = 14;
+        const firstAssistantIdx = loop.findIndex((m) => m.role === 'assistant');
+        if (firstAssistantIdx !== -1) {
+          const assistantIdxs: number[] = [];
+          for (let i = firstAssistantIdx; i < loop.length; i++) {
+            if (loop[i].role === 'assistant') assistantIdxs.push(i);
+          }
+          if (assistantIdxs.length > MAX_KEEP_ROUNDS) {
+            const keepFrom = assistantIdxs[assistantIdxs.length - MAX_KEEP_ROUNDS];
+            loop.splice(firstAssistantIdx, keepFrom - firstAssistantIdx);
+          }
+        }
+        // Prune stale vision user messages: keep only the most recent one
+        const visionIdxs = loop.reduce<number[]>((acc, m, i) => {
+          if (m.role === 'user' && Array.isArray(m.content) &&
+              (m.content as any[]).some((p: any) => p.type === 'image_url')) acc.push(i);
+          return acc;
+        }, []);
+        if (visionIdxs.length > 1) {
+          for (let i = visionIdxs.length - 2; i >= 0; i--) {
+            loop.splice(visionIdxs[i], 1);
+          }
+        }
+      }
+
+      // ── Inject canvas screenshots as vision messages ───────────────────
       const SCREENSHOT_SENTINEL = '__CANVAS_PNG__:';
       const visionUrls: string[] = [];
-      for (const msg of loop) {
-        if (msg.role === 'tool' && typeof msg.content === 'string' &&
-            (msg.content as string).startsWith(SCREENSHOT_SENTINEL)) {
-          visionUrls.push((msg.content as string).slice(SCREENSHOT_SENTINEL.length));
-          // Replace sentinel so subsequent rounds don't re-inject
-          (msg as any).content = 'Canvas screenshot rendered — the image is in the message above.';
+      if (modelSupportsVision(model)) {
+        for (const msg of loop) {
+          if (msg.role === 'tool' && typeof msg.content === 'string' &&
+              (msg.content as string).startsWith(SCREENSHOT_SENTINEL)) {
+            visionUrls.push((msg.content as string).slice(SCREENSHOT_SENTINEL.length));
+            // Replace sentinel so subsequent rounds don't re-inject
+            (msg as any).content = 'Canvas screenshot rendered — the image is in the message above.';
+          }
+        }
+      } else {
+        // Non-vision model: strip sentinel so the base64 blob isn't sent as plain text
+        for (const msg of loop) {
+          if (msg.role === 'tool' && typeof msg.content === 'string' &&
+              (msg.content as string).startsWith(SCREENSHOT_SENTINEL)) {
+            (msg as any).content = 'Canvas screenshot skipped (model does not support vision).';
+          }
         }
       }
       if (visionUrls.length > 0) {
+        // Only keep the most recent screenshot — older ones bloat context and are stale.
+        const latestUrl = visionUrls[visionUrls.length - 1];
         const parts: unknown[] = [
-          { type: 'text', text: `Canvas screenshot${visionUrls.length > 1 ? 's' : ''} after your modifications — verify the layout, colors, and content look correct:` },
-          ...visionUrls.map((url) => ({ type: 'image_url', image_url: { url } })),
+          { type: 'text', text: 'Canvas screenshot after your modifications — verify layout, colors, and content:' },
+          { type: 'image_url', image_url: { url: latestUrl } },
         ];
         loop.push({ role: 'user', content: parts as any });
       }
     }
 
-    // Exhausted rounds: fall back to a plain final response
-    // We must pass `tools` here so the model knows it can't just output raw XML
-    await streamCopilotChat(loop, onChunk, onDone, onError, model, tools);
+    // Exhausted all rounds — let the user know and allow them to continue.
+    onChunk(
+      `\n\n⚠️ The agent reached the ${MAX_ROUNDS}-round limit and may not have finished. ` +
+      `Reply **"continue"** to pick up where it left off.`,
+    );
+    onDone();
   } catch (err) {
+    // AbortError = intentional interrupt by the user sending a new message — swallow silently
+    if (err instanceof Error && (err.name === 'AbortError' || err.message === 'AbortError')) return;
     onError(err instanceof Error ? err : new Error(String(err)));
   }
 }

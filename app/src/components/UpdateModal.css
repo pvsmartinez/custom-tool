@@ -5,7 +5,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  z-index: var(--z-modal);
   backdrop-filter: blur(3px);
 }
 
@@ -13,13 +13,13 @@
   width: 660px;
   max-width: 92vw;
   max-height: 80vh;
-  background: #1e2127;
-  border: 1px solid #3e4451;
-  border-radius: 10px;
+  background: var(--bg);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius-lg);
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6);
+  box-shadow: var(--shadow-lg);
 }
 
 /* Header */
@@ -28,42 +28,42 @@
   align-items: center;
   justify-content: space-between;
   padding: 12px 16px;
-  background: #21252b;
-  border-bottom: 1px solid #2c313a;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
 
 .um-title {
-  font-size: 13px;
+  font-size: var(--font-size-base);
   font-weight: 600;
-  color: #abb2bf;
+  color: var(--text);
   letter-spacing: 0.02em;
 }
 
 .um-close {
   background: none;
   border: none;
-  color: #636d83;
-  font-size: 15px;
+  color: var(--text-muted);
+  font-size: var(--font-size-md);
   cursor: pointer;
   padding: 2px 6px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   line-height: 1;
-  transition: color 0.15s;
+  transition: color var(--transition-base);
 }
 
-.um-close:hover { color: #abb2bf; }
+.um-close:hover { color: var(--text); }
 
 /* Log area */
 .um-log {
   flex: 1;
   overflow-y: auto;
   padding: 12px 16px;
-  font-family: 'SF Mono', 'Menlo', 'Monaco', 'Courier New', monospace;
+  font-family: var(--font-mono);
   font-size: 11.5px;
   line-height: 1.65;
-  color: #636d83;
-  background: #1a1d23;
+  color: var(--text-muted);
+  background: var(--surface-code);
   min-height: 220px;
 }
 
@@ -74,7 +74,7 @@
 
 /* Lines that look like progress or success */
 .um-line:is(:has(*), [data-ok]) {
-  color: #abb2bf;
+  color: var(--text);
 }
 
 /* Status bar */
@@ -84,28 +84,28 @@
   justify-content: space-between;
   gap: 10px;
   padding: 10px 16px;
-  font-size: 13px;
+  font-size: var(--font-size-base);
   font-weight: 500;
-  border-top: 1px solid #2c313a;
+  border-top: 1px solid var(--border);
   flex-shrink: 0;
 }
 
 .um-status--building {
-  color: #e5c07b;
+  color: var(--yellow);
 }
 
 .um-status--success {
-  color: #98c379;
+  color: var(--green);
 }
 
 .um-status--error {
-  color: #e06c75;
+  color: var(--red);
 }
 
 .um-spinner {
   display: inline-block;
   animation: um-spin 1s linear infinite;
-  margin-right: 4px;
+  margin-right: var(--space-2);
 }
 
 @keyframes um-spin {
@@ -115,23 +115,23 @@
 
 /* Copy button */
 .um-copy-btn {
-  background: #2c313a;
-  border: 1px solid #3e4451;
-  color: #abb2bf;
-  font-size: 12px;
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  color: var(--text);
+  font-size: var(--font-size-sm);
   padding: 4px 12px;
-  border-radius: 5px;
+  border-radius: var(--radius-md);
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all var(--transition-base);
   white-space: nowrap;
 }
 
 .um-copy-btn:hover {
-  border-color: #e06c75;
-  color: #e06c75;
+  border-color: var(--red);
+  color: var(--red);
 }
 
 .um-copy-btn--done {
-  border-color: #98c379 !important;
-  color: #98c379 !important;
+  border-color: var(--green) !important;
+  color: var(--green) !important;
 }

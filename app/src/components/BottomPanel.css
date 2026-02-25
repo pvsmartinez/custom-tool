@@ -1,0 +1,306 @@
+/* ── Bottom Terminal Panel ──────────────────────────────────────────────────── */
+
+.bottom-panel {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+  overflow: hidden;
+  transition: height var(--transition-fast);
+  position: relative;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+}
+
+/* ── Drag handle at the very top ─────────────────────────────────────────── */
+.bottom-panel-grip {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 5px;
+  cursor: ns-resize;
+  z-index: var(--z-raised);
+  background: transparent;
+}
+.bottom-panel-grip:hover {
+  background: var(--accent);
+  opacity: 0.4;
+}
+
+/* ── Tab row ─────────────────────────────────────────────────────────────── */
+.bottom-panel-tabrow {
+  height: 36px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  user-select: none;
+  padding-left: var(--space-2);
+}
+
+.bottom-panel-tab {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0 14px;
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  font-family: var(--font-ui);
+  font-weight: 500;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  border-bottom: 2px solid transparent;
+  transition: color 0.1s;
+  min-width: 0;
+  overflow: hidden;
+  flex: 1;
+}
+.bottom-panel-tab:hover {
+  color: var(--text);
+}
+.bottom-panel-tab.active {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+
+.bottom-panel-tab-icon {
+  font-size: var(--font-size-base);
+  opacity: 0.7;
+}
+
+/* Last-line preview shown when the panel is collapsed */
+.bottom-panel-preview {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  overflow: hidden;
+  max-width: 480px;
+}
+
+.bottom-panel-preview-sep {
+  color: var(--text-muted);
+  opacity: 0.5;
+  flex-shrink: 0;
+  font-size: var(--font-size-xs);
+}
+
+.bottom-panel-preview-text {
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono);
+}
+
+.bottom-panel-tabrow-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding-right: var(--space-4);
+}
+
+.bottom-panel-action-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px 7px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-md);
+  line-height: 1;
+  transition: color 0.1s, background 0.1s;
+}
+.bottom-panel-action-btn:hover {
+  color: var(--text);
+  background: var(--hover-bg);
+}
+
+/* ── Body ────────────────────────────────────────────────────────────────── */
+.bottom-panel-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* ── Scrollable output ───────────────────────────────────────────────────── */
+.bottom-panel-scroll {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: auto;
+  padding: 6px 0;
+  min-height: 0;
+}
+
+.bottom-panel-empty {
+  padding: 14px 16px;
+  color: var(--text-muted);
+  font-family: var(--font-ui);
+  font-size: var(--font-size-sm);
+  font-style: italic;
+}
+
+/* ── Individual entry ────────────────────────────────────────────────────── */
+.bottom-panel-entry {
+  padding: 4px 16px 2px;
+  border-bottom: 1px solid transparent;
+  animation: entry-appear var(--transition-fast);
+}
+.bottom-panel-entry:hover {
+  background: var(--hover-bg);
+}
+.bottom-panel-entry.ai {
+  border-left: 2px solid var(--accent);
+  padding-left: 14px;
+}
+
+@keyframes entry-appear {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.bottom-panel-cmd-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: nowrap;
+  overflow: hidden;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.bottom-panel-source-badge {
+  font-size: var(--font-size-2xs);
+  font-family: var(--font-ui);
+  background: rgba(64, 120, 242, 0.15);
+  color: var(--accent);
+  border-radius: var(--radius-sm);
+  padding: 1px 5px;
+  flex-shrink: 0;
+  font-weight: 500;
+}
+
+.bottom-panel-prompt-path {
+  color: var(--green, #50a14f);
+  font-weight: 500;
+  flex-shrink: 0;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bottom-panel-prompt-sym {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.bottom-panel-cmd-text {
+  color: var(--text);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bottom-panel-exit {
+  flex-shrink: 0;
+  font-size: var(--font-size-2xs);
+  font-family: var(--font-ui);
+}
+.bottom-panel-exit.err {
+  color: var(--red, #e45649);
+}
+
+.bottom-panel-output {
+  margin: 2px 0 6px;
+  padding-left: var(--space-6);
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+}
+.bottom-panel-output.stderr {
+  color: var(--red, #e45649);
+}
+
+.bottom-panel-running {
+  padding: 6px 16px;
+  color: var(--text-muted);
+  font-style: italic;
+  animation: blink 1s step-start infinite;
+}
+
+@keyframes blink {
+  50% { opacity: 0.4; }
+}
+
+/* ── Input row ───────────────────────────────────────────────────────────── */
+.bottom-panel-input-row {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px 6px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.bottom-panel-input {
+  flex: 1;
+  background: none;
+  border: none;
+  outline: none;
+  color: var(--text);
+  font-family: inherit;
+  font-size: var(--font-size-sm);
+  caret-color: var(--accent);
+  min-width: 0;
+}
+.bottom-panel-input::placeholder {
+  color: var(--text-muted);
+  opacity: 0.5;
+}
+.bottom-panel-input:disabled {
+  opacity: 0.4;
+}
+
+.bottom-panel-run-btn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-base);
+  line-height: 1.2;
+  flex-shrink: 0;
+  transition: color 0.1s, background 0.1s;
+}
+.bottom-panel-run-btn:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--hover-bg);
+}
+.bottom-panel-run-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+/* ── Dark-mode tweaks ────────────────────────────────────────────────────── */
+[data-theme='dark'] .bottom-panel {
+  background: var(--bg);
+}
+[data-theme='dark'] .bottom-panel-tabrow {
+  background: var(--bg);
+}
+[data-theme='dark'] .bottom-panel-input-row {
+  background: var(--fmt-bg);
+}
