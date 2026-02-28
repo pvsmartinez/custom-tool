@@ -55,7 +55,7 @@ function canvasBasename(relPath: string): string {
 
 /** List all workspace files (flat), skipping hidden/generated dirs */
 export async function listAllFiles(wsPath: string, rel = ''): Promise<string[]> {
-  const SKIP = new Set(['.git', '.customtool', 'node_modules', '.DS_Store']);
+  const SKIP = new Set(['.git', '.cafezin', 'node_modules', '.DS_Store']);
   let entries;
   try { entries = await readDir(`${wsPath}${rel ? `/${rel}` : ''}`); } catch { return []; }
   const files: string[] = [];
@@ -163,14 +163,16 @@ async function exportCanvasPNG(
     return { targetId: target.id, outputs: [], errors: ['No canvas files matched this target. Check the include extensions or pinned file list.'], elapsed: Date.now() - t0 };
   }
 
-  for (const rel of files) {
+  for (let fi = 0; fi < files.length; fi++) {
+    const rel = files[fi];
     let opened = false;
     if (rel !== opts.activeCanvasRel || !liveEditor()) {
       if (opts.onOpenFileForExport) {
         try { await opts.onOpenFileForExport(rel); opened = true; }
-        catch (e) { errors.push(`${rel}: could not open canvas — ${e}`); continue; }
+        catch (e) { errors.push(`${rel}: could not open canvas — ${e}`); opts.onProgress?.(fi + 1, files.length, rel); continue; }
       } else {
         errors.push(`${rel}: canvas must be open in the editor to export PNG.`);
+        opts.onProgress?.(fi + 1, files.length, rel);
         continue;
       }
     }
@@ -178,11 +180,12 @@ async function exportCanvasPNG(
     if (!editor) {
       errors.push(`${rel}: editor not available after open`);
       if (opened) opts.onRestoreAfterExport?.(); // must restore even without entering the try block
+      opts.onProgress?.(fi + 1, files.length, rel);
       continue;
     }
     try {
       const shapes = editor.getCurrentPageShapes();
-      if (!shapes.length) { errors.push(`${rel}: canvas is empty`); continue; }
+      if (!shapes.length) { errors.push(`${rel}: canvas is empty`); opts.onProgress?.(fi + 1, files.length, rel); continue; }
       const frames = (shapes as AnyFrame[]).filter((s) => s.type === 'frame').sort((a, b) => a.x - b.x);
       const ids = frames.length ? frames.map((f) => f.id) : shapes.map((s) => s.id);
 
@@ -201,6 +204,7 @@ async function exportCanvasPNG(
     } finally {
       if (opened) opts.onRestoreAfterExport?.();
     }
+    opts.onProgress?.(fi + 1, files.length, rel);
   }
   return { targetId: target.id, outputs, errors, elapsed: Date.now() - t0 };
 }
@@ -225,14 +229,16 @@ async function exportCanvasPDF(
     return { targetId: target.id, outputs: [], errors: ['No canvas files matched this target. Check the include extensions or pinned file list.'], elapsed: Date.now() - t0 };
   }
 
-  for (const rel of files) {
+  for (let fi = 0; fi < files.length; fi++) {
+    const rel = files[fi];
     let opened = false;
     if (rel !== opts.activeCanvasRel || !liveEditor()) {
       if (opts.onOpenFileForExport) {
         try { await opts.onOpenFileForExport(rel); opened = true; }
-        catch (e) { errors.push(`${rel}: could not open canvas — ${e}`); continue; }
+        catch (e) { errors.push(`${rel}: could not open canvas — ${e}`); opts.onProgress?.(fi + 1, files.length, rel); continue; }
       } else {
         errors.push(`${rel}: canvas must be open in the editor to export.`);
+        opts.onProgress?.(fi + 1, files.length, rel);
         continue;
       }
     }
@@ -240,12 +246,13 @@ async function exportCanvasPDF(
     if (!editor) {
       errors.push(`${rel}: editor not available after open`);
       if (opened) opts.onRestoreAfterExport?.(); // must restore even without entering the try block
+      opts.onProgress?.(fi + 1, files.length, rel);
       continue;
     }
 
     try {
       const shapes = editor.getCurrentPageShapes();
-      if (!shapes.length) { errors.push(`${rel}: canvas is empty`); continue; }
+      if (!shapes.length) { errors.push(`${rel}: canvas is empty`); opts.onProgress?.(fi + 1, files.length, rel); continue; }
       const frames = (shapes as AnyFrame[]).filter((s) => s.type === 'frame').sort((a, b) => a.x - b.x);
       const slideIds = frames.length ? frames.map((f) => f.id) : [null];
       const allIds   = shapes.map((s) => s.id);
@@ -277,6 +284,7 @@ async function exportCanvasPDF(
     } finally {
       if (opened) opts.onRestoreAfterExport?.();
     }
+    opts.onProgress?.(fi + 1, files.length, rel);
   }
 
   if (target.merge && mergePdf) {
@@ -398,6 +406,13 @@ export interface RunExportOptions {
   onOpenFileForExport?: (relPath: string) => Promise<void>;
   /** Restore the previous tab after each canvas file export. */
   onRestoreAfterExport?: () => void;
+  /**
+   * Progress callback fired after each canvas file is processed.
+   * @param done   Number of canvas files completed so far.
+   * @param total  Total canvas files to process.
+   * @param label  Relative path of the just-finished file.
+   */
+  onProgress?: (done: number, total: number, label: string) => void;
 }
 
 export async function runExportTarget(opts: RunExportOptions): Promise<ExportResult> {

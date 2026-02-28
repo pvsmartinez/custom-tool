@@ -1,66 +1,50 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { X, Check, CaretLeft, CaretRight, CaretDown, Play, FolderSimple, Copy, Warning, FolderPlus, Minus } from '@phosphor-icons/react';
 import { invoke } from '@tauri-apps/api/core';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import { createFile, createCanvasFile, createFolder, refreshWorkspaceFiles, deleteFile, duplicateFile, duplicateFolder, renameFile, moveFile, updateFileReferences } from '../services/workspace';
 import SyncModal from './SyncModal';
 import ProjectSearchPanel from './ProjectSearchPanel';
-import type { Workspace, FileTreeNode, AIEditMark } from '../types';
+import type { Workspace, FileTreeNode, AIEditMark, SidebarButton } from '../types';
 import { loadWorkspaceSession, saveWorkspaceSession } from '../services/workspaceSession';
 import './Sidebar.css';
 
 // ── File-type icon helper ───────────────────────────────────────────────────
-function fileIcon(name: string): React.ReactNode {
-  if (name.endsWith('.tldr.json')) return '◈';
+/**
+ * Returns both the icon glyph/element and the CSS class for a filename in one
+ * pass.  Previously `fileIcon` and `fileIconCls` traversed identical extension
+ * lists separately — merging them halves the work and removes the risk of the
+ * two functions drifting out of sync.
+ */
+function fileIconInfo(name: string): { icon: React.ReactNode; cls: string } {
+  if (name.endsWith('.tldr.json')) return { icon: '◈', cls: 'sidebar-icon--canvas' };
   const ext = name.split('.').pop()?.toLowerCase() ?? '';
-  if (['md', 'mdx'].includes(ext)) return '≣';
-  if (['ts', 'tsx'].includes(ext)) return 'TS';
-  if (['js', 'jsx', 'mjs'].includes(ext)) return 'JS';
-  if (['json', 'jsonc'].includes(ext)) return '{}';
-  if (['css', 'scss', 'less'].includes(ext)) return '#';
-  if (['html', 'htm'].includes(ext)) return '<>';
-  if (ext === 'rs') return 'Rs';
-  if (ext === 'py') return 'Py';
-  if (ext === 'go') return 'Go';
-  if (['c', 'cpp', 'h', 'hpp'].includes(ext)) return 'C';
-  if (ext === 'java') return 'Jv';
-  if (['kt', 'kts'].includes(ext)) return 'Kt';
-  if (ext === 'swift') return 'Sw';
-  if (ext === 'rb') return 'Rb';
-  if (ext === 'php') return 'Php';
-  if (['toml', 'yaml', 'yml'].includes(ext)) return '≡';
-  if (['sh', 'bash', 'zsh', 'fish'].includes(ext)) return '$';
-  if (ext === 'pdf') return 'PDF';
-  if (['mp4', 'webm', 'mov', 'm4v', 'mkv', 'ogv', 'avi'].includes(ext)) return <Play weight="thin" size={11} />;
-  if (ext === 'gif') return 'GIF';
-  if (['mp3', 'wav', 'aac', 'ogg', 'flac', 'm4a'].includes(ext)) return '♪';
-  if (['png', 'jpg', 'jpeg', 'svg', 'webp', 'bmp', 'ico', 'avif', 'tiff', 'tif'].includes(ext)) return '⊡';
-  return '·';
-}
-
-function fileIconCls(name: string): string {
-  if (name.endsWith('.tldr.json')) return 'sidebar-icon--canvas';
-  const ext = name.split('.').pop()?.toLowerCase() ?? '';
-  if (['md', 'mdx'].includes(ext)) return 'sidebar-icon--md';
-  if (['ts', 'tsx'].includes(ext)) return 'sidebar-icon--ts';
-  if (['js', 'jsx', 'mjs'].includes(ext)) return 'sidebar-icon--js';
-  if (['json', 'jsonc'].includes(ext)) return 'sidebar-icon--json';
-  if (['css', 'scss', 'less'].includes(ext)) return 'sidebar-icon--css';
-  if (['html', 'htm'].includes(ext)) return 'sidebar-icon--html';
-  if (ext === 'rs') return 'sidebar-icon--rs';
-  if (ext === 'py') return 'sidebar-icon--py';
-  if (ext === 'go') return 'sidebar-icon--go';
-  if (['c', 'cpp', 'h', 'hpp'].includes(ext)) return 'sidebar-icon--c';
-  if (['java', 'kt', 'kts'].includes(ext)) return 'sidebar-icon--java';
-  if (ext === 'swift') return 'sidebar-icon--swift';
-  if (['rb', 'php'].includes(ext)) return 'sidebar-icon--rb';
-  if (['toml', 'yaml', 'yml'].includes(ext)) return 'sidebar-icon--cfg';
-  if (['sh', 'bash', 'zsh', 'fish'].includes(ext)) return 'sidebar-icon--sh';
-  if (ext === 'pdf') return 'sidebar-icon--pdf';
-  if (['mp4', 'webm', 'mov', 'm4v', 'mkv', 'ogv', 'avi'].includes(ext)) return 'sidebar-icon--video';
-  if (['gif', 'mp3', 'wav', 'aac', 'ogg', 'flac', 'm4a'].includes(ext)) return 'sidebar-icon--media';
-  if (['png', 'jpg', 'jpeg', 'svg', 'webp', 'bmp', 'ico', 'avif', 'tiff', 'tif'].includes(ext)) return 'sidebar-icon--image';
-  return '';
+  if (['md', 'mdx'].includes(ext))               return { icon: '≣',  cls: 'sidebar-icon--md' };
+  if (['ts', 'tsx'].includes(ext))               return { icon: 'TS', cls: 'sidebar-icon--ts' };
+  if (['js', 'jsx', 'mjs'].includes(ext))        return { icon: 'JS', cls: 'sidebar-icon--js' };
+  if (['json', 'jsonc'].includes(ext))           return { icon: '{}', cls: 'sidebar-icon--json' };
+  if (['css', 'scss', 'less'].includes(ext))     return { icon: '#',  cls: 'sidebar-icon--css' };
+  if (['html', 'htm'].includes(ext))             return { icon: '<>', cls: 'sidebar-icon--html' };
+  if (ext === 'rs')                              return { icon: 'Rs', cls: 'sidebar-icon--rs' };
+  if (ext === 'py')                              return { icon: 'Py', cls: 'sidebar-icon--py' };
+  if (ext === 'go')                              return { icon: 'Go', cls: 'sidebar-icon--go' };
+  if (['c', 'cpp', 'h', 'hpp'].includes(ext))   return { icon: 'C',  cls: 'sidebar-icon--c' };
+  if (ext === 'java')                            return { icon: 'Jv', cls: 'sidebar-icon--java' };
+  if (['kt', 'kts'].includes(ext))              return { icon: 'Kt', cls: 'sidebar-icon--java' };
+  if (ext === 'swift')                           return { icon: 'Sw', cls: 'sidebar-icon--swift' };
+  if (ext === 'rb')                              return { icon: 'Rb', cls: 'sidebar-icon--rb' };
+  if (ext === 'php')                             return { icon: 'Php', cls: 'sidebar-icon--rb' };
+  if (['toml', 'yaml', 'yml'].includes(ext))    return { icon: '≡',  cls: 'sidebar-icon--cfg' };
+  if (['sh', 'bash', 'zsh', 'fish'].includes(ext)) return { icon: '$', cls: 'sidebar-icon--sh' };
+  if (ext === 'pdf')                             return { icon: 'PDF', cls: 'sidebar-icon--pdf' };
+  if (['mp4', 'webm', 'mov', 'm4v', 'mkv', 'ogv', 'avi'].includes(ext))
+                                                 return { icon: <Play weight="thin" size={11} />, cls: 'sidebar-icon--video' };
+  if (ext === 'gif')                             return { icon: 'GIF', cls: 'sidebar-icon--media' };
+  if (['mp3', 'wav', 'aac', 'ogg', 'flac', 'm4a'].includes(ext))
+                                                 return { icon: '♪',  cls: 'sidebar-icon--media' };
+  if (['png', 'jpg', 'jpeg', 'svg', 'webp', 'bmp', 'ico', 'avif', 'tiff', 'tif'].includes(ext))
+                                                 return { icon: '⊡', cls: 'sidebar-icon--image' };
+  return { icon: '·', cls: '' };
 }
 
 // ── File-type groups for the three-category creator ────────────────────────
@@ -68,6 +52,7 @@ type FileCategory = 'canvas' | 'text' | 'code';
 
 const TEXT_TYPES = [
   { ext: '.md',   label: 'Markdown' },
+  { ext: '.mdx',  label: 'MDX' },
   { ext: '.txt',  label: 'Plain text' },
   { ext: '.json', label: 'JSON' },
 ];
@@ -239,6 +224,8 @@ function TreeNodeItem({
     requestAnimationFrame(() => document.body.removeChild(ghost));
   }
 
+  const { icon: fileIconNode, cls: fileIconCls } = fileIconInfo(node.name);
+
   return (
     <button
       className={`sidebar-tree-row sidebar-tree-file ${activeFile === node.path ? 'active' : ''}${hasUnseenAi ? ' unseen-ai' : ''}${isImage ? ' draggable-image' : ''}${isLocked ? ' copilot-locked' : ''}${multiSelected.has(node.path) ? ' multi-selected' : ''}`}
@@ -263,7 +250,7 @@ function TreeNodeItem({
       onContextMenu={(e) => { e.preventDefault(); onContextMenu(e, node.path, false); }}
       title={isImage ? `${node.path}\nDrag to canvas or folder` : node.path}
     >
-      <span className={`sidebar-tree-icon ${fileIconCls(node.name)}`}>{fileIcon(node.name)}</span>
+      <span className={`sidebar-tree-icon ${fileIconCls}`}>{fileIconNode}</span>
       {isRenaming ? (
         <input
           ref={renameInputRef as React.RefObject<HTMLInputElement>}
@@ -348,6 +335,8 @@ interface SidebarProps {
   onSidebarModeChange: (mode: 'explorer' | 'search') => void;
   /** Open terminal panel and cd to this relative directory ('' = workspace root) */
   onOpenTerminalAt?: (relDir: string) => void;
+  /** Called when user clicks a custom workspace button */
+  onRunButtonCommand?: (command: string, label: string) => void;
   /** If provided, assigned to startCreating('','file') so parent can trigger new-file via ⌘T/⌘N */
   newFileRef?: { current: (() => void) | null };
 }
@@ -376,6 +365,7 @@ export default function Sidebar({
   sidebarMode,
   onSidebarModeChange,
   onOpenTerminalAt,
+  onRunButtonCommand,
   newFileRef,
 }: SidebarProps) {
   // ── Creator state ──────────────────────────────────────────────────────────
@@ -400,13 +390,21 @@ export default function Sidebar({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [newFileRef]);
 
-  function isDirectory(relPath: string): boolean {
-    function findDir(n: FileTreeNode): boolean {
-      if (n.path === relPath && n.isDirectory) return true;
-      return (n.children ?? []).some(findDir);
+  // Memoised set of all directory rel-paths — O(n) once per fileTree change
+  // rather than O(n) on every rename/delete/drop event.
+  const dirSet = useMemo<Set<string>>(() => {
+    const set = new Set<string>();
+    function walk(nodes: FileTreeNode[]) {
+      for (const n of nodes) {
+        if (n.isDirectory) {
+          set.add(n.path);
+          if (n.children) walk(n.children);
+        }
+      }
     }
-    return workspace.fileTree.some(findDir);
-  }
+    walk(workspace.fileTree);
+    return set;
+  }, [workspace.fileTree]);
 
   // ── Rename state ───────────────────────────────────────────────────────────
   const [renamingPath, setRenamingPath] = useState<string | null>(null);
@@ -436,7 +434,7 @@ export default function Sidebar({
     const dir = slashIdx >= 0 ? oldPath.substring(0, slashIdx) : '';
     const newPath = dir ? `${dir}/${trimmed}` : trimmed;
     if (newPath === oldPath) { cancelRename(); return; }
-    const dir_ = isDirectory(oldPath);
+    const dir_ = dirSet.has(oldPath);
     await updateFileReferences(workspace, workspace.fileTree, oldPath, newPath, dir_);
     await renameFile(workspace, oldPath, newPath);
     const { files, fileTree } = await refreshWorkspaceFiles(workspace);
@@ -505,7 +503,7 @@ export default function Sidebar({
     // Don't move into own parent (no-op)
     const srcDir = srcRel.includes('/') ? srcRel.substring(0, srcRel.lastIndexOf('/')) : '';
     if (srcDir === destDir) return;
-    const isDir_ = isDirectory(srcRel);
+    const isDir_ = dirSet.has(srcRel);
     const newRel = destDir ? `${destDir}/${srcRel.split('/').pop()!}` : srcRel.split('/').pop()!;
     await updateFileReferences(workspace, workspace.fileTree, srcRel, newRel, isDir_);
     await moveFile(workspace, srcRel, destDir);
@@ -516,10 +514,7 @@ export default function Sidebar({
 
   async function handleDeleteFile(relPath: string) {
     const name = relPath.split('/').pop() ?? relPath;
-    const isDir = workspace.fileTree.some(function findDir(n: FileTreeNode): boolean {
-      if (n.path === relPath && n.isDirectory) return true;
-      return (n.children ?? []).some(findDir);
-    });
+    const isDir = dirSet.has(relPath);
     const msg = isDir
       ? `Delete folder "${name}" and all its contents?\n\nThis will be tracked in git and can be reverted via Sync.`
       : `Delete "${name}"?\n\nThis will be tracked in git and can be reverted via Sync.`;
@@ -551,7 +546,7 @@ export default function Sidebar({
     const srcDir = srcPath.includes('/') ? srcPath.substring(0, srcPath.lastIndexOf('/')) : '';
     if (destDir === srcDir) return; // already there
     if (destDir === srcPath || destDir.startsWith(srcPath + '/')) return; // can't move into self
-    const isDir_ = isDirectory(srcPath);
+    const isDir_ = dirSet.has(srcPath);
     const newRel = destDir ? `${destDir}/${srcPath.split('/').pop()!}` : srcPath.split('/').pop()!;
     await updateFileReferences(workspace, workspace.fileTree, srcPath, newRel, isDir_);
     await moveFile(workspace, srcPath, destDir);
@@ -1040,6 +1035,17 @@ export default function Sidebar({
           ⊡ Google
         </button>
         */}
+        {/* Custom workspace buttons */}
+        {(workspace.config.sidebarButtons ?? []).map((btn: SidebarButton) => (
+          <button
+            key={btn.id}
+            className="sidebar-btn sidebar-btn-custom"
+            title={btn.description ?? btn.command}
+            onClick={() => onRunButtonCommand?.(btn.command, btn.label)}
+          >
+            {btn.label}
+          </button>
+        ))}
         <button className="sidebar-btn sidebar-btn-images" onClick={onImageSearch}>
           ⊡ Images
         </button>

@@ -5,7 +5,7 @@
   "identifier": "com.pvsmartinez.cafezin",
   "build": {
     "beforeDevCommand": "npm run dev",
-    "devUrl": "http://localhost:1420",
+    "devUrl": "http://localhost:1430",
     "beforeBuildCommand": "npm run build",
     "frontendDist": "../dist"
   },
@@ -30,6 +30,9 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "iOS": {
+      "developmentTeam": "8VV48629P3"
+    },
     "macOS": {
       "infoPlist": "Info.plist"
     },

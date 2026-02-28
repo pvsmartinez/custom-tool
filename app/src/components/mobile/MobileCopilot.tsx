@@ -1,7 +1,9 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { marked } from 'marked';
 import {
   streamCopilotChat,
+  runCopilotAgent,
   startDeviceFlow,
   getStoredOAuthToken,
   clearOAuthToken,
@@ -9,9 +11,79 @@ import {
 } from '../../services/copilot';
 import type { DeviceFlowState } from '../../services/copilot';
 import { DEFAULT_MODEL, FALLBACK_MODELS } from '../../types';
-import type { ChatMessage, CopilotModelInfo } from '../../types';
+import type { ChatMessage, CopilotModelInfo, ToolActivity } from '../../types';
+import { WORKSPACE_TOOLS, buildToolExecutor } from '../../utils/workspaceTools';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import type { Workspace } from '../../types';
+
+marked.setOptions({ gfm: true, breaks: false });
+
+// Strip canvas + shell tools — neither is available on mobile
+const CANVAS_TOOLS = new Set([
+  'list_canvas_shapes', 'canvas_op', 'canvas_screenshot', 'add_canvas_image',
+]);
+const MOBILE_TOOLS = WORKSPACE_TOOLS.filter(
+  (t) => !CANVAS_TOOLS.has(t.function.name) && t.function.name !== 'run_command',
+);
+
+// ── Simple markdown renderer for chat bubbles ────────────────────────────────
+function MobileMdMessage({ content }: { content: string }) {
+  const html = useMemo(() => {
+    try { return marked.parse(content) as string; } catch { return content; }
+  }, [content]);
+  return (
+    <div
+      className="mb-msg-md-body"
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
+  );
+}
+
+// ── Tool activity chip ────────────────────────────────────────────────────────
+const TOOL_ICONS: Record<string, string> = {
+  read_workspace_file:      '📖',
+  write_workspace_file:     '✏️',
+  patch_workspace_file:     '🔧',
+  list_workspace_files:     '📂',
+  search_workspace:         '🔍',
+  rename_workspace_file:    '↔️',
+  delete_workspace_file:    '🗑️',
+  scaffold_workspace:       '🏗️',
+  check_file:               '✅',
+  web_search:               '🌐',
+  fetch_url:                '🔗',
+  search_stock_images:      '🖼',
+  remember:                 '💾',
+  export_workspace:         '📦',
+  configure_export_targets: '⚙️',
+  mark_for_review:          '🚩',
+  screenshot_preview:       '📷',
+};
+
+function ToolChip({ activity }: { activity: ToolActivity }) {
+  const icon = TOOL_ICONS[activity.name] ?? '⚡';
+  const label = activity.name.replace(/_/g, ' ');
+  const isDone = activity.result !== undefined || activity.error !== undefined;
+  const isError = !!activity.error;
+
+  const args = activity.args ?? {};
+  let argHint = '';
+  if (args.path)    argHint = String(args.path).split('/').pop() ?? '';
+  else if (args.query)   argHint = String(args.query).slice(0, 28);
+  else if (args.content) argHint = String(args.content).slice(0, 28);
+  else if (args.url)     argHint = String(args.url).replace(/^https?:\/\//, '').slice(0, 28);
+
+  return (
+    <div className={`mb-tool-chip ${isDone ? (isError ? 'error' : 'done') : 'running'}`}>
+      <span className="mb-tool-icon">{icon}</span>
+      <span className="mb-tool-label">{label}</span>
+      {argHint && <span className="mb-tool-hint">{argHint}</span>}
+      <span className="mb-tool-status">
+        {!isDone ? <span className="mb-tool-spinner" /> : isError ? '✗' : '✓'}
+      </span>
+    </div>
+  );
+}
 
 const GROQ_KEY = 'cafezin-groq-key';
 function getGroqKey(): string { return localStorage.getItem(GROQ_KEY) ?? ''; }
@@ -22,16 +94,19 @@ interface MobileCopilotProps {
   /** Relative path of the currently open file — used as context */
   contextFilePath?: string;
   contextFileContent?: string;
+  /** Called when agent writes/patches a file so the file tree can refresh */
+  onFileWritten?: (path: string) => void;
 }
 
 export default function MobileCopilot({
   workspace,
   contextFilePath,
   contextFileContent,
+  onFileWritten,
 }: MobileCopilotProps) {
   // ── Auth ─────────────────────────────────────────────────────────────────
   const [authStatus, setAuthStatus] = useState<'checking' | 'unauthenticated' | 'connecting' | 'authenticated'>(
-    () => getStoredOAuthToken() ? 'authenticated' : 'unauthenticated'
+    () => getStoredOAuthToken() ? 'authenticated' : 'unauthenticated',
   );
   const [deviceFlow, setDeviceFlow] = useState<DeviceFlowState | null>(null);
 
@@ -70,6 +145,8 @@ export default function MobileCopilot({
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [streaming, setStreaming] = useState(false);
   const [streamingText, setStreamingText] = useState('');
+  /** Live tool activities for the in-flight agent turn */
+  const [liveActivities, setLiveActivities] = useState<ToolActivity[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const abortRef = useRef<AbortController | null>(null);
@@ -78,7 +155,7 @@ export default function MobileCopilot({
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, streamingText]);
+  }, [messages, streamingText, liveActivities]);
 
   // Auto-grow textarea
   useEffect(() => {
@@ -88,11 +165,24 @@ export default function MobileCopilot({
     el.style.height = Math.min(el.scrollHeight, 140) + 'px';
   }, [input]);
 
+  function handleStop() {
+    abortRef.current?.abort();
+  }
+
+  function handleClear() {
+    if (streaming) handleStop();
+    setMessages([]);
+    setStreamingText('');
+    setLiveActivities([]);
+    setError(null);
+  }
+
   async function handleSend() {
     const text = input.trim();
     if (!text || streaming) return;
     setInput('');
     setError(null);
+    setLiveActivities([]);
 
     const userMsg: ChatMessage = { role: 'user', content: text };
     const newMessages = [...messages, userMsg];
@@ -104,20 +194,16 @@ export default function MobileCopilot({
     ];
     if (workspace) {
       systemParts.push(`Workspace: ${workspace.name}.`);
-    }
-    if (workspace?.agentContext) {
-      systemParts.push(`\n${workspace.agentContext}`);
+      if (workspace.agentContext) systemParts.push(`\n${workspace.agentContext}`);
     }
     if (contextFilePath && contextFileContent) {
       systemParts.push(
-        `\nThe user has "${contextFilePath}" open:\n\`\`\`\n${contextFileContent.slice(0, 4000)}\n\`\`\``
+        `\nThe user has "${contextFilePath}" open:\n\`\`\`\n${contextFileContent.slice(0, 20_000)}\n\`\`\``,
       );
     }
 
-    const apiMessages: ChatMessage[] = [
-      { role: 'system', content: systemParts.join('\n') },
-      ...newMessages,
-    ];
+    const systemPrompt: ChatMessage = { role: 'system', content: systemParts.join('\n') };
+    const apiMessages: ChatMessage[] = [systemPrompt, ...newMessages];
 
     const abort = new AbortController();
     abortRef.current = abort;
@@ -126,32 +212,62 @@ export default function MobileCopilot({
 
     let accumulated = '';
 
-    try {
-      await streamCopilotChat(
+    const onChunk = (chunk: string) => {
+      accumulated += chunk;
+      setStreamingText(accumulated);
+    };
+
+    const onDone = () => {
+      if (accumulated) {
+        setMessages(prev => [...prev, { role: 'assistant', content: accumulated }]);
+      }
+      setStreamingText('');
+      setLiveActivities([]);
+      setStreaming(false);
+      abortRef.current = null;
+    };
+
+    const onError = (err: Error) => {
+      if (accumulated) {
+        setMessages(prev => [...prev, { role: 'assistant', content: accumulated }]);
+      }
+      setStreamingText('');
+      setLiveActivities([]);
+      setStreaming(false);
+      setError(err.message);
+      abortRef.current = null;
+    };
+
+    if (workspace) {
+      // Full agent loop with workspace tools (canvas + shell blocked on mobile)
+      const executor = buildToolExecutor(
+        workspace.path,
+        { current: null }, // no canvas on mobile
+        onFileWritten,
+      );
+      await runCopilotAgent(
         apiMessages,
-        /* onChunk */ (chunk: string) => {
-          accumulated += chunk;
-          setStreamingText(accumulated);
+        MOBILE_TOOLS,
+        executor,
+        onChunk,
+        (activity: ToolActivity) => {
+          setLiveActivities(prev => {
+            const idx = prev.findIndex(a => a.callId === activity.callId);
+            if (idx >= 0) { const next = [...prev]; next[idx] = activity; return next; }
+            return [...prev, activity];
+          });
         },
-        /* onDone */ () => {},
-        /* onError */ (err: Error) => {
-          setError(err.message);
-        },
+        onDone,
+        onError,
         model,
+        workspace.path,
         undefined,
         abort.signal,
       );
-    } catch {
-      // aborted or network error — keep accumulated text if any
+    } else {
+      // No workspace — plain streaming chat
+      await streamCopilotChat(apiMessages, onChunk, onDone, onError, model, undefined, abort.signal);
     }
-
-    // Commit streamed text as assistant message
-    if (accumulated) {
-      setMessages(prev => [...prev, { role: 'assistant', content: accumulated }]);
-    }
-    setStreamingText('');
-    setStreaming(false);
-    abortRef.current = null;
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
@@ -224,8 +340,7 @@ export default function MobileCopilot({
     setShowGroqSetup(false);
   }
 
-  // ── Render ─────────────────────────────────────────────────────────────
-
+  // ── Auth screen ──────────────────────────────────────────────────────────
   if (authStatus === 'unauthenticated' || authStatus === 'connecting') {
     return (
       <div className="mb-chat">
@@ -272,100 +387,109 @@ export default function MobileCopilot({
 
   return (
     <div className="mb-chat">
+      {/* Header */}
       <div className="mb-header">
         <span className="mb-header-title">Copilot</span>
         <button
-          className="mb-icon-btn"
-          style={{ fontSize: 12, padding: '4px 10px', borderRadius: 8, background: 'var(--mb-surface2)', color: 'var(--mb-muted)' }}
+          className="mb-icon-btn mb-model-btn"
           onClick={() => setShowModelPicker(v => !v)}
+          title="Switch model"
         >
           {currentModel.name} ▾
         </button>
+        {messages.length > 0 && (
+          <button className="mb-icon-btn" onClick={handleClear} title="New chat" style={{ fontSize: 14 }}>
+            ✕
+          </button>
+        )}
         <button className="mb-icon-btn" onClick={handleSignOut} title="Sign out" style={{ fontSize: 14, color: 'var(--mb-muted)' }}>
           ⊘
         </button>
       </div>
 
-      {/* Model picker dropdown */}
+      {/* Model picker */}
       {showModelPicker && (
-        <div style={{
-          background: 'var(--mb-surface)',
-          border: '1px solid var(--mb-border)',
-          borderRadius: 10,
-          margin: '0 12px',
-          padding: '8px 0',
-          position: 'relative',
-          zIndex: 20,
-          maxHeight: 220,
-          overflowY: 'auto',
-        }}>
+        <div className="mb-model-picker">
           {models.map(m => (
             <button
               key={m.id}
+              className={`mb-model-option ${m.id === model ? 'active' : ''}`}
               onClick={() => { setModel(m.id); setShowModelPicker(false); }}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                width: '100%',
-                padding: '9px 16px',
-                background: m.id === model ? 'rgba(79,163,224,0.12)' : 'none',
-                border: 'none',
-                textAlign: 'left',
-                cursor: 'pointer',
-                color: 'var(--mb-text)',
-                fontSize: 14,
-                gap: 8,
-              }}
             >
-              <span style={{ flex: 1 }}>{m.name}</span>
-              {m.multiplier === 0 && <span style={{ fontSize: 11, color: 'var(--mb-accent2)' }}>free</span>}
-              {m.multiplier > 1 && <span style={{ fontSize: 11, color: 'var(--mb-muted)' }}>{m.multiplier}×</span>}
+              <span className="mb-model-name">{m.name}</span>
+              {m.multiplier === 0 && <span className="mb-model-badge free">free</span>}
+              {(m.multiplier ?? 1) > 1 && <span className="mb-model-badge premium">{m.multiplier}×</span>}
             </button>
           ))}
         </div>
       )}
 
-      {/* File context indicator */}
+      {/* Context pill */}
       {contextFilePath && (
         <div className="mb-context-pill">
           <span className="mb-context-pill-dot" />
           <span>Context: {contextFilePath.split('/').pop()}</span>
+          {workspace && (
+            <span style={{ marginLeft: 'auto', color: 'var(--mb-accent2)', fontSize: 11 }}>
+              agent enabled
+            </span>
+          )}
         </div>
       )}
 
       {/* Messages */}
       <div className="mb-chat-messages">
         {messages.length === 0 && !streaming && (
-          <div style={{ textAlign: 'center', color: 'var(--mb-muted)', fontSize: 13, padding: '40px 16px', lineHeight: 1.6 }}>
-            Ask anything about your workspace
-            {contextFilePath ? ` or ${contextFilePath.split('/').pop()}` : ''}.
+          <div className="mb-chat-empty">
+            <div className="mb-chat-empty-icon">🤖</div>
+            <div className="mb-chat-empty-text">
+              {workspace
+                ? `I can read, search, and edit files in "${workspace.name}". What would you like to do?`
+                : 'Ask anything. Open a workspace on desktop to unlock file editing.'}
+            </div>
           </div>
         )}
+
         {messages.map((msg, i) => (
-          <div
-            key={i}
-            className={`mb-msg ${msg.role === 'user' ? 'mb-msg-user' : 'mb-msg-assistant'}`}
-          >
-            {msg.content}
-          </div>
+          msg.role === 'user' ? (
+            <div key={i} className="mb-msg mb-msg-user">
+              {msg.content}
+            </div>
+          ) : (
+            <div key={i} className="mb-msg mb-msg-assistant">
+              <MobileMdMessage content={msg.content} />
+            </div>
+          )
         ))}
+
+        {/* Live tool activity chips */}
+        {liveActivities.length > 0 && (
+          <div className="mb-tool-chips">
+            {liveActivities.map((a) => (
+              <ToolChip key={a.callId} activity={a} />
+            ))}
+          </div>
+        )}
+
+        {/* Streaming text */}
         {streaming && streamingText && (
           <div className="mb-msg mb-msg-assistant mb-msg-streaming">
-            {streamingText}
+            <MobileMdMessage content={streamingText} />
           </div>
         )}
-        {streaming && !streamingText && (
+        {streaming && !streamingText && liveActivities.length === 0 && (
           <div style={{ display: 'flex', padding: '4px 8px' }}>
             <div className="mb-spinner" style={{ width: 20, height: 20, borderWidth: 2 }} />
           </div>
         )}
+
         {error && (
           <div className="mb-chat-error">{error}</div>
         )}
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Groq key setup (shown when tapping mic without a key) */}
+      {/* Groq key setup */}
       {showGroqSetup && (
         <div className="mb-groq-setup">
           <p>Enter your <a href="https://console.groq.com" style={{ color: 'var(--mb-accent)' }}>Groq API key</a> for voice input:</p>
@@ -401,15 +525,19 @@ export default function MobileCopilot({
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
+          disabled={streaming}
         />
         <button
           className="mb-chat-send"
-          onClick={handleSend}
-          disabled={!input.trim() || streaming}
+          onClick={streaming ? handleStop : handleSend}
+          disabled={!streaming && !input.trim()}
+          style={streaming ? { background: 'var(--mb-danger)' } : undefined}
+          title={streaming ? 'Stop' : 'Send'}
         >
-          {streaming ? '⏸' : '↑'}
+          {streaming ? '■' : '↑'}
         </button>
       </div>
     </div>
   );
 }
+

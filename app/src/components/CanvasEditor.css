@@ -6,6 +6,10 @@
   height: 100%;
   min-height: 0;
   overflow: hidden;
+  /* Confine all canvas z-index values (some reach 9997–9999) to this
+     stacking context so they never obscure document-level portals like
+     UpdateModal, SettingsModal, etc. (which live at z-index 1000–1200). */
+  isolation: isolate;
 }
 
 /* Fills available space above the strip */

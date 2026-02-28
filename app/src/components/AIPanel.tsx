@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
-import { X, Check, CaretRight, CaretUp, CaretDown, ArrowUp, ArrowDown, ArrowClockwise, ArrowCounterClockwise, Warning, Snowflake, Play, Copy, Camera, Paperclip } from '@phosphor-icons/react';
+import { useState, useRef, useEffect, useCallback, useMemo, forwardRef, useImperativeHandle } from 'react';
+import { X, Check, CaretRight, CaretUp, CaretDown, ArrowUp, ArrowDown, ArrowClockwise, Warning, Snowflake, Play, Copy, Camera, Paperclip } from '@phosphor-icons/react';
 import { invoke } from '@tauri-apps/api/core';
 import { streamCopilotChat, fetchCopilotModels, startDeviceFlow, getStoredOAuthToken, clearOAuthToken, runCopilotAgent, getLastRequestDump, getLastRateLimit, isQuotaError } from '../services/copilot';
 import { appendLogEntry, newSessionId } from '../services/copilotLog';
@@ -8,13 +8,14 @@ import { DEFAULT_MODEL, FALLBACK_MODELS } from '../types';
 import type { ChatMessage, CopilotModel, CopilotModelInfo, ToolActivity, MessageItem } from '../types';
 import { WORKSPACE_TOOLS, buildToolExecutor } from '../utils/workspaceTools';
 import { canvasToDataUrl } from '../utils/canvasAI';
+import { getMimeType, IMAGE_EXTS } from '../utils/mime';
 import { toPng } from 'html-to-image';
 import { modelSupportsVision } from '../services/copilot';
 import { unlockAll } from '../services/copilotLock';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { open as openFileDialog } from '@tauri-apps/plugin-dialog';
-import { readFile } from '@tauri-apps/plugin-fs';
-import type { Workspace, WorkspaceExportConfig } from '../types';
+import { readFile, readTextFile, exists } from '@tauri-apps/plugin-fs';
+import type { Workspace, WorkspaceExportConfig, FileTreeNode } from '../types';
 import type { Editor as TldrawEditor } from 'tldraw';
 import './AIPanel.css';
 
@@ -32,19 +33,26 @@ interface ModelPickerProps {
   value: CopilotModel;
   onChange: (id: CopilotModel) => void;
   loading: boolean;
+  onSignOut?: () => void;
 }
 
-function ModelPicker({ models, value, onChange, loading }: ModelPickerProps) {
+function ModelPicker({ models, value, onChange, loading, onSignOut }: ModelPickerProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  // Keep a ref in sync so the stable listener always sees the latest value
+  // without needing to re-register on every open/close toggle.
+  const openRef = useRef(false);
+  openRef.current = open;
 
   useEffect(() => {
     function onOutside(e: MouseEvent) {
+      if (!openRef.current) return;
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     }
-    if (open) document.addEventListener('mousedown', onOutside);
+    document.addEventListener('mousedown', onOutside);
     return () => document.removeEventListener('mousedown', onOutside);
-  }, [open]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // registers once on mount — openRef always tracks current value
 
   const current = models.find((m) => m.id === value) ?? { id: value, name: value, multiplier: 1, isPremium: false };
 
@@ -96,6 +104,17 @@ function ModelPicker({ models, value, onChange, loading }: ModelPickerProps) {
           {renderGroup('Free', free)}
           {renderGroup('Standard', standard)}
           {renderGroup('Premium', premium)}
+          {onSignOut && (
+            <>
+              <div className="ai-model-menu-divider" />
+              <button
+                className="ai-model-signout-btn"
+                onClick={() => { setOpen(false); onSignOut(); }}
+              >
+                Sign out
+              </button>
+            </>
+          )}
         </div>
       )}
     </div>
@@ -151,11 +170,19 @@ interface AIPanelProps {
   onStreamingChange?: (streaming: boolean) => void;
   /** Ref to the editor-area DOM element — used for content-area screenshots */
   screenshotTargetRef?: React.RefObject<HTMLElement | null>;
+  /** Ref to the live HTML preview pane — enables the screenshot_preview tool. */
+  webPreviewRef?: React.RefObject<{ getScreenshot: () => Promise<string | null> } | null>;
 }
 
 const GROQ_KEY_STORAGE = 'cafezin-groq-key';
 function getGroqKey(): string { return localStorage.getItem(GROQ_KEY_STORAGE) ?? ''; }
 function saveGroqKey(k: string) { localStorage.setItem(GROQ_KEY_STORAGE, k.trim()); }
+
+// ── Imperative handle exposed to parent ──────────────────────────────────────
+export interface AIPanelHandle {
+  /** Called by App when Tauri detects a Finder file drop over the AI panel area. */
+  receiveFinderFiles(paths: string[]): void;
+}
 
 // ── Last-session persistence ─────────────────────────────────────────────
 const LAST_SESSION_KEY = 'cafezin-last-session';
@@ -200,17 +227,19 @@ function fmtRelative(iso: string): string {
 }
 
 // ── Code-block parser ─────────────────────────────────────────────────────
-const CODE_BLOCK_RE = /```(\w*)\n?([\s\S]*?)```/g;
 
 type MsgSegment =
   | { type: 'text'; content: string }
   | { type: 'code'; lang: string; code: string };
 
 function parseSegments(raw: string): MsgSegment[] {
+  // Create the regex inside the function so each call gets a fresh stateless
+  // instance — a module-level /g regex retains lastIndex across calls, which
+  // causes skipped matches when parseSegments is called concurrently or rapidly.
+  const CODE_BLOCK_RE = /```(\w*)\n?([\s\S]*?)```/g;
   const segments: MsgSegment[] = [];
   let lastIdx = 0;
   let match: RegExpExecArray | null;
-  CODE_BLOCK_RE.lastIndex = 0;
   while ((match = CODE_BLOCK_RE.exec(raw)) !== null) {
     if (match.index > lastIdx) {
       segments.push({ type: 'text', content: raw.slice(lastIdx, match.index) });
@@ -283,7 +312,7 @@ const TOOL_ICONS: Record<string, string> = {
   read_workspace_file: '◎',
   write_workspace_file: '⊕',
   search_workspace:     '⊙',
-  shell_run:            '$',
+  run_command:          '$',
   canvas_op:            '◈',
   list_canvas_shapes:   '⊡',
   canvas_screenshot:    '⬡',
@@ -305,7 +334,7 @@ function getActionSummary(activity: ToolActivity): string {
     case 'write_workspace_file':  return `Wrote "${p('path')}"`;
     case 'search_workspace':      return `Searched for "${p('query')}"`;
     case 'list_workspace_files':  return args.folder ? `Listed files in ${p('folder')}` : 'Listed workspace files';
-    case 'shell_run': { const cmd = p('cmd'); return `Ran: ${cmd}${String(args.cmd ?? '').length > 50 ? '…' : ''}`; }
+    case 'run_command': { const cmd = p('command'); return `Ran: ${cmd}${String(args.command ?? '').length > 50 ? '…' : ''}`; }
     case 'canvas_op':             return 'Updated canvas';
     case 'list_canvas_shapes':    return 'Listed canvas shapes';
     case 'canvas_screenshot':     return 'Captured canvas screenshot';
@@ -394,7 +423,7 @@ function useSessionStats(messages: ChatMessage[]) {
 
 // ── Main panel ───────────────────────────────────────────────────────────────
 
-export default function AIPanel({
+const AIPanel = forwardRef<AIPanelHandle, AIPanelProps>(function AIPanel({
   isOpen,
   onClose,
   initialPrompt = '',
@@ -421,7 +450,8 @@ export default function AIPanel({
   style,
   onStreamingChange,
   screenshotTargetRef,
-}: AIPanelProps) {
+  webPreviewRef,
+}, ref) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState(initialPrompt);
   const [isStreaming, setIsStreaming] = useState(false);
@@ -504,6 +534,26 @@ export default function AIPanel({
   const [isCapturingScreenshot, setIsCapturingScreenshot] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+
+  // ── Finder drop handler (called from App.tsx's OS-level drag event) ─────────
+  useImperativeHandle(ref, () => ({
+    receiveFinderFiles(paths: string[]) {
+      const first = paths[0];
+      if (!first) return;
+      const name = first.split('/').pop() ?? first;
+      const ext = name.split('.').pop()?.toLowerCase() ?? '';
+      readFile(first).then((bytes) => {
+        if (IMAGE_EXTS.has(ext)) {
+          const mime = getMimeType(ext, 'image/png');
+          const b64 = btoa(Array.from(bytes).map((b) => String.fromCharCode(b)).join(''));
+          setPendingImage(`data:${mime};base64,${b64}`);
+        } else {
+          const content = new TextDecoder().decode(bytes).slice(0, 20000);
+          setPendingFileRef({ name, content });
+        }
+      }).catch((err) => console.error('[AIPanel] receiveFinderFiles:', err));
+    },
+  }));
   const audioChunksRef = useRef<Blob[]>([]);
   // Tracks whether we've already done a one-time getUserMedia() warm-up so
   // macOS/WKWebView doesn't re-prompt for microphone permission on every click.
@@ -526,6 +576,7 @@ export default function AIPanel({
   // runId increments on every send so stale callbacks from an aborted run
   // don't update React state after the new run has already started.
   const runIdRef = useRef(0);
+  const audioCtxRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animFrameRef = useRef<number>(0);
 
@@ -585,6 +636,9 @@ export default function AIPanel({
     fetchCopilotModels().then((models) => {
       setAvailableModels(models);
       setModelsLoading(false);
+    }).catch(() => {
+      // Network / auth error — stop the spinner so the UI isn't stuck.
+      setModelsLoading(false);
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, authStatus]);
@@ -626,6 +680,11 @@ export default function AIPanel({
         stream.getTracks().forEach((t) => t.stop());
         cancelAnimationFrame(animFrameRef.current);
         analyserRef.current = null;
+        // Close the AudioContext to free OS-level audio resources.
+        // WebKit caps open AudioContext instances at ~6; without close() each
+        // recording session leaks one context until the visualiser silently fails.
+        audioCtxRef.current?.close().catch(() => {});
+        audioCtxRef.current = null;
         // clear canvas
         const cv = vizCanvasRef.current;
         if (cv) cv.getContext('2d')?.clearRect(0, 0, cv.width, cv.height);
@@ -654,6 +713,7 @@ export default function AIPanel({
       // Wire up audio analyser for visualizer
       try {
         const audioCtx = new AudioContext();
+        audioCtxRef.current = audioCtx;
         const source = audioCtx.createMediaStreamSource(stream);
         const analyser = audioCtx.createAnalyser();
         analyser.fftSize = 64;
@@ -759,11 +819,9 @@ export default function AIPanel({
       if (!selected || typeof selected !== 'string') return;
       const name = selected.split('/').pop() ?? selected;
       const ext = name.split('.').pop()?.toLowerCase() ?? '';
-      const imageExts = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg']);
       const bytes = await readFile(selected);
-      if (imageExts.has(ext)) {
-        const mimeMap: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', bmp: 'image/bmp', svg: 'image/svg+xml' };
-        const mime = mimeMap[ext] ?? 'image/png';
+      if (IMAGE_EXTS.has(ext)) {
+        const mime = getMimeType(ext, 'image/png');
         const b64 = btoa(Array.from(bytes).map((b) => String.fromCharCode(b)).join(''));
         setPendingImage(`data:${mime};base64,${b64}`);
       } else {
@@ -794,12 +852,22 @@ export default function AIPanel({
       // Canvas file — use tldraw's high-quality export
       if (canvasEditorRef?.current) {
         dataUrl = await canvasToDataUrl(canvasEditorRef.current, 0.85);
+      } else if (webPreviewRef?.current) {
+        // HTML preview — the editor-area contains an <iframe> which html-to-image
+        // cannot read (always produces a black rect). Use the WebPreview's own
+        // getScreenshot() which reads the iframe's contentDocument directly.
+        dataUrl = await webPreviewRef.current.getScreenshot();
       } else if (screenshotTargetRef?.current) {
-        // All other views — capture the editor-area DOM element
+        // Text editor / other views — capture the editor-area DOM element.
+        // Use backgroundColor so Tauri's WebKit doesn't composite over black.
+        const bg = getComputedStyle(screenshotTargetRef.current).backgroundColor;
+        const resolvedBg = bg && bg !== 'rgba(0, 0, 0, 0)' ? bg : '#1a1a1a';
         dataUrl = await toPng(screenshotTargetRef.current, {
           quality: 0.9,
-          pixelRatio: window.devicePixelRatio ?? 1,
-          // Exclude the lock overlay and find-replace bar from the capture
+          backgroundColor: resolvedBg,
+          // pixelRatio: 1 avoids a WebKit/Retina bug where scaled canvases
+          // are cleared to black before html-to-image can read them.
+          pixelRatio: 1,
           filter: (node) => {
             if (node instanceof HTMLElement) {
               if (node.classList.contains('copilot-lock-overlay')) return false;
@@ -809,7 +877,15 @@ export default function AIPanel({
           },
         });
       }
-      if (dataUrl) setPendingImage(dataUrl);
+      if (dataUrl) {
+        if (!input.trim() && !isStreaming) {
+          // One-click: capture + send immediately — no intermediate pending state
+          await handleSend(dataUrl);
+        } else {
+          // User has text in progress — stage so it goes with their message
+          setPendingImage(dataUrl);
+        }
+      }
     } catch (err) {
       console.error('[screenshot]', err);
     } finally {
@@ -817,11 +893,55 @@ export default function AIPanel({
     }
   }
 
+  // ── Persistent memory (.cafezin/memory.md) ────────────────────
+  const [memoryContent, setMemoryContent] = useState<string>('');
+  useEffect(() => {
+    if (!workspacePath) { setMemoryContent(''); return; }
+    const memPath = `${workspacePath}/.cafezin/memory.md`;
+    exists(memPath).then((found) => {
+      if (!found) { setMemoryContent(''); return; }
+      readTextFile(memPath).then(setMemoryContent).catch(() => setMemoryContent(''));
+    }).catch(() => setMemoryContent(''));
+  }, [workspacePath]);
+
   // ── System prompt ────────────────────────────────────────────
   const hasTools = !!workspace;
-  const systemPrompt: ChatMessage = {
+
+  // Flatten the workspace file tree into a compact manifest for the system prompt.
+  // Recalculated only when the tree reference changes (file added / removed / renamed).
+  const workspaceFileList = useMemo(() => {
+    if (!workspace?.fileTree?.length) return '';
+    function flattenTree(nodes: FileTreeNode[]): string[] {
+      const paths: string[] = [];
+      for (const node of nodes) {
+        if (node.isDirectory) paths.push(...flattenTree(node.children ?? []));
+        else paths.push(node.path);
+      }
+      return paths;
+    }
+    const files = flattenTree(workspace.fileTree);
+    return `${files.length} file(s) in workspace:\n${files.join('\n')}`;
+  }, [workspace?.fileTree]);
+
+  // Map model ID to a one-line capability hint injected at the top of the system prompt.
+  function modelHint(id: string): string {
+    if (/claude.*opus/i.test(id))   return 'You are running as Claude Opus — exceptionally strong at long-form reasoning, creative writing, and nuanced instruction following.';
+    if (/claude.*sonnet/i.test(id)) return 'You are running as Claude Sonnet — excellent at creative writing, editing, and multi-step workspace tasks.';
+    if (/claude.*haiku/i.test(id))  return 'You are running as Claude Haiku — fast and efficient; great for quick edits and concise responses.';
+    if (/^o[1-9]/i.test(id))        return `You are running as ${id} — a deep-reasoning model. You excel at complex multi-step planning. Note: you cannot process images.`;
+    if (/gpt-4o/i.test(id))         return `You are running as ${id} — fast, vision-capable, well-rounded for writing and tool use.`;
+    if (/gpt-4\.1/i.test(id))      return `You are running as ${id} — strong instruction following and long-context document work.`;
+    if (/gemini/i.test(id))         return `You are running as ${id} — very large context window; great for long documents.`;
+    return `You are running as ${id}.`;
+  }
+
+  // Rebuilt only when workspace presence, model, agent context, or document context changes.
+  const systemPrompt = useMemo<ChatMessage>(() => ({
     role: 'system',
     content: [
+      // ── Model identity ────────────────────────────────────────
+      modelHint(model),
+
       // ── What this app is ──────────────────────────────────────
       `You are a helpful AI assistant built into "Cafezin" — a desktop productivity app (Tauri + React, macOS-first) designed for writers, educators, and knowledge workers. It is NOT a code editor; it is built for creative and knowledge-work workflows: writing books, building courses, note-taking, and research.`,
 
@@ -832,33 +952,93 @@ export default function AIPanel({
   • Canvas (.tldr.json) — visual/diagram files powered by tldraw v4. Users create mind-maps, flowcharts, mood boards, and brainstorming canvases. These are NOT code — they are freeform visual workspaces.`,
 
       // ── Canvas / visual editing ───────────────────────────────
-      `Canvas files (.tldr.json) work differently from text files:
-• A canvas is a tldraw v4 whiteboard. The user sees a freeform 2-D surface with sticky notes, labels, boxes, and arrows.
-• NEVER edit a canvas by writing raw text or JSON to a file. Instead, call the canvas_op tool.
-• ALWAYS call list_canvas_shapes first when modifying an existing canvas — you need the shape IDs.
-• A screenshot of the current canvas is attached to this conversation so you can SEE the existing layout and design before touching anything. Study it before making changes — understand what's already there.
-• canvas_op takes a "commands" string — one JSON object per line:
-    {"op":"add_note","text":"Idea","x":100,"y":100,"color":"yellow"}
-    {"op":"add_text","text":"Title","x":100,"y":60,"color":"black"}
-    {"op":"add_geo","geo":"rectangle","text":"Box","x":100,"y":100,"w":200,"h":120,"color":"blue","fill":"solid"}
-    {"op":"add_arrow","x1":100,"y1":150,"x2":400,"y2":150,"label":"leads to","color":"grey"}
-    {"op":"move","id":"abc123","x":300,"y":400}
-    {"op":"update","id":"abc123","text":"New text"}
-    {"op":"delete","id":"abc123"}
-• NEVER use {"op":"clear"} unless the user explicitly asks to wipe the entire canvas. Prefer targeted update/delete/add operations.
-• Design mindfully: use consistent spacing so shapes don't overlap. Color-code by meaning (yellow=idea, blue=process, green=outcome, red=risk).
-• For large diagrams, place a header add_text first, then build rows of boxes, then add arrows last.
-• After you finish all canvas_op calls, ALWAYS call canvas_screenshot once to visually verify your work. Look for: overlapping shapes, wrong colors, missing labels, awkward spacing. Fix any issues before replying.
-• canvas_screenshot gives you a fresh view after your edits — compare it to the before-screenshot to confirm the improvements are real.
-• When the user asks you to build a mind-map, diagram, or visual layout, use canvas_op — never substitute a markdown list or table.`,
+      `Canvas files (.tldr.json) are tldraw v4 whiteboards. Rules:
+• NEVER write raw JSON to a canvas file — use canvas_op exclusively.
+• list_canvas_shapes returns each shape's ID, position, size, and — critically — the "Occupied area" and "Next free row" so you know exactly where existing content ends and where to safely add new content.
+• Always read the occupied area before adding shapes to avoid overlaps.
+• The canvas_op "commands" string is one JSON object per line (no commas between lines).
+• Always include "slide":"<frameId>" on add_* commands when targeting a slide. x/y are then frame-relative (0,0 = frame top-left). Frame size is 1280×720.
+• After every canvas build, call canvas_screenshot once to visually verify — fix any overlaps or layout issues before replying.
+
+── LAYOUT PLANNING PROTOCOL ──────────────────────────────────────────────────
+BEFORE issuing canvas_op, write a short layout plan in your reply:
+  1. List the elements you will place and their purpose.
+  2. Pick a layout template (see below) or describe your grid.
+  3. State the exact x/y/w/h for each element.
+Then emit the canvas_op. This prevents overlaps, centering errors, and wasted rounds.
+
+── LAYOUT TEMPLATES (frame-relative coords, 1280×720 slide) ─────────────────
+
+Title slide
+  Title:     add_text  x=100 y=220 w=1080 h=120  color=black
+  Subtitle:  add_text  x=100 y=370 w=1080 h=60   color=grey
+  Hero image/geo: x=880 y=180 w=320 h=320
+
+Bullet list (up to 5 rows)
+  Header:  add_text x=80 y=40  w=1120 h=80
+  Row 1:   add_note x=80 y=150 w=1100 h=70  color=yellow
+  Row 2:   x=80 y=240  (pitch: +90px per row)
+  Row N:   x=80 y=150+(N-1)*90   max 5 rows fits inside 720px
+
+2-column layout
+  Header:   x=80  y=40  w=1120 h=70
+  Left col:  x=80  y=140 w=520 h=variable  (right edge x=600)
+  Right col: x=680 y=140 w=520 h=variable  (right edge x=1200)
+  Gap between columns: 80px
+
+3-column layout
+  Header:   x=80  y=40  w=1120 h=70
+  Col-1:    x=80  y=130 w=340 h=variable  (right x=420)
+  Col-2:    x=470 y=130 w=340 h=variable  (right x=810)
+  Col-3:    x=860 y=130 w=340 h=variable  (right x=1200)
+  Gap: 50px
+
+Timeline (horizontal, 4–6 nodes)
+  Spine arrow: x1=80 y1=380 x2=1200 y2=380
+  Node N:  add_geo x=80+(N-1)*230 y=280 w=160 h=80  (bottom sits at y=360)
+  Label N: add_text x=same y=420 w=160 h=50
+
+Mind-map (hub + up to 6 branches)
+  Hub:     add_geo x=540 y=300 w=200 h=120 fill=solid color=blue
+  Branches (center of hub is ~640,360):
+    Top:         x=540 y=80   w=200 h=80
+    Top-right:   x=880 y=140  w=200 h=80
+    Right:       x=950 y=320  w=200 h=80
+    Bottom-right:x=880 y=500  w=200 h=80
+    Bottom:      x=540 y=540  w=200 h=80
+    Left:        x=130 y=320  w=200 h=80
+  Add arrows from hub center to each branch center.
+
+Kanban (3 columns)
+  Col headers: y=40 h=60, Col-L x=80 Col-M x=460 Col-R x=840, w=340 each
+  Cards:       y=130 h=80, step +100 per card, same x as column
+
+── COLOR SEMANTICS ───────────────────────────────────────────────────────────
+yellow=idea/brainstorm  blue=process/step  green=outcome/done
+red=risk/blocker  orange=action/todo  violet=concept/theme
+grey=neutral/connector  white=background panel  black=title/header text
+
+── SPACING RULES ─────────────────────────────────────────────────────────────
+• Min gap between shapes: 20px
+• Row pitch: shape height + 20px minimum
+• Never place shape at x<80, x>1200, y<40, y>680 (safe margins)
+• Text-heavy content: w≥200; geo labels: w≥120
+• NEVER use {"op":"clear"} unless the user explicitly asks to wipe everything`,
       hasTools
-        ? `You have access to workspace tools. ALWAYS call the appropriate tool when the user asks about their documents, wants to find/summarize/cross-reference content, or asks you to create/edit files. Never guess at file contents — read them first. When writing a file, always call the write_workspace_file tool — do not output the file as a code block.`
+        ? `You have access to workspace tools. ALWAYS call the appropriate tool when the user asks about their documents, wants to find/summarize/cross-reference content, or asks you to create/edit files. Never guess at file contents — read them first. When writing a file, always call the write_workspace_file tool — do not output the file as a code block. For small targeted edits to an existing file, prefer patch_workspace_file over rewriting the whole file.`
         : 'No workspace is currently open, so file tools are unavailable.',
 
+      workspaceFileList ? `\nWorkspace files:\n${workspaceFileList}` : '',
+      memoryContent ? `\nWorkspace memory (.cafezin/memory.md — persisted facts about this project):\n${memoryContent.slice(0, 4000)}` : '',
       agentContext ? `\nWorkspace context (from AGENT.md):\n${agentContext.slice(0, 3000)}` : '',
       documentContext ? `\nCurrent document context:\n${documentContext.slice(0, 6000)}` : '',
+
+      // ── HTML / interactive demo guidance (injected when an HTML file is active) ───────
+      activeFile && (activeFile.endsWith('.html') || activeFile.endsWith('.htm'))
+        ? `\n\u2500\u2500 HTML / INTERACTIVE DEMO GUIDANCE \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\nThe active file is an HTML document rendered live in the preview pane (~900px wide).\n\nLayout & spacing principles:\n\u2022 Prefer relative units: %, rem, vw/vh, clamp() \u2014 avoid px for spacing and font sizes\n\u2022 Use CSS custom properties (--gap, --radius, --color-accent) for consistency\n\u2022 Flexbox or CSS Grid for all multi-element layouts; avoid float / position: absolute for flow\n\u2022 Comfortable reading width: max-width: 800px; margin: 0 auto; padding: 2rem\n\u2022 Interactive demos: always style :hover and :focus states; add transition: 0.2s ease\n\u2022 Buttons/inputs: min-height: 2.5rem; padding: 0.5rem 1.25rem; border-radius: 0.375rem\n\u2022 Section gaps: use row-gap / column-gap on flex/grid containers, never margin hacks\n\u2022 Color contrast: body text on background must be AA-compliant (4.5:1 ratio minimum)\n\nVisual verification workflow:\n1. Write or patch the HTML/CSS file.\n2. Immediately call screenshot_preview to see the rendered result.\n3. Identify any spacing, overflow, alignment, or readability issues.\n4. Call patch_workspace_file to fix them.\n5. Call screenshot_preview again to confirm.\nNever report the demo as done without at least one screenshot_preview call.`
+        : '',
     ].filter(Boolean).join('\n\n'),
-  } satisfies ChatMessage;
+  }), [hasTools, model, workspaceFileList, memoryContent, agentContext, documentContext, activeFile]);
 
   // ── Stop: abort without sending a new message ─────────────────
   function handleStop() {
@@ -880,9 +1060,10 @@ export default function AIPanel({
   }
 
   // ── Send (or interrupt-and-send) ──────────────────────────────
-  async function handleSend() {
+  async function handleSend(imageOverride?: string) {
     const textToSend = input.trim();
-    if (!textToSend) {
+    // Allow sending with no text if an image is being injected directly or is already staged
+    if (!textToSend && !imageOverride && !pendingImage) {
       if (isStreaming) handleStop();
       return;
     }
@@ -910,9 +1091,9 @@ export default function AIPanel({
 
     setError(null);
     setLiveItems([]);
-    const capturedImage = pendingImage;
+    const capturedImage = imageOverride ?? pendingImage;
     const capturedFileRef = pendingFileRef;
-    const userMsg: ChatMessage = { role: 'user', content: textToSend, activeFile: activeFile, ...(capturedImage ? { attachedImage: capturedImage } : {}), ...(capturedFileRef ? { attachedFile: capturedFileRef.name } : {}) };
+    const userMsg: ChatMessage = { role: 'user', content: textToSend || '📸', activeFile: activeFile, ...(capturedImage ? { attachedImage: capturedImage } : {}), ...(capturedFileRef ? { attachedFile: capturedFileRef.name } : {}) };
     setInput('');
     setPendingImage(null);
     setPendingFileRef(null);
@@ -923,7 +1104,7 @@ export default function AIPanel({
     const fileContext = capturedFileRef
       ? `[Attached file: "${capturedFileRef.name}"]\n---\n${capturedFileRef.content}\n---\n\n`
       : '';
-    const apiText = `${fileContext}${prefix}${textToSend}`;
+    const apiText = `${fileContext}${prefix}${textToSend || 'Describe what you see in this screenshot and note any issues.'}`;
     let finalUserMsg: ChatMessage = (activeFile || capturedFileRef)
       ? { role: 'user', content: apiText }
       : userMsg;
@@ -1041,10 +1222,23 @@ export default function AIPanel({
         activeFile,
         workspaceExportConfig,
         onExportConfigChange,
+        setMemoryContent,
+        webPreviewRef as { current: { getScreenshot: () => Promise<string | null> } | null } | undefined,
       );
+      // Only expose canvas tools when a canvas is actually open — prevents
+      // the model from attempting canvas ops when no .tldr.json is active.
+      const CANVAS_TOOL_NAMES = new Set(['list_canvas_shapes', 'canvas_op', 'canvas_screenshot', 'add_canvas_image']);
+      const hasCanvas = !!(canvasEditorRef?.current);
+      const isMobilePlatform = import.meta.env.VITE_TAURI_MOBILE === 'true';
+      const activeTools = WORKSPACE_TOOLS.filter((t) => {
+        if (!hasCanvas && CANVAS_TOOL_NAMES.has(t.function.name)) return false;
+        if (isMobilePlatform && t.function.name === 'run_command') return false;
+        return true;
+      });
+
       await runCopilotAgent(
         apiMessages,
-        WORKSPACE_TOOLS,
+        activeTools,
         executor,
         onChunk,
         (activity) => {
@@ -1082,10 +1276,9 @@ export default function AIPanel({
   // ── Auth screens ───────────────────────────────────────────────────────────
   if (authStatus === 'unauthenticated' || authStatus === 'connecting') {
     return (
-      <div className="ai-panel" style={style}>
+      <div className="ai-panel" data-panel="ai" style={style}>
         <div className="ai-panel-header">
           <span className="ai-panel-title"><Snowflake weight="thin" size={14} /> Copilot</span>
-          <button onClick={onClose} className="ai-btn-ghost ai-btn-close" title="Close"><X weight="thin" size={14} /></button>
         </div>
         <div className="ai-auth-screen">
           <div className="ai-auth-icon"><Snowflake weight="thin" size={48} /></div>
@@ -1125,7 +1318,7 @@ export default function AIPanel({
   }
 
   return (
-    <div className="ai-panel" style={style}>
+    <div className="ai-panel" data-panel="ai" style={style}>
       {/* Header */}
       <div className="ai-panel-header">
         <span className="ai-panel-title">✦ Copilot</span>
@@ -1135,28 +1328,8 @@ export default function AIPanel({
             value={model}
             onChange={(id) => { setModel(id); onModelChange?.(id); }}
             loading={modelsLoading}
+            onSignOut={handleSignOut}
           />
-          <button
-            onClick={handleNewChat}
-            className="ai-btn-ghost"
-            title="New chat (clears history)"
-          >
-            <ArrowCounterClockwise weight="thin" size={14} /> New
-          </button>
-          <button
-            onClick={handleSignOut}
-            className="ai-btn-ghost"
-            title="Sign out of GitHub Copilot"
-          >
-            Sign out
-          </button>
-          <button
-            onClick={onClose}
-            className="ai-btn-ghost ai-btn-close"
-            title="Close (Esc)"
-          >
-            <X weight="thin" size={14} />
-          </button>
         </div>
       </div>
 
@@ -1434,7 +1607,7 @@ export default function AIPanel({
               className={`ai-btn-screenshot ${isCapturingScreenshot ? 'capturing' : ''}`}
               onClick={handleTakeScreenshot}
               disabled={isCapturingScreenshot}
-              title={canvasEditorRef?.current ? 'Screenshot canvas into prompt' : 'Screenshot current view into prompt'}
+              title={canvasEditorRef?.current ? 'Screenshot canvas → send to Copilot' : 'Screenshot current view → send to Copilot'}
               type="button"
             >
               <Camera weight="thin" size={14} />
@@ -1492,8 +1665,8 @@ export default function AIPanel({
             </button>
           ) : (
             <button
-              onClick={handleSend}
-              disabled={!input.trim()}
+              onClick={() => handleSend()}
+              disabled={!input.trim() && !pendingImage}
               className={`ai-btn-send${isStreaming ? ' ai-btn-send--interrupt' : ''}`}
               title={isStreaming ? 'Interrupt and send (Enter)' : 'Send (Enter)'}
             >
@@ -1509,4 +1682,6 @@ export default function AIPanel({
       </div>
     </div>
   );
-}
+});
+
+export default AIPanel;

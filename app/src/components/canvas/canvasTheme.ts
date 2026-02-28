@@ -88,11 +88,14 @@ export function applyThemeToSlides(editor: Editor, theme: CanvasTheme) {
     }
 
     if (useImage) {
-      const urlKey = imageUrl.replace(/[^a-zA-Z0-9]/g, '').slice(-24);
+      // Deduplicate by src URL — searching all assets avoids the collision risk
+      // of ID-based deduplication where truncated URL keys can match for different
+      // images (e.g. two CDN images sharing a common URL suffix).
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const assetId = `asset:bg_${urlKey}` as any;
+      const existingBgAsset = editor.getAssets().find((a) => a.type === 'image' && (a.props as any)?.src === imageUrl);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      if (!editor.getAsset(assetId as any)) {
+      const assetId = (existingBgAsset?.id ?? `asset:bg_${crypto.randomUUID()}`) as any;
+      if (!existingBgAsset) {
         const ext = imageUrl.split('?')[0].split('.').pop()?.toLowerCase() ?? '';
         const MIME: Record<string, string> = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml' };
         const mimeType = MIME[ext] ?? 'image/jpeg';

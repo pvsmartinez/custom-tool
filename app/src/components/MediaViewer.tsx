@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { readFile } from '@tauri-apps/plugin-fs';
 import type { FileKind } from '../utils/fileType';
+import { getMimeType } from '../utils/mime';
 import './MediaViewer.css';
 
 interface MediaViewerProps {
@@ -46,23 +47,6 @@ function useBlobUrl(absPath: string, mimeType: string): string {
   return url;
 }
 
-function mimeForFilename(filename: string): string {
-  const ext = filename.split('.').pop()?.toLowerCase() ?? '';
-  const MAP: Record<string, string> = {
-    png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
-    gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml',
-    avif: 'image/avif', bmp: 'image/bmp', ico: 'image/x-icon',
-    tiff: 'image/tiff', tif: 'image/tiff',
-    mp4: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime',
-    m4v: 'video/mp4', mkv: 'video/x-matroska', ogv: 'video/ogg',
-    avi: 'video/x-msvideo',
-    mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg',
-    aac: 'audio/aac', flac: 'audio/flac', m4a: 'audio/mp4',
-    opus: 'audio/ogg', weba: 'audio/webm', wma: 'audio/x-ms-wma',
-  };
-  return MAP[ext] ?? 'application/octet-stream';
-}
-
 function formatDuration(seconds: number): string {
   if (!isFinite(seconds) || seconds < 0) return '';
   const h = Math.floor(seconds / 3600);
@@ -73,7 +57,7 @@ function formatDuration(seconds: number): string {
 }
 
 export default function MediaViewer({ absPath, filename, kind, onStat }: MediaViewerProps) {
-  const mime = mimeForFilename(filename);
+  const mime = getMimeType(filename);
   const src = useBlobUrl(absPath, mime);
   const videoRef = useRef<HTMLVideoElement>(null);
   const [zoomed, setZoomed] = useState(false);

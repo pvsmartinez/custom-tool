@@ -15,7 +15,8 @@
  * All components must remain module-level (not nested inside CanvasEditor) so
  * tldraw doesn't remount them on every render.
  */
-import { useContext, useEffect, useRef, useState } from 'react';
+import { Component, useContext, useEffect, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import type { TLShapeId } from 'tldraw';
 import { createShapeId } from 'tldraw';
 import { useEditor } from '@tldraw/editor';
@@ -592,7 +593,7 @@ function ShapeEffectsStyle() {
       if (!cr && !sh) continue;
       let css = '';
       if (cr) css += `border-radius:${cr}px;overflow:hidden;`;
-      if (sh) css += `box-shadow:${sh.x}px ${sh.y}px ${sh.blur}px 0px ${hexToRgba(sh.color, sh.opacity)};`;
+      if (sh) css += `box-shadow:${sh.x ?? 0}px ${sh.y ?? 0}px ${sh.blur ?? 0}px 0px ${hexToRgba(sh.color ?? '#000000', sh.opacity ?? 0.3)};`;
       rules.push(`[data-shape-id="${shape.id}"] { ${css} }`);
     }
     return rules.join('\n');
@@ -616,11 +617,39 @@ function ShapeEffectsStyle() {
   return null;
 }
 
+// ── Overlay error boundary ─────────────────────────────────────────────────────
+// React error boundary for all overlay components. Any crash inside an overlay
+// (CornerRadiusHandle, CanvasFormatPanel, ArrowHandles, etc.) is caught here so
+// it never reaches tldraw's own error boundary, which would nuke the whole canvas.
+class OverlayErrorBoundary extends Component<
+  { children: ReactNode },
+  { hasError: boolean }
+> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: unknown, info: { componentStack?: string }) {
+    // eslint-disable-next-line no-console
+    console.error('[CanvasOverlays] Overlay crash caught by error boundary:', error, info?.componentStack);
+  }
+
+  render(): ReactNode {
+    if (this.state.hasError) return null; // silently hide broken overlays
+    return this.props.children;
+  }
+}
+
 // ── Root overlay container ─────────────────────────────────────────────────────
 // Mounted via tldraw's components={{ InFrontOfTheCanvas: CanvasOverlays }}
 export function CanvasOverlays() {
   return (
-    <>
+    <OverlayErrorBoundary>
       <CanvasFormatPanel />
       <ArrowHandles />
       <ArrowAutoConnectHandler />
@@ -630,6 +659,6 @@ export function CanvasOverlays() {
       <CornerRadiusHandle />
       <ZoomIndicator />
       <CanvasShortcutHints />
-    </>
+    </OverlayErrorBoundary>
   );
 }

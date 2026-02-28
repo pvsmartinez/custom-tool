@@ -32,6 +32,7 @@ export function useDragResize(
       draggingRef.current = null;
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
+      document.body.classList.remove('is-resizing');
     }
     window.addEventListener('mousemove', onMouseMove);
     window.addEventListener('mouseup', onMouseUp);
@@ -47,6 +48,7 @@ export function useDragResize(
     dragStartWidth.current = sidebarWidth;
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
+    document.body.classList.add('is-resizing');
   }
 
   function startAiDrag(e: React.MouseEvent) {
@@ -55,6 +57,7 @@ export function useDragResize(
     dragStartWidth.current = aiPanelWidth;
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
+    document.body.classList.add('is-resizing');
   }
 
   return { sidebarWidth, aiPanelWidth, startSidebarDrag, startAiDrag };

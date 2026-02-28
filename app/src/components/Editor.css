@@ -7,6 +7,68 @@
   background: var(--bg);
 }
 
+/* ── Markdown formatting toolbar ────────────────────────────────────────────── */
+.editor-md-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 4px 8px;
+  background: var(--bg-secondary, #1e1e1e);
+  border-bottom: 1px solid var(--border, #333);
+  flex-shrink: 0;
+}
+
+.editor-md-toolbar-btn {
+  padding: 2px 7px;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-dim, #888);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+  white-space: nowrap;
+}
+.editor-md-toolbar-btn:hover {
+  background: var(--bg-hover, #2a2a2a);
+  color: var(--text, #ccc);
+  border-color: var(--border, #444);
+}
+.editor-md-toolbar-btn:active {
+  background: var(--bg-active, #333);
+}
+
+/* Light mode overrides */
+body.theme-light .editor-md-toolbar {
+  background: #f5f5f5;
+  border-bottom-color: #ddd;
+}
+body.theme-light .editor-md-toolbar-btn {
+  color: #666;
+}
+body.theme-light .editor-md-toolbar-btn:hover {
+  background: #e8e8e8;
+  color: #333;
+}
+
+/* KaTeX block math in markdown preview */
+.katex-block {
+  overflow-x: auto;
+  padding: 8px 0;
+  text-align: center;
+}
+.katex-error {
+  color: #c97570;
+  font-style: italic;
+}
+
+/* While Copilot is writing this file: dim and block pointer events */
+.editor-wrapper[data-locked] {
+  pointer-events: none;
+  opacity: 0.65;
+}
+
 /* @uiw/react-codemirror creates an unstyled wrapper div between .editor-wrapper
    and .cm-editor. Without flex:1 here the div stays height:auto (= content
    height), which makes .cm-scroller unbounded and mouse-wheel events do nothing. */

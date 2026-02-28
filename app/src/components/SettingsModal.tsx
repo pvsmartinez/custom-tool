@@ -11,7 +11,7 @@ import {
   type SyncDeviceFlowState, type SyncedWorkspace,
 } from '../services/syncConfig';
 import { fetch } from '@tauri-apps/plugin-http';
-import type { Workspace, AppSettings } from '../types';
+import type { Workspace, AppSettings, SidebarButton } from '../types';
 import './SettingsModal.css';
 
 interface SettingsModalProps {
@@ -177,8 +177,14 @@ export default function SettingsModal({
   const [wsName, setWsName] = useState('');
   const [wsModel, setWsModel] = useState('');
   const [wsAgent, setWsAgent] = useState('');
+  const [wsSidebarButtons, setWsSidebarButtons] = useState<SidebarButton[]>([]);
+  const [wsInboxFile, setWsInboxFile] = useState('');
   const [wsSaving, setWsSaving] = useState(false);
   const [wsSaved, setWsSaved] = useState(false);
+  // New button form state
+  const [newBtnLabel, setNewBtnLabel] = useState('');
+  const [newBtnCmd, setNewBtnCmd] = useState('');
+  const [newBtnDesc, setNewBtnDesc] = useState('');
 
   // Reset local draft whenever modal opens or workspace changes
   useEffect(() => {
@@ -186,6 +192,8 @@ export default function SettingsModal({
     setWsName(workspace.config.name ?? '');
     setWsModel(workspace.config.preferredModel ?? '');
     setWsAgent(workspace.agentContext ?? '');
+    setWsSidebarButtons(workspace.config.sidebarButtons ?? []);
+    setWsInboxFile(workspace.config.inboxFile ?? '');
     setWsSaved(false);
   }, [open, workspace]);
 
@@ -206,6 +214,8 @@ export default function SettingsModal({
           ...workspace.config,
           name: wsName,
           preferredModel: wsModel || undefined,
+          sidebarButtons: wsSidebarButtons.length > 0 ? wsSidebarButtons : undefined,
+          inboxFile: wsInboxFile.trim() || undefined,
         },
         agentContext: wsAgent || undefined,
       };
@@ -478,6 +488,75 @@ export default function SettingsModal({
                     onChange={(e) => setWsAgent(e.target.value)}
                     placeholder="Describe the project, coding style, or any context the AI should know…"
                     rows={10}
+                  />
+                </div>
+              </section>
+
+              <section className="sm-section">
+                <h3 className="sm-section-title">Sidebar shortcuts</h3>
+                <p className="sm-section-desc">
+                  Custom buttons that appear in the sidebar and run a shell command in the terminal.
+                  Great for workspace-specific scripts like export or sync.
+                </p>
+                {wsSidebarButtons.map((btn) => (
+                  <div key={btn.id} className="sm-sidebar-btn-row">
+                    <span className="sm-sidebar-btn-label">{btn.label}</span>
+                    <code className="sm-sidebar-btn-cmd">{btn.command}</code>
+                    <button
+                      className="sm-sidebar-btn-delete"
+                      onClick={() => setWsSidebarButtons((prev) => prev.filter((b) => b.id !== btn.id))}
+                      title="Remove button"
+                    >✕</button>
+                  </div>
+                ))}
+                <div className="sm-sidebar-btn-form">
+                  <input
+                    className="sm-input"
+                    placeholder="Label (e.g. ⊡ Export)"
+                    value={newBtnLabel}
+                    onChange={(e) => setNewBtnLabel(e.target.value)}
+                  />
+                  <input
+                    className="sm-input"
+                    placeholder="Command (e.g. bash scripts/export_book.sh)"
+                    value={newBtnCmd}
+                    onChange={(e) => setNewBtnCmd(e.target.value)}
+                  />
+                  <input
+                    className="sm-input"
+                    placeholder="Tooltip description (optional)"
+                    value={newBtnDesc}
+                    onChange={(e) => setNewBtnDesc(e.target.value)}
+                  />
+                  <button
+                    className="sm-save-btn"
+                    style={{ marginTop: 8 }}
+                    disabled={!newBtnLabel.trim() || !newBtnCmd.trim()}
+                    onClick={() => {
+                      setWsSidebarButtons((prev) => [...prev, {
+                        id: Math.random().toString(36).slice(2, 9),
+                        label: newBtnLabel.trim(),
+                        command: newBtnCmd.trim(),
+                        description: newBtnDesc.trim() || undefined,
+                      }]);
+                      setNewBtnLabel(''); setNewBtnCmd(''); setNewBtnDesc('');
+                    }}
+                  >+ Add button</button>
+                </div>
+              </section>
+
+              <section className="sm-section">
+                <h3 className="sm-section-title">Voice dump inbox</h3>
+                <div className="sm-row sm-row--col">
+                  <label className="sm-label">
+                    Inbox file path
+                    <span className="sm-row-desc"> — voice transcripts are appended here (relative to workspace root)</span>
+                  </label>
+                  <input
+                    className="sm-input"
+                    value={wsInboxFile}
+                    onChange={(e) => setWsInboxFile(e.target.value)}
+                    placeholder="00_Inbox/raw_transcripts.md"
                   />
                 </div>
               </section>

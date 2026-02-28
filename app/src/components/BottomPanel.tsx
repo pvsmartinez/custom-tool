@@ -4,6 +4,14 @@ import { onTerminalEntry, emitTerminalEntry } from '../services/terminalBus';
 import type { TerminalEntry } from '../services/terminalBus';
 import './BottomPanel.css';
 
+export interface FileMeta {
+  kind: string | null;
+  wordCount: number;
+  lines: number;
+  slides: number;
+  fileStat: string | null;
+}
+
 interface Props {
   workspacePath: string;
   open: boolean;
@@ -12,12 +20,16 @@ interface Props {
   onHeightChange: (h: number) => void;
   /** When set, opens the panel and cd's to this absolute path. */
   requestCd?: string;
+  /** When set, opens the panel and runs this command immediately (format: "cmd|timestamp"). */
+  requestRun?: string;
+  /** Live file metrics shown in the always-visible status strip. */
+  fileMeta?: FileMeta;
 }
 
 const MIN_HEIGHT = 100;
 const MAX_HEIGHT = 800;
 
-export default function BottomPanel({ workspacePath, open, height, onToggle, onHeightChange, requestCd }: Props) {
+export default function BottomPanel({ workspacePath, open, height, onToggle, onHeightChange, requestCd, requestRun, fileMeta }: Props) {
   const [entries, setEntries] = useState<TerminalEntry[]>([]);
   const [input, setInput] = useState('');
   const [running, setRunning] = useState(false);
@@ -45,6 +57,17 @@ export default function BottomPanel({ workspacePath, open, height, onToggle, onH
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [requestCd]);
 
+  // External request to run a command immediately.
+  // Value format: "<cmd>|<timestamp>" — timestamp enables re-running the same command.
+  useEffect(() => {
+    if (!requestRun) return;
+    const cmd = requestRun.includes('|') ? requestRun.split('|').slice(0, -1).join('|') : requestRun;
+    if (!cmd.trim()) return;
+    if (!open) onToggle();
+    runCommand(cmd, cwd);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requestRun]);
+
   // Subscribe to AI-emitted terminal entries
   useEffect(() => {
     return onTerminalEntry((entry) => {
@@ -69,15 +92,21 @@ export default function BottomPanel({ workspacePath, open, height, onToggle, onH
     e.preventDefault();
     dragStartY.current = e.clientY;
     dragStartH.current = height;
+    document.body.style.cursor = 'row-resize';
+    document.body.style.userSelect = 'none';
 
     function onMove(ev: MouseEvent) {
       const delta = dragStartY.current - ev.clientY; // dragging up = bigger
       const newH = Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, dragStartH.current + delta));
       onHeightChange(newH);
     }
+    document.body.classList.add('is-resizing');
     function onUp() {
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
+      document.body.classList.remove('is-resizing');
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
     }
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
@@ -189,6 +218,21 @@ export default function BottomPanel({ workspacePath, open, height, onToggle, onH
             );
           })()}
         </div>
+        {/* File metrics status strip — always visible */}
+        {fileMeta && (() => {
+          const { kind, wordCount, lines, slides, fileStat } = fileMeta;
+          let text: string | null = null;
+          if (fileStat && (kind === 'video' || kind === 'audio' || kind === 'image' || kind === 'pdf')) text = fileStat;
+          else if (kind === 'markdown') text = `${wordCount.toLocaleString()} words`;
+          else if (kind === 'canvas' && slides > 0) text = `${slides} slide${slides !== 1 ? 's' : ''}`;
+          else if (kind === 'code' && lines > 0) text = `${lines.toLocaleString()} lines`;
+          if (!text) return null;
+          return (
+            <div className="bottom-panel-metrics" onClick={(e) => e.stopPropagation()}>
+              <span className="bottom-panel-metric">{text}</span>
+            </div>
+          );
+        })()}
         <div className="bottom-panel-tabrow-actions" onClick={(e) => e.stopPropagation()}>
           <button
             className="bottom-panel-action-btn"

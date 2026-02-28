@@ -2,14 +2,14 @@
  * useAutosave
  *
  * Owns the debounced-write lifecycle for editable text files.
- * Creates and exposes `saveTimerRef` (cancel-on-unmount) and
+ * Creates and exposes `scheduleAutosave`, `cancelAutosave`, and
  * `autosaveDelayRef` (runtime-configurable delay).
  *
  * Call `scheduleAutosave(ws, filePath, newContent)` on every content change.
  * The hook updates the dirty-file set immediately and flushes the write after
  * `autosaveDelayRef.current` milliseconds.  A delay of 0 means "never auto-save".
  */
-import { useRef, useCallback } from 'react';
+import { useRef, useCallback, useEffect } from 'react';
 import type { MutableRefObject, Dispatch, SetStateAction } from 'react';
 import type { Workspace } from '../types';
 import { writeFile, trackFileEdit } from '../services/workspace';
@@ -78,5 +78,19 @@ export function useAutosave({
     [],
   );
 
-  return { saveTimerRef, autosaveDelayRef, scheduleAutosave };
+  const cancelAutosave = useCallback(() => {
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+  }, []);
+
+  // Cancel any pending write on unmount to avoid setState-on-unmounted-component
+  // warnings in React 18+ and prevent ghost saves after workspace switch.
+  useEffect(() => {
+    return cancelAutosave;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return { saveTimerRef, autosaveDelayRef, scheduleAutosave, cancelAutosave };
 }

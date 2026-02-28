@@ -105,7 +105,7 @@ MARKETING_VER="$(python3 -c "import json; print(json.load(open('$APP_DIR/src-tau
 
 echo ""
 echo "═══════════════════════════════════════════════════════"
-echo "  custom-tool  →  TestFlight upload"
+echo "  cafezin  →  TestFlight upload"
 echo "  Version: $MARKETING_VER  Build: $BUILD_NUM"
 echo "  Team:    $APPLE_DEVELOPMENT_TEAM"
 if [[ "$SKIP_UPLOAD" == "false" ]]; then

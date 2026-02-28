@@ -56,6 +56,38 @@ async function buildFileTree(
   });
 }
 
+/**
+ * Recursively walk a directory and return a flat, sorted list of relative file
+ * paths, applying the standard workspace skip rules (WORKSPACE_SKIP, hidden
+ * entries starting with `.`).
+ *
+ * @param dir     Absolute path of the directory to walk.
+ * @param rel     Prefix to prepend to each relative path (used internally for recursion).
+ * @param filter  Optional predicate `(relPath, ext) => boolean`.
+ *                When provided, only files for which the predicate returns `true`
+ *                are included.  Directories are always traversed regardless.
+ */
+export async function walkFilesFlat(
+  dir: string,
+  rel = '',
+  filter?: (relPath: string, ext: string) => boolean,
+): Promise<string[]> {
+  let entries;
+  try { entries = await readDir(dir); } catch { return []; }
+  const paths: string[] = [];
+  for (const e of entries) {
+    if (!e.name || WORKSPACE_SKIP.has(e.name) || e.name.startsWith('.')) continue;
+    const relPath = rel ? `${rel}/${e.name}` : e.name;
+    if (e.isDirectory) {
+      paths.push(...await walkFilesFlat(`${dir}/${e.name}`, relPath, filter));
+    } else {
+      const ext = e.name.split('.').pop()?.toLowerCase() ?? '';
+      if (!filter || filter(relPath, ext)) paths.push(relPath);
+    }
+  }
+  return paths.sort();
+}
+
 /** Open a native folder-picker dialog and return the selected path. */
 export async function pickWorkspaceFolder(): Promise<string | null> {
   const selected = await open({ directory: true, multiple: false, title: 'Open Workspace Folder' });

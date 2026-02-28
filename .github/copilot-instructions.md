@@ -1,6 +1,6 @@
 # GitHub Copilot — VS Code Instructions
 
-> **Role:** You are the coding assistant for **custom-tool** — a Tauri v2 + React/TypeScript desktop app. Your job is to build, maintain, and debug the codebase. Read AGENT.md for full project context.
+> **Role:** You are the coding assistant for **cafezin** — a Tauri v2 + React/TypeScript desktop app. Your job is to build, maintain, and debug the codebase. Read AGENT.md for full project context.
 
 ---
 
@@ -70,7 +70,7 @@ app/src/
 ├── services/
 │   ├── copilot.ts          # API layer: streamCopilotChat, runCopilotAgent, fetchCopilotModels,
 │   │                       #   modelSupportsVision, startDeviceFlow, getStoredOAuthToken
-│   ├── aiMarks.ts          # AI edit marks: load/add/markReviewed → .customtool/ai-marks.json
+│   ├── aiMarks.ts          # AI edit marks: load/add/markReviewed → .cafezin/ai-marks.json
 │   ├── copilotLog.ts       # Session log: appendLogEntry, appendArchiveEntry → copilot-log.jsonl
 │   └── workspace.ts        # loadWorkspace, readFile, writeFile, buildFileTree, createCanvasFile
 ├── utils/
@@ -117,7 +117,7 @@ cd app && npm run tauri dev
 # Type-check (must be zero errors)
 cd app && npx tsc --noEmit
 
-# Quick rebuild + reinstall to ~/Applications/custom-tool.app
+# Quick rebuild + reinstall to ~/Applications/Cafezin.app
 ./scripts/update-app.sh
 
 # Full production build

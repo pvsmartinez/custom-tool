@@ -23,11 +23,18 @@ tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 tauri-plugin-http = "2"
-tokio = { version = "1", features = ["process", "time", "rt", "io-util", "net"] }
+tokio = { version = "1", features = ["process", "time", "rt", "io-util"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-sha2 = "0.10"
 base64 = "0.22"
-rand = "0.8"
 reqwest = { version = "0.12", features = ["multipart"] }
+git2 = { version = "0.19", optional = true, features = ["vendored-libgit2"] }
+
+[target.'cfg(target_os = "ios")'.dependencies]
+git2 = { version = "0.19", features = ["vendored-libgit2", "vendored-openssl"] }
+
+[features]
+# Enable native-Rust git (no git CLI) for Mac App Store and iOS builds.
+# Build with: cargo build --features mas
+mas = ["dep:git2"]
 

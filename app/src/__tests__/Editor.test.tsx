@@ -281,3 +281,372 @@ describe('Editor — onChange', () => {
     expect(onChange).toHaveBeenCalled();
   });
 });
+
+// ── Markdown toolbar — rendering ──────────────────────────────────────────────
+describe('Editor — markdown toolbar rendering', () => {
+  it('renders the markdown toolbar in prose mode', () => {
+    const { container } = render(<Editor content="" onChange={vi.fn()} />);
+    expect(container.querySelector('.editor-md-toolbar')).toBeInTheDocument();
+  });
+
+  it('does NOT render the markdown toolbar in code mode', () => {
+    const { container } = render(
+      <Editor content="" onChange={vi.fn()} language="javascript" />,
+    );
+    expect(container.querySelector('.editor-md-toolbar')).not.toBeInTheDocument();
+  });
+
+  it('renders a button for every MD_TOOLBAR item', () => {
+    const { container } = render(<Editor content="" onChange={vi.fn()} />);
+    const buttons = container.querySelectorAll('.editor-md-toolbar-btn');
+    // 16 items defined in MD_TOOLBAR_ITEMS
+    expect(buttons.length).toBe(16);
+  });
+
+  it('has a Bold button with correct title', () => {
+    render(<Editor content="" onChange={vi.fn()} />);
+    expect(screen.getByTitle('Bold (⌘B)')).toBeInTheDocument();
+  });
+
+  it('has an Italic button with correct title', () => {
+    render(<Editor content="" onChange={vi.fn()} />);
+    expect(screen.getByTitle('Italic (⌘I)')).toBeInTheDocument();
+  });
+
+  it('has a Math block button with correct title', () => {
+    render(<Editor content="" onChange={vi.fn()} />);
+    expect(screen.getByTitle('Math block (KaTeX)')).toBeInTheDocument();
+  });
+});
+
+// ── Markdown toolbar — button actions ─────────────────────────────────────────
+describe('Editor — toolbar button actions', () => {
+  async function getViewDispatch() {
+    const ref = createRef<EditorHandle>();
+    render(<Editor ref={ref} content="hello" onChange={vi.fn()} />);
+    await act(async () => {});
+    const dispatch = ref.current!.getView()!.dispatch as ReturnType<typeof vi.fn>;
+    dispatch.mockClear();
+    return { ref, dispatch };
+  }
+
+  it('Bold button dispatches a change wrapping with **', async () => {
+    const { dispatch } = await getViewDispatch();
+    const btn = screen.getByTitle('Bold (⌘B)');
+    fireEvent.mouseDown(btn);
+    expect(dispatch).toHaveBeenCalled();
+    const call = dispatch.mock.calls[0][0];
+    expect(call.changes.insert).toContain('**');
+  });
+
+  it('Italic button dispatches a change wrapping with _', async () => {
+    const { dispatch } = await getViewDispatch();
+    const btn = screen.getByTitle('Italic (⌘I)');
+    fireEvent.mouseDown(btn);
+    expect(dispatch).toHaveBeenCalled();
+    const call = dispatch.mock.calls[0][0];
+    expect(call.changes.insert).toContain('_');
+  });
+
+  it('Strikethrough button dispatches a change wrapping with ~~', async () => {
+    const { dispatch } = await getViewDispatch();
+    const btn = screen.getByTitle('Strikethrough');
+    fireEvent.mouseDown(btn);
+    expect(dispatch).toHaveBeenCalled();
+    const call = dispatch.mock.calls[0][0];
+    expect(call.changes.insert).toContain('~~');
+  });
+
+  it('Inline code button dispatches a change wrapping with backtick', async () => {
+    const { dispatch } = await getViewDispatch();
+    const btn = screen.getByTitle('Inline code');
+    fireEvent.mouseDown(btn);
+    expect(dispatch).toHaveBeenCalled();
+    const call = dispatch.mock.calls[0][0];
+    expect(call.changes.insert).toContain('`');
+  });
+
+  it('Horizontal rule button dispatches an insert of ---', async () => {
+    const { dispatch } = await getViewDispatch();
+    const btn = screen.getByTitle('Horizontal rule');
+    fireEvent.mouseDown(btn);
+    expect(dispatch).toHaveBeenCalled();
+    const call = dispatch.mock.calls[0][0];
+    expect(call.changes.insert).toContain('---');
+  });
+
+  it('Link button dispatches a change containing [text](url)', async () => {
+    const { dispatch } = await getViewDispatch();
+    const btn = screen.getByTitle('Link');
+    fireEvent.mouseDown(btn);
+    expect(dispatch).toHaveBeenCalled();
+    const call = dispatch.mock.calls[0][0];
+    expect(call.changes.insert).toMatch(/\[.*\]\(url\)/);
+  });
+
+  it('Image button dispatches a change containing ![alt text](url)', async () => {
+    const { dispatch } = await getViewDispatch();
+    const btn = screen.getByTitle('Image');
+    fireEvent.mouseDown(btn);
+    expect(dispatch).toHaveBeenCalled();
+    const call = dispatch.mock.calls[0][0];
+    expect(call.changes.insert).toMatch(/!\[.*\]\(url\)/);
+  });
+
+  it('Code block button dispatches a change with triple backtick fence', async () => {
+    const { dispatch } = await getViewDispatch();
+    const btn = screen.getByTitle('Code block');
+    fireEvent.mouseDown(btn);
+    expect(dispatch).toHaveBeenCalled();
+    const call = dispatch.mock.calls[0][0];
+    expect(call.changes.insert).toContain('```');
+  });
+
+  it('Table button dispatches a change containing | Col', async () => {
+    const { dispatch } = await getViewDispatch();
+    const btn = screen.getByTitle('Table');
+    fireEvent.mouseDown(btn);
+    expect(dispatch).toHaveBeenCalled();
+    const call = dispatch.mock.calls[0][0];
+    expect(call.changes.insert).toContain('| Col');
+  });
+
+  it('Math block button dispatches a change with $$', async () => {
+    const { dispatch } = await getViewDispatch();
+    const btn = screen.getByTitle('Math block (KaTeX)');
+    fireEvent.mouseDown(btn);
+    expect(dispatch).toHaveBeenCalled();
+    const call = dispatch.mock.calls[0][0];
+    expect(call.changes.insert).toContain('$$');
+  });
+
+  it('H1 button dispatches a prefix insert (dispatch called)', async () => {
+    const { dispatch } = await getViewDispatch();
+    const btn = screen.getByTitle('Heading 1');
+    fireEvent.mouseDown(btn);
+    // prefix-type items dispatch with changes containing '# '
+    expect(dispatch).toHaveBeenCalled();
+    const call = dispatch.mock.calls[0][0];
+    expect(call.changes.insert).toBe('# ');
+  });
+
+  it('Blockquote button dispatches a prefix insert with > ', async () => {
+    const { dispatch } = await getViewDispatch();
+    const btn = screen.getByTitle('Blockquote');
+    fireEvent.mouseDown(btn);
+    expect(dispatch).toHaveBeenCalled();
+    const call = dispatch.mock.calls[0][0];
+    expect(call.changes.insert).toBe('> ');
+  });
+
+  it('Bullet list button dispatches a prefix insert with - ', async () => {
+    const { dispatch } = await getViewDispatch();
+    const btn = screen.getByTitle('Bullet list');
+    fireEvent.mouseDown(btn);
+    expect(dispatch).toHaveBeenCalled();
+    const call = dispatch.mock.calls[0][0];
+    expect(call.changes.insert).toBe('- ');
+  });
+
+  it('Numbered list button dispatches a prefix insert with 1. ', async () => {
+    const { dispatch } = await getViewDispatch();
+    const btn = screen.getByTitle('Numbered list');
+    fireEvent.mouseDown(btn);
+    expect(dispatch).toHaveBeenCalled();
+    const call = dispatch.mock.calls[0][0];
+    expect(call.changes.insert).toBe('1. ');
+  });
+});
+
+// ── Keyboard shortcuts — Cmd+B / Cmd+I (prose mode) ──────────────────────────
+describe('Editor — Cmd+B / Cmd+I prose shortcuts', () => {
+  it('Cmd+B dispatches a bold wrap in prose mode', async () => {
+    const ref = createRef<EditorHandle>();
+    const { container } = render(
+      <Editor ref={ref} content="text" onChange={vi.fn()} />,
+    );
+    await act(async () => {});
+    const dispatch = ref.current!.getView()!.dispatch as ReturnType<typeof vi.fn>;
+    dispatch.mockClear();
+
+    const wrapper = container.querySelector('.editor-wrapper')!;
+    fireEvent.keyDown(wrapper, { key: 'b', metaKey: true });
+
+    expect(dispatch).toHaveBeenCalled();
+    const call = dispatch.mock.calls[0][0];
+    expect(call.changes.insert).toContain('**');
+  });
+
+  it('Ctrl+B dispatches a bold wrap in prose mode', async () => {
+    const ref = createRef<EditorHandle>();
+    const { container } = render(
+      <Editor ref={ref} content="text" onChange={vi.fn()} />,
+    );
+    await act(async () => {});
+    const dispatch = ref.current!.getView()!.dispatch as ReturnType<typeof vi.fn>;
+    dispatch.mockClear();
+
+    const wrapper = container.querySelector('.editor-wrapper')!;
+    fireEvent.keyDown(wrapper, { key: 'b', ctrlKey: true });
+
+    expect(dispatch).toHaveBeenCalled();
+    const call = dispatch.mock.calls[0][0];
+    expect(call.changes.insert).toContain('**');
+  });
+
+  it('Cmd+I dispatches an italic wrap in prose mode', async () => {
+    const ref = createRef<EditorHandle>();
+    const { container } = render(
+      <Editor ref={ref} content="text" onChange={vi.fn()} />,
+    );
+    await act(async () => {});
+    const dispatch = ref.current!.getView()!.dispatch as ReturnType<typeof vi.fn>;
+    dispatch.mockClear();
+
+    const wrapper = container.querySelector('.editor-wrapper')!;
+    fireEvent.keyDown(wrapper, { key: 'i', metaKey: true });
+
+    expect(dispatch).toHaveBeenCalled();
+    const call = dispatch.mock.calls[0][0];
+    expect(call.changes.insert).toContain('_');
+  });
+
+  it('Cmd+B does NOT dispatch in code mode', async () => {
+    const ref = createRef<EditorHandle>();
+    const { container } = render(
+      <Editor ref={ref} content="code" onChange={vi.fn()} language="javascript" />,
+    );
+    await act(async () => {});
+    const dispatch = ref.current!.getView()!.dispatch as ReturnType<typeof vi.fn>;
+    dispatch.mockClear();
+
+    const wrapper = container.querySelector('.editor-wrapper')!;
+    fireEvent.keyDown(wrapper, { key: 'b', metaKey: true });
+
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+});
+
+// ── Code mode toolbar ─────────────────────────────────────────────────────────
+describe('Editor — code mode toolbar', () => {
+  it('renders the Format button when language + onFormat are provided', () => {
+    render(
+      <Editor
+        content="const x = 1"
+        onChange={vi.fn()}
+        language="javascript"
+        onFormat={vi.fn()}
+      />,
+    );
+    expect(screen.getByTitle('Format file (Prettier)')).toBeInTheDocument();
+  });
+
+  it('does NOT render the Format button when onFormat is not provided', () => {
+    render(
+      <Editor content="const x = 1" onChange={vi.fn()} language="javascript" />,
+    );
+    expect(screen.queryByTitle('Format file (Prettier)')).not.toBeInTheDocument();
+  });
+
+  it('does NOT render the Format button in prose mode', () => {
+    const onFormat = vi.fn();
+    render(<Editor content="text" onChange={vi.fn()} onFormat={onFormat} />);
+    expect(screen.queryByTitle('Format file (Prettier)')).not.toBeInTheDocument();
+  });
+
+  it('calls onFormat when the Format button is clicked', async () => {
+    const onFormat = vi.fn();
+    render(
+      <Editor
+        content="const x = 1"
+        onChange={vi.fn()}
+        language="javascript"
+        onFormat={onFormat}
+      />,
+    );
+    await act(async () => {});
+
+    fireEvent.click(screen.getByTitle('Format file (Prettier)'));
+    expect(onFormat).toHaveBeenCalledOnce();
+  });
+});
+
+// ── isLocked prop ─────────────────────────────────────────────────────────────
+describe('Editor — isLocked prop', () => {
+  it('sets data-locked attribute when isLocked=true', () => {
+    const { container } = render(
+      <Editor content="text" onChange={vi.fn()} isLocked={true} />,
+    );
+    const wrapper = container.querySelector('.editor-wrapper');
+    expect(wrapper).toHaveAttribute('data-locked', 'true');
+  });
+
+  it('does NOT set data-locked when isLocked=false', () => {
+    const { container } = render(
+      <Editor content="text" onChange={vi.fn()} isLocked={false} />,
+    );
+    const wrapper = container.querySelector('.editor-wrapper');
+    expect(wrapper).not.toHaveAttribute('data-locked');
+  });
+
+  it('does NOT set data-locked when isLocked is omitted', () => {
+    const { container } = render(<Editor content="text" onChange={vi.fn()} />);
+    const wrapper = container.querySelector('.editor-wrapper');
+    expect(wrapper).not.toHaveAttribute('data-locked');
+  });
+});
+
+// ── isDark / fontSize props ───────────────────────────────────────────────────
+describe('Editor — isDark and fontSize props', () => {
+  it('renders without error in light mode (isDark=false)', () => {
+    const { container } = render(
+      <Editor content="text" onChange={vi.fn()} isDark={false} />,
+    );
+    expect(container.querySelector('.editor-wrapper')).toBeInTheDocument();
+  });
+
+  it('renders without error with a custom fontSize', () => {
+    const { container } = render(
+      <Editor content="text" onChange={vi.fn()} fontSize={18} />,
+    );
+    expect(container.querySelector('.editor-wrapper')).toBeInTheDocument();
+  });
+
+  it('renders without error with fontSize=10 (small)', () => {
+    const { container } = render(
+      <Editor content="text" onChange={vi.fn()} fontSize={10} />,
+    );
+    expect(container.querySelector('.editor-wrapper')).toBeInTheDocument();
+  });
+});
+
+// ── onAIMarkEdited wiring ─────────────────────────────────────────────────────
+describe('Editor — onAIMarkEdited wiring', () => {
+  it('renders without error when onAIMarkEdited is provided alongside aiMarks', () => {
+    const onAIMarkEdited = vi.fn();
+    const { container } = render(
+      <Editor
+        content="This is marked text"
+        onChange={vi.fn()}
+        aiMarks={[{ id: 'mark-1', text: 'marked text' }]}
+        onAIMarkEdited={onAIMarkEdited}
+      />,
+    );
+    expect(container.querySelector('.editor-wrapper')).toBeInTheDocument();
+  });
+
+  it('does not throw when aiMarks is updated via re-render', () => {
+    const { rerender } = render(
+      <Editor content="hello world" onChange={vi.fn()} aiMarks={[]} />,
+    );
+    expect(() =>
+      rerender(
+        <Editor
+          content="hello world"
+          onChange={vi.fn()}
+          aiMarks={[{ id: 'mark-2', text: 'hello world' }]}
+        />,
+      ),
+    ).not.toThrow();
+  });
+});

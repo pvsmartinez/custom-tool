@@ -189,15 +189,28 @@ export function CanvasFormatPanel() {
 
   const selCount = useValue('selCount', () => editor.getSelectedShapeIds().length, [editor]);
 
+  // Label text for the selected arrow (single selection only)
+  const arrowLabel = useValue('arrowLabel', () => {
+    const ids = editor.getSelectedShapeIds();
+    if (ids.length !== 1) return null;
+    const shape = editor.getShape(ids[0]);
+    if (shape?.type !== 'arrow') return null;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const text = (shape.props as any).text as string | undefined;
+    return { id: ids[0] as TLShapeId, text: text ?? '' };
+  }, [editor]);
+
   if (!styles && !selectedFrame && !arrowInfo && !effectsInfo && !isGroup && !canReorder) return null;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   function updateArrows(patch: Record<string, any>) {
     if (!arrowInfo) return;
-    for (const id of arrowInfo.ids) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      editor.updateShape({ id, type: 'arrow', props: patch as any });
-    }
+    try {
+      for (const id of arrowInfo.ids) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        editor.updateShape({ id, type: 'arrow', props: patch as any });
+      }
+    } catch (err) { console.warn('[FormatPanel] updateArrows:', err); }
   }
 
   function setArrowKind(kind: 'straight' | 'curve' | 'elbow') {
@@ -232,10 +245,12 @@ export function CanvasFormatPanel() {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   function ss(prop: any, value: string) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    editor.setStyleForSelectedShapes(prop as any, value as any);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    editor.setStyleForNextShapes(prop as any, value as any);
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      editor.setStyleForSelectedShapes(prop as any, value as any);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      editor.setStyleForNextShapes(prop as any, value as any);
+    } catch (err) { console.warn('[FormatPanel] setStyle:', err); }
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -252,126 +267,140 @@ export function CanvasFormatPanel() {
 
   // ── Align / Distribute ───────────────────────────────────────────────────────
   function alignAll(type: 'left' | 'center-h' | 'right' | 'top' | 'center-v' | 'bottom') {
-    const ids = editor.getSelectedShapeIds().filter((id) => {
-      const s = editor.getShape(id); return s && s.type !== 'frame';
-    }) as TLShapeId[];
-    if (ids.length < 2) return;
-    const items = ids.map((id) => {
-      const shape = editor.getShape(id)!;
-      const bounds = editor.getShapePageBounds(id)!;
-      return { id, shape, bounds };
-    }).filter((x) => x.bounds);
-    if (items.length < 2) return;
-    const minX = Math.min(...items.map((i) => i.bounds.x));
-    const maxX = Math.max(...items.map((i) => i.bounds.x + i.bounds.w));
-    const minY = Math.min(...items.map((i) => i.bounds.y));
-    const maxY = Math.max(...items.map((i) => i.bounds.y + i.bounds.h));
-    const cX = (minX + maxX) / 2;
-    const cY = (minY + maxY) / 2;
-    for (const { id, shape, bounds } of items) {
-      let dx = 0, dy = 0;
-      if (type === 'left')     dx = minX - bounds.x;
-      if (type === 'center-h') dx = cX   - (bounds.x + bounds.w / 2);
-      if (type === 'right')    dx = maxX - (bounds.x + bounds.w);
-      if (type === 'top')      dy = minY - bounds.y;
-      if (type === 'center-v') dy = cY   - (bounds.y + bounds.h / 2);
-      if (type === 'bottom')   dy = maxY - (bounds.y + bounds.h);
-      if (dx !== 0 || dy !== 0)
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        editor.updateShape({ id, type: shape.type, x: shape.x + dx, y: shape.y + dy } as any);
-    }
+    try {
+      const ids = editor.getSelectedShapeIds().filter((id) => {
+        const s = editor.getShape(id); return s && s.type !== 'frame';
+      }) as TLShapeId[];
+      if (ids.length < 2) return;
+      const items = ids.map((id) => {
+        const shape = editor.getShape(id)!;
+        const bounds = editor.getShapePageBounds(id)!;
+        return { id, shape, bounds };
+      }).filter((x) => x.bounds);
+      if (items.length < 2) return;
+      const minX = Math.min(...items.map((i) => i.bounds.x));
+      const maxX = Math.max(...items.map((i) => i.bounds.x + i.bounds.w));
+      const minY = Math.min(...items.map((i) => i.bounds.y));
+      const maxY = Math.max(...items.map((i) => i.bounds.y + i.bounds.h));
+      const cX = (minX + maxX) / 2;
+      const cY = (minY + maxY) / 2;
+      for (const { id, shape, bounds } of items) {
+        let dx = 0, dy = 0;
+        if (type === 'left')     dx = minX - bounds.x;
+        if (type === 'center-h') dx = cX   - (bounds.x + bounds.w / 2);
+        if (type === 'right')    dx = maxX - (bounds.x + bounds.w);
+        if (type === 'top')      dy = minY - bounds.y;
+        if (type === 'center-v') dy = cY   - (bounds.y + bounds.h / 2);
+        if (type === 'bottom')   dy = maxY - (bounds.y + bounds.h);
+        if (dx !== 0 || dy !== 0)
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          editor.updateShape({ id, type: shape.type, x: shape.x + dx, y: shape.y + dy } as any);
+      }
+    } catch (err) { console.warn('[FormatPanel] alignAll:', err); }
   }
 
   function distributeAll(dir: 'horizontal' | 'vertical') {
-    const ids = editor.getSelectedShapeIds().filter((id) => {
-      const s = editor.getShape(id); return s && s.type !== 'frame';
-    }) as TLShapeId[];
-    if (ids.length < 3) return;
-    const items = ids.map((id) => {
-      const shape = editor.getShape(id)!;
-      const bounds = editor.getShapePageBounds(id)!;
-      return { id, shape, bounds };
-    }).filter((x) => x.bounds);
-    if (items.length < 3) return;
-    if (dir === 'horizontal') {
-      const sorted = [...items].sort((a, b) => a.bounds.x - b.bounds.x);
-      const startCx = sorted[0].bounds.x + sorted[0].bounds.w / 2;
-      const endCx   = sorted[sorted.length - 1].bounds.x + sorted[sorted.length - 1].bounds.w / 2;
-      const step = (endCx - startCx) / (sorted.length - 1);
-      for (let i = 1; i < sorted.length - 1; i++) {
-        const { id, shape, bounds } = sorted[i];
-        const dx = (startCx + i * step) - (bounds.x + bounds.w / 2);
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        editor.updateShape({ id, type: shape.type, x: shape.x + dx, y: shape.y } as any);
+    try {
+      const ids = editor.getSelectedShapeIds().filter((id) => {
+        const s = editor.getShape(id); return s && s.type !== 'frame';
+      }) as TLShapeId[];
+      if (ids.length < 3) return;
+      const items = ids.map((id) => {
+        const shape = editor.getShape(id)!;
+        const bounds = editor.getShapePageBounds(id)!;
+        return { id, shape, bounds };
+      }).filter((x) => x.bounds);
+      if (items.length < 3) return;
+      if (dir === 'horizontal') {
+        const sorted = [...items].sort((a, b) => a.bounds.x - b.bounds.x);
+        const startCx = sorted[0].bounds.x + sorted[0].bounds.w / 2;
+        const endCx   = sorted[sorted.length - 1].bounds.x + sorted[sorted.length - 1].bounds.w / 2;
+        const step = (endCx - startCx) / (sorted.length - 1);
+        for (let i = 1; i < sorted.length - 1; i++) {
+          const { id, shape, bounds } = sorted[i];
+          const dx = (startCx + i * step) - (bounds.x + bounds.w / 2);
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          editor.updateShape({ id, type: shape.type, x: shape.x + dx, y: shape.y } as any);
+        }
+      } else {
+        const sorted = [...items].sort((a, b) => a.bounds.y - b.bounds.y);
+        const startCy = sorted[0].bounds.y + sorted[0].bounds.h / 2;
+        const endCy   = sorted[sorted.length - 1].bounds.y + sorted[sorted.length - 1].bounds.h / 2;
+        const step = (endCy - startCy) / (sorted.length - 1);
+        for (let i = 1; i < sorted.length - 1; i++) {
+          const { id, shape, bounds } = sorted[i];
+          const dy = (startCy + i * step) - (bounds.y + bounds.h / 2);
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          editor.updateShape({ id, type: shape.type, x: shape.x, y: shape.y + dy } as any);
+        }
       }
-    } else {
-      const sorted = [...items].sort((a, b) => a.bounds.y - b.bounds.y);
-      const startCy = sorted[0].bounds.y + sorted[0].bounds.h / 2;
-      const endCy   = sorted[sorted.length - 1].bounds.y + sorted[sorted.length - 1].bounds.h / 2;
-      const step = (endCy - startCy) / (sorted.length - 1);
-      for (let i = 1; i < sorted.length - 1; i++) {
-        const { id, shape, bounds } = sorted[i];
-        const dy = (startCy + i * step) - (bounds.y + bounds.h / 2);
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        editor.updateShape({ id, type: shape.type, x: shape.x, y: shape.y + dy } as any);
-      }
-    }
+    } catch (err) { console.warn('[FormatPanel] distributeAll:', err); }
   }
 
   function setRotDeg(deg: number) {
-    const rad = ((deg % 360) + 360) % 360 * Math.PI / 180;
-    const ids = editor.getSelectedShapeIds() as TLShapeId[];
-    for (const id of ids) {
-      const shape = editor.getShape(id);
-      if (!shape) continue;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      editor.updateShape({ id, type: shape.type, rotation: rad } as any);
-    }
+    try {
+      const rad = ((deg % 360) + 360) % 360 * Math.PI / 180;
+      const ids = editor.getSelectedShapeIds() as TLShapeId[];
+      for (const id of ids) {
+        const shape = editor.getShape(id);
+        if (!shape) continue;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        editor.updateShape({ id, type: shape.type, rotation: rad } as any);
+      }
+    } catch (err) { console.warn('[FormatPanel] setRotDeg:', err); }
   }
 
   function setOpacity(pct: number) {
-    const opacity = Math.max(0, Math.min(1, pct / 100));
-    const ids = editor.getSelectedShapeIds() as TLShapeId[];
-    for (const id of ids) {
-      const shape = editor.getShape(id);
-      if (!shape) continue;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      editor.updateShape({ id, type: shape.type, opacity } as any);
-    }
+    try {
+      const opacity = Math.max(0, Math.min(1, pct / 100));
+      const ids = editor.getSelectedShapeIds() as TLShapeId[];
+      for (const id of ids) {
+        const shape = editor.getShape(id);
+        if (!shape) continue;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        editor.updateShape({ id, type: shape.type, opacity } as any);
+      }
+    } catch (err) { console.warn('[FormatPanel] setOpacity:', err); }
   }
 
   function toggleLock() {
     if (!lockInfo) return;
-    const newLocked = !lockInfo.allLocked;
-    for (const id of lockInfo.ids) {
-      const shape = editor.getShape(id);
-      if (!shape) continue;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      editor.updateShape({ id, type: shape.type, isLocked: newLocked } as any);
-    }
-    if (newLocked)
-      editor.setSelectedShapes(editor.getSelectedShapeIds().filter((id) => !lockInfo.ids.includes(id as TLShapeId)));
+    try {
+      const newLocked = !lockInfo.allLocked;
+      for (const id of lockInfo.ids) {
+        const shape = editor.getShape(id);
+        if (!shape) continue;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        editor.updateShape({ id, type: shape.type, isLocked: newLocked } as any);
+      }
+      if (newLocked)
+        editor.setSelectedShapes(editor.getSelectedShapeIds().filter((id) => !lockInfo.ids.includes(id as TLShapeId)));
+    } catch (err) { console.warn('[FormatPanel] toggleLock:', err); }
   }
 
   function setGeoType(geo: string) {
     if (!geoInfo) return;
-    for (const id of geoInfo.ids) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      editor.updateShape({ id, type: 'geo', props: { geo } } as any);
-    }
+    try {
+      for (const id of geoInfo.ids) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        editor.updateShape({ id, type: 'geo', props: { geo } } as any);
+      }
+    } catch (err) { console.warn('[FormatPanel] setGeoType:', err); }
   }
 
   function setShapeSize(dim: 'w' | 'h', value: number) {
     if (!sizeInfo) return;
-    const v = Math.max(1, Math.round(value));
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    editor.updateShape({ id: sizeInfo.id, type: sizeInfo.type, props: { [dim]: v } } as any);
+    try {
+      const v = Math.max(1, Math.round(value));
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      editor.updateShape({ id: sizeInfo.id, type: sizeInfo.type, props: { [dim]: v } } as any);
+    } catch (err) { console.warn('[FormatPanel] setShapeSize:', err); }
   }
 
   function flipShapes(dir: 'horizontal' | 'vertical') {
     const ids = editor.getSelectedShapeIds() as TLShapeId[];
     if (ids.length === 0) return;
-    editor.flipShapes(ids, dir);
+    try { editor.flipShapes(ids, dir); } catch (err) { console.warn('[FormatPanel] flipShapes:', err); }
   }
 
   function layerOrder(op: 'front' | 'forward' | 'backward' | 'back') {
@@ -381,38 +410,42 @@ export function CanvasFormatPanel() {
       return s && s.type !== 'frame' && !(s.meta as Record<string, unknown>)?.isThemeBg;
     });
     if (nonFrames.length === 0) return;
-    if (op === 'front')    editor.bringToFront(nonFrames);
-    if (op === 'forward')  editor.bringForward(nonFrames);
-    if (op === 'backward') editor.sendBackward(nonFrames);
-    if (op === 'back')     editor.sendToBack(nonFrames);
-    enforceBgAtBack(editor);
+    try {
+      if (op === 'front')    editor.bringToFront(nonFrames);
+      if (op === 'forward')  editor.bringForward(nonFrames);
+      if (op === 'backward') editor.sendBackward(nonFrames);
+      if (op === 'back')     editor.sendToBack(nonFrames);
+      enforceBgAtBack(editor);
+    } catch (err) { console.warn('[FormatPanel] layerOrder:', err); }
   }
 
   function groupSelected() {
     const ids = editor.getSelectedShapeIds() as TLShapeId[];
     const nonFrames = ids.filter((id) => editor.getShape(id)?.type !== 'frame');
     if (nonFrames.length < 2) return;
-    editor.groupShapes(nonFrames, { select: true });
+    try { editor.groupShapes(nonFrames, { select: true }); } catch (err) { console.warn('[FormatPanel] groupShapes:', err); }
   }
 
   function ungroupSelected() {
     const ids = editor.getSelectedShapeIds() as TLShapeId[];
     const groups = ids.filter((id) => editor.getShape(id)?.type === 'group');
     if (groups.length === 0) return;
-    editor.ungroupShapes(groups, { select: true });
+    try { editor.ungroupShapes(groups, { select: true }); } catch (err) { console.warn('[FormatPanel] ungroupShapes:', err); }
   }
 
   function setEffectsMeta(ids: TLShapeId[], patch: { cornerRadius?: number; shadow?: ShadowMeta | null }) {
-    for (const id of ids) {
-      const shape = editor.getShape(id);
-      if (!shape) continue;
-      const existingMeta = (shape.meta ?? {}) as Record<string, unknown>;
-      const newMeta: Record<string, unknown> = { ...existingMeta };
-      if ('cornerRadius' in patch) newMeta.cornerRadius = patch.cornerRadius;
-      if ('shadow' in patch) newMeta.shadow = patch.shadow ?? undefined;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      editor.updateShape({ id, type: shape.type, meta: newMeta } as any);
-    }
+    try {
+      for (const id of ids) {
+        const shape = editor.getShape(id);
+        if (!shape) continue;
+        const existingMeta = (shape.meta ?? {}) as Record<string, unknown>;
+        const newMeta: Record<string, unknown> = { ...existingMeta };
+        if ('cornerRadius' in patch) newMeta.cornerRadius = patch.cornerRadius;
+        if ('shadow' in patch) newMeta.shadow = patch.shadow ?? undefined;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        editor.updateShape({ id, type: shape.type, meta: newMeta } as any);
+      }
+    } catch (err) { console.warn('[FormatPanel] setEffectsMeta:', err); }
   }
 
   const curColor = sv(DefaultColorStyle);
@@ -499,7 +532,7 @@ export function CanvasFormatPanel() {
               onClick={() => exportAs(editor, [selectedFrame.id as TLShapeId], {
                 format: 'png',
                 name: (selectedFrame as AnyFrame).props?.name || 'slide',
-              })}
+              }).catch((err) => console.error('[FormatPanel] exportAs:', err))}
               title="Export this slide as PNG"
             >
               <DownloadSimple weight="thin" size={14} /> Export PNG
@@ -552,6 +585,30 @@ export function CanvasFormatPanel() {
               ))}
             </div>
           </div>
+          {/* Arrow label — only when a single arrow is selected */}
+          {arrowLabel !== null && (
+            <div className="canvas-fmt-section">
+              <div className="canvas-fmt-label">Label</div>
+              <input
+                className="canvas-fmt-dim-input"
+                style={{ width: '100%', boxSizing: 'border-box' }}
+                type="text"
+                placeholder="Arrow label…"
+                value={arrowLabel.text}
+                onPointerDown={(e) => e.stopPropagation()}
+                onChange={(e) => {
+                  try {
+                    editor.updateShape({
+                      id: arrowLabel.id,
+                      type: 'arrow',
+                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                      props: { text: e.target.value } as any,
+                    });
+                  } catch (err) { console.warn('[FormatPanel] arrowLabel:', err); }
+                }}
+              />
+            </div>
+          )}
         </>
       )}
 

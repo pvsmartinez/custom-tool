@@ -73,11 +73,15 @@ function buildRequestDump(
   return lines.join('\n');
 }
 
+// TODO: Register a dedicated Cafezin GitHub OAuth App at
+// https://github.com/settings/developers (Device flow, scope: copilot)
+// and replace GITHUB_CLIENT_ID below with its client_id.
+// Until then the device flow re-uses VS Code's public client ID.
 const EDITOR_HEADERS = {
-  'Editor-Version': 'vscode/1.99.0',
-  'Editor-Plugin-Version': 'copilot-chat/0.26.0',
-  'User-Agent': 'GitHubCopilotChat/0.26.0',
-  'Copilot-Integration-Id': 'vscode-chat',
+  'User-Agent': 'Cafezin/1.0',
+  'Editor-Version': 'Cafezin/1.0',
+  'Editor-Plugin-Version': 'cafezin/1.0',
+  'Copilot-Integration-Id': 'cafezin',
 };
 
 // ── Rate limit / quota tracking ────────────────────────────
@@ -193,8 +197,7 @@ async function summarizeAndCompress(
           },
         ],
         stream: false,
-        max_tokens: 1800,
-        temperature: 0.2,
+        ...modelApiParams(model, 0.2, 1800),
       }),
     });
     if (summaryRes.ok) {
@@ -294,6 +297,10 @@ async function summarizeAndCompress(
  *   - Consecutive user messages       (keep last — avoids duplicate injection)
  *   - Orphan tool messages            (no matching tool_call_id in any preceding
  *                                      assistant turn — they'd cause a 400)
+ *   - Dangling tool_calls             (assistant with tool_calls whose responses
+ *                                      were sliced off — the API expects all
+ *                                      tool_call_ids to be resolved before the
+ *                                      next turn; unresolved ones → 400)
  *   - Empty-role or undefined messages
  */
 export function sanitizeLoop(msgs: ChatMessage[]): ChatMessage[] {
@@ -301,12 +308,15 @@ export function sanitizeLoop(msgs: ChatMessage[]): ChatMessage[] {
 
   // ── Pre-pass: strip UI-only fields that the Copilot API doesn't accept ──
   // `items` (MessageItem[]) is local display metadata stored in React state.
-  // It must NOT be sent to the API — some backends return 400 Bad Request
+  // `activeFile`, `attachedImage`, and `attachedFile` are also UI-only fields.
+  // None of these must be sent to the API — some backends return 400 Bad Request
   // when they encounter unknown fields in message objects.
+  // `attachedImage` in particular can be a large base64 data URL; stripping it
+  // prevents megabytes of data being re-sent on every subsequent API call.
   const stripped: ChatMessage[] = msgs.map((m) => {
     if (!m) return m;
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { items: _items, activeFile: _af, ...clean } = m as any;
+    const { items: _items, activeFile: _af, attachedImage: _ai, attachedFile: _afile, ...clean } = m as any;
     return clean as ChatMessage;
   });
   // Pass 1: resolve orphan tool messages by tracking active tool_call_ids
@@ -356,13 +366,48 @@ export function sanitizeLoop(msgs: ChatMessage[]): ChatMessage[] {
     out.push(m);
   }
 
+  // Pass 3: drop trailing assistant messages with unresolved tool_calls.
+  // This happens when context compression slices off some (or all) of the
+  // tool-response messages but leaves the assistant that issued those calls.
+  // The Copilot API (and every provider it proxies) returns 400 when an
+  // assistant turn has tool_calls that were never answered.
+  //
+  // Scan from the end of `out`.  For every assistant-with-tool-calls, verify
+  // that ALL of its call IDs have a corresponding tool message immediately
+  // following it (before the next user/system/assistant).  If any are missing,
+  // splice from that assistant to the end and repeat (the removal may expose
+  // another incomplete exchange earlier in the array).
+  {
+    let i = out.length - 1;
+    while (i >= 0) {
+      const m = out[i];
+      if (m.role !== 'assistant' || !m.tool_calls || m.tool_calls.length === 0) {
+        i--;
+        continue;
+      }
+      // Collect tool_call_ids resolved by immediately following tool messages
+      const resolvedIds = new Set<string>();
+      let j = i + 1;
+      while (j < out.length && out[j].role === 'tool') {
+        if (out[j].tool_call_id) resolvedIds.add(out[j].tool_call_id!);
+        j++;
+      }
+      if (!m.tool_calls.every((tc) => resolvedIds.has(tc.id))) {
+        // Incomplete exchange — remove from this assistant to the end
+        out.splice(i);
+      }
+      i--;
+    }
+  }
+
   return out;
 }
 
 // ── OAuth / Device Flow ──────────────────────────────────────────────────────────
 // The Copilot session-token endpoint only accepts OAuth App tokens, not PATs.
-// We use GitHub Device Flow with VS Code's public OAuth client ID.
-const GITHUB_CLIENT_ID = 'Iv1.b507a08c87ecfe98';
+// TODO: replace with a dedicated Cafezin GitHub OAuth App client ID
+// (see https://github.com/settings/developers — Device flow + copilot scope).
+const GITHUB_CLIENT_ID = 'Iv1.b507a08c87ecfe98'; // ← swap for your own App
 const OAUTH_TOKEN_KEY = 'copilot-github-oauth-token';
 
 export interface DeviceFlowState {
@@ -443,36 +488,56 @@ export async function startDeviceFlow(
 // ── Copilot session token ──────────────────────────────────────────────────────────
 let _sessionToken: string | null = null;
 let _sessionTokenExpiry = 0;
+/**
+ * In-flight token-refresh promise. When multiple concurrent callers arrive while
+ * a refresh is already in progress they all await the same promise instead of
+ * issuing duplicate exchange requests (which would hit the rate-limit and also
+ * create a race where the last writer clobbers earlier results).
+ */
+let _tokenRefreshPending: Promise<string> | null = null;
 
 async function getCopilotSessionToken(): Promise<string> {
   const now = Date.now();
+  // Fast path: cached token is still valid
   if (_sessionToken && now < _sessionTokenExpiry - 60_000) return _sessionToken;
 
-  const oauthToken = getStoredOAuthToken();
-  if (!oauthToken) throw new Error('NOT_AUTHENTICATED');
+  // Coalesce concurrent refresh requests into one in-flight request
+  if (_tokenRefreshPending) return _tokenRefreshPending;
 
-  const res = await fetch('https://api.github.com/copilot_internal/v2/token', {
-    headers: {
-      Authorization: `token ${oauthToken}`,
-      'Content-Type': 'application/json',
-      ...EDITOR_HEADERS,
-    },
-  });
+  _tokenRefreshPending = (async () => {
+    try {
+      const oauthToken = getStoredOAuthToken();
+      if (!oauthToken) throw new Error('NOT_AUTHENTICATED');
 
-  if (!res.ok) {
-    const body = await res.text();
-    // Token revoked or expired — clear it so the UI shows sign-in again
-    if (res.status === 401 || res.status === 403) {
-      clearOAuthToken();
-      throw new Error('NOT_AUTHENTICATED');
+      const res = await fetch('https://api.github.com/copilot_internal/v2/token', {
+        headers: {
+          Authorization: `token ${oauthToken}`,
+          'Content-Type': 'application/json',
+          ...EDITOR_HEADERS,
+        },
+      });
+
+      if (!res.ok) {
+        const body = await res.text();
+        // Token revoked or expired — clear it so the UI shows sign-in again
+        if (res.status === 401 || res.status === 403) {
+          clearOAuthToken();
+          throw new Error('NOT_AUTHENTICATED');
+        }
+        throw new Error(`Copilot token exchange failed (${res.status}): ${body}`);
+      }
+
+      const data = await res.json() as { token: string; expires_at: string };
+      _sessionToken = data.token;
+      _sessionTokenExpiry = new Date(data.expires_at).getTime();
+      return _sessionToken;
+    } finally {
+      // Always clear the pending slot so the next call can refresh again
+      _tokenRefreshPending = null;
     }
-    throw new Error(`Copilot token exchange failed (${res.status}): ${body}`);
-  }
+  })();
 
-  const data = await res.json() as { token: string; expires_at: string };
-  _sessionToken = data.token;
-  _sessionTokenExpiry = new Date(data.expires_at).getTime();
-  return _sessionToken;
+  return _tokenRefreshPending;
 }
 
 /**
@@ -493,8 +558,13 @@ export async function streamCopilotChat(
     if (signal?.aborted) return;
     const sessionToken = await getCopilotSessionToken();
 
+    // Sanitize messages before sending: strip UI-only fields (items, activeFile,
+    // attachedImage, attachedFile) and resolve structural problems (consecutive
+    // roles, orphan/dangling tool messages) — identical to what runCopilotAgent does.
+    const cleanMessages = sanitizeLoop([...messages]);
+
     // Capture the full request dump BEFORE sending (available even if request succeeds)
-    _lastRequestDump = buildRequestDump(messages, model, tools);
+    _lastRequestDump = buildRequestDump(cleanMessages, model, tools);
 
     // Retry up to 3 times for transient 5xx errors with exponential backoff
     const MAX_RETRIES = 3;
@@ -515,11 +585,10 @@ export async function streamCopilotChat(
         signal,
         body: JSON.stringify({
           model,
-          messages,
+          messages: cleanMessages,
           ...(tools ? { tools, tool_choice: 'auto' } : {}),
           stream: true,
-          max_tokens: 4096,
-          temperature: 0.7,
+          ...modelApiParams(model, 0.7, 16384),
         }),
       });
       if (response.ok || response.status < 500) break;
@@ -538,7 +607,7 @@ export async function streamCopilotChat(
       const errorText = await response.text();
 
       // Update the dump with the error status+body and log to console
-      _lastRequestDump = buildRequestDump(messages, model, tools, response.status, errorText);
+      _lastRequestDump = buildRequestDump(cleanMessages, model, tools, response.status, errorText);
       console.error('[Copilot] API error diagnostic:\n' + _lastRequestDump);
 
       let cleanError: string;
@@ -633,6 +702,28 @@ export async function copilotComplete(
 // GPT-4.1, all Claude, all Gemini) supports vision.
 export function modelSupportsVision(modelId: string): boolean {
   return !/^o\d/.test(modelId);
+}
+
+/**
+ * Returns the model-specific API body parameters for completions.
+ *
+ * o-series reasoning models (o3, o4-mini, …) have two hard constraints:
+ *   1. `temperature` must equal 1 (the default) or be **omitted** — any other
+ *      value causes a 400 "Unsupported value" error.
+ *   2. They use `max_completion_tokens` instead of the legacy `max_tokens`.
+ *
+ * Standard models (GPT-4o, Claude, Gemini, …) accept `temperature` freely
+ * and use `max_tokens`.
+ */
+export function modelApiParams(
+  model: CopilotModel,
+  temperature: number,
+  maxTokens: number,
+): { temperature?: number; max_tokens?: number; max_completion_tokens?: number } {
+  if (/^o\d/.test(model)) {
+    return { max_completion_tokens: maxTokens };
+  }
+  return { temperature, max_tokens: maxTokens };
 }
 
 // ── Model discovery ──────────────────────────────────────────────────────────
@@ -733,12 +824,26 @@ export async function fetchCopilotModels(): Promise<CopilotModelInfo[]> {
 
     // Deduplicate by family: when two IDs share the same familyKey (e.g.
     // claude-sonnet-4-5 and claude-sonnet-4-6 both → "claude-sonnet-4"),
-    // keep the one whose raw ID sorts last lexicographically (newest patch).
+    // keep the one with the highest numeric version. We compare by splitting
+    // on non-numeric runs and comparing each numeric segment as a number so
+    // "4-10" correctly beats "4-9" (lexicographic comparison gets this wrong).
+    function versionScore(id: string): number[] {
+      return id.split(/[^\d]+/).filter(Boolean).map(Number);
+    }
+    function newerVersion(a: string, b: string): boolean {
+      const va = versionScore(a);
+      const vb = versionScore(b);
+      for (let i = 0; i < Math.max(va.length, vb.length); i++) {
+        const diff = (va[i] ?? 0) - (vb[i] ?? 0);
+        if (diff !== 0) return diff > 0;
+      }
+      return false;
+    }
     const byFamily = new Map<string, CopilotModelInfo>();
     for (const m of mapped) {
       const key = familyKey(m.id);
       const existing = byFamily.get(key);
-      if (!existing || m.id > existing.id) {
+      if (!existing || newerVersion(m.id, existing.id)) {
         byFamily.set(key, m);
       }
     }
@@ -970,12 +1075,24 @@ export async function runCopilotAgent(
       ...EDITOR_HEADERS,
     };
 
-    const loop = [...messages];
+    // Sanitize once: strip UI-only fields and resolve structural issues
+    // (consecutive roles, orphan tool messages) before the first round.
+    // Messages appended within the loop are synthetic and already clean.
+    const loop = sanitizeLoop([...messages]);
     const MAX_ROUNDS = 50;
 
     for (let round = 0; round < MAX_ROUNDS; round++) {
       // Early-exit if the caller aborted (user sent a new message mid-run)
       if (signal?.aborted) return;
+
+      // Re-sanitize at the start of every round as a safety net.
+      // Mid-loop pruning (lightweight blind splice) and vision injection can
+      // create structural issues (orphan tool messages, unresolved tool_calls,
+      // consecutive roles) that must be resolved before the next API call.
+      {
+        const clean = sanitizeLoop(loop);
+        loop.splice(0, loop.length, ...clean);
+      }
 
       // Streaming call to detect tool_calls and stream text
       // Retry up to 3 times for transient 5xx errors with exponential backoff
@@ -984,18 +1101,19 @@ export async function runCopilotAgent(
       for (let attempt = 0; attempt < 3; attempt++) {
         if (signal?.aborted) return;
         if (attempt > 0) await new Promise((r) => setTimeout(r, 1000 * 2 ** (attempt - 1)));
+        // Update the diagnostic dump before every attempt so it reflects the live request.
+        _lastRequestDump = buildRequestDump(loop, model, tools);
         const r = await fetch(COPILOT_API_URL, {
           method: 'POST',
           headers,
           signal,
           body: JSON.stringify({
             model,
-            messages: sanitizeLoop(loop),
+            messages: loop,
             tools,
             tool_choice: 'auto',
             stream: true,
-            max_tokens: 16000,
-            temperature: 0.3,
+            ...modelApiParams(model, 0.3, 16000),
           }),
         });
         if (r.ok || r.status < 500) { res = r; break; }
@@ -1009,6 +1127,9 @@ export async function runCopilotAgent(
 
       if (!res.ok) {
         const errText = await res.text();
+        // Update the dump with the error response so the user gets actionable diagnostics.
+        _lastRequestDump = buildRequestDump(loop, model, tools, res.status, errText);
+        console.error('[agent] API error diagnostic:\n' + _lastRequestDump);
         let cleanMsg: string;
         if (errText.trim().startsWith('<')) {
           cleanMsg = `GitHub returned a ${res.status} (server error) — please retry in a moment`;
@@ -1231,8 +1352,10 @@ export async function runCopilotAgent(
         onToolActivity({ ...activity, result, error: activity.error });
 
         // Truncate very large results to avoid oversized requests (e.g. large files,
-        // base64 blobs accidentally not caught by sentinel). Keep first 8000 chars.
-        const MAX_TOOL_RESULT = 8000;
+        // base64 blobs accidentally not caught by sentinel). Cap at 32 KB — large enough
+        // for a full 40 KB paged file read without cutting responses short, but still
+        // much smaller than the 90 K token context budget.
+        const MAX_TOOL_RESULT = 32_000;
         const safeResult = result.length > MAX_TOOL_RESULT
           ? result.slice(0, MAX_TOOL_RESULT) + `\n[...truncated ${result.length - MAX_TOOL_RESULT} chars]`
           : result;
@@ -1241,7 +1364,8 @@ export async function runCopilotAgent(
           tool_call_id: tc.id,
           // Note: 'name' is NOT included — it's invalid in the tool message spec
           // and causes 400 Bad Request on some backends.
-          content: safeResult,
+          // Empty string content causes 400 on several backends — use a placeholder.
+          content: safeResult || '(empty result)',
         });
       }
 
@@ -1282,9 +1406,13 @@ export async function runCopilotAgent(
             loop.splice(firstAssistantIdx, keepFrom - firstAssistantIdx);
           }
         }
-        // Prune stale vision user messages: keep only the most recent one
+        // Prune stale injected vision user messages: keep only the most recent one.
+        // Only look AFTER the first assistant turn — the original task message
+        // (which may be multipart with a canvas screenshot) must not be removed.
+        const firstAssistantIdxPrune = loop.findIndex((m) => m.role === 'assistant');
         const visionIdxs = loop.reduce<number[]>((acc, m, i) => {
-          if (m.role === 'user' && Array.isArray(m.content) &&
+          if (i > firstAssistantIdxPrune &&
+              m.role === 'user' && Array.isArray(m.content) &&
               (m.content as any[]).some((p: any) => p.type === 'image_url')) acc.push(i);
           return acc;
         }, []);
@@ -1295,35 +1423,87 @@ export async function runCopilotAgent(
         }
       }
 
-      // ── Inject canvas screenshots as vision messages ───────────────────
-      const SCREENSHOT_SENTINEL = '__CANVAS_PNG__:';
-      const visionUrls: string[] = [];
+      // ── Inject canvas / HTML preview screenshots as vision messages ──────
+      // Strategy: collect all screenshot sentinels from tool result messages,
+      // replace them with plain-text placeholders, then append a single `user`
+      // message containing the most-recent screenshot image.
+      //
+      // We deliberately do NOT embed images inside `tool` role messages because
+      // the GitHub Copilot API (and every provider it proxies to, including Claude
+      // and GPT-4o) rejects multipart content in tool-result messages with 400.
+      // A `user` message after tool results is the universally valid pattern:
+      //   assistant (tool_calls) → tool, tool, … → user (image)   ✅
+      // The previous concern about "tool → user" was a mistake — what's invalid
+      // is two consecutive `user` messages, not tool → user.
+      const SENTINEL_CANVAS  = '__CANVAS_PNG__:';
+      const SENTINEL_PREVIEW = '__PREVIEW_PNG__:';
       if (modelSupportsVision(model)) {
+        let latestScreenshotUrl = '';
+        let latestScreenshotLabel = '';
+
+        // Walk all tool messages, neutralise sentinels, remember the last one
         for (const msg of loop) {
-          if (msg.role === 'tool' && typeof msg.content === 'string' &&
-              (msg.content as string).startsWith(SCREENSHOT_SENTINEL)) {
-            visionUrls.push((msg.content as string).slice(SCREENSHOT_SENTINEL.length));
-            // Replace sentinel so subsequent rounds don't re-inject
-            (msg as any).content = 'Canvas screenshot rendered — the image is in the message above.';
+          if (msg.role === 'tool' && typeof msg.content === 'string') {
+            const c = msg.content as string;
+            if (c.startsWith(SENTINEL_CANVAS)) {
+              latestScreenshotUrl   = c.slice(SENTINEL_CANVAS.length);
+              latestScreenshotLabel = 'Canvas screenshot after your modifications — verify layout, colors, and content:';
+              (msg as any).content  = 'Canvas screenshot taken — see image below.';
+            } else if (c.startsWith(SENTINEL_PREVIEW)) {
+              latestScreenshotUrl   = c.slice(SENTINEL_PREVIEW.length);
+              latestScreenshotLabel = 'HTML preview screenshot — verify the rendered layout, spacing, and visual design:';
+              (msg as any).content  = 'HTML preview screenshot taken — see image below.';
+            }
+          }
+        }
+
+        // Prune any stale vision user messages injected by PREVIOUS agent rounds.
+        // IMPORTANT: only remove messages that appear AFTER the first assistant turn —
+        // the original task message (which may also be multipart with a canvas screenshot)
+        // must NOT be removed, or the next round will start with [system]→[assistant]
+        // which has no preceding user message and causes a 400 Bad Request.
+        const firstAssistantIdxForVision = loop.findIndex((m) => m.role === 'assistant');
+        const visionIdxs = loop.reduce<number[]>((acc, m, i) => {
+          if (i > firstAssistantIdxForVision &&
+              m.role === 'user' && Array.isArray(m.content) &&
+              (m.content as any[]).some((p: any) => p.type === 'image_url')) acc.push(i);
+          return acc;
+        }, []);
+        if (visionIdxs.length > 0) {
+          // Remove ALL injected vision user messages — we'll append a fresh one below
+          for (let i = visionIdxs.length - 1; i >= 0; i--) {
+            loop.splice(visionIdxs[i], 1);
+          }
+        }
+
+        // Append the most recent screenshot as a user message
+        if (latestScreenshotUrl) {
+          const isValidDataUrl =
+            latestScreenshotUrl.startsWith('data:image/') &&
+            latestScreenshotUrl.includes(';base64,') &&
+            latestScreenshotUrl.length > 300;
+          if (isValidDataUrl) {
+            loop.push({
+              role: 'user',
+              content: [
+                { type: 'text', text: latestScreenshotLabel },
+                { type: 'image_url', image_url: { url: latestScreenshotUrl } },
+              ],
+            } as any);
           }
         }
       } else {
-        // Non-vision model: strip sentinel so the base64 blob isn't sent as plain text
+        // Non-vision model: strip sentinels so base64 blobs aren't sent as plain text
         for (const msg of loop) {
-          if (msg.role === 'tool' && typeof msg.content === 'string' &&
-              (msg.content as string).startsWith(SCREENSHOT_SENTINEL)) {
-            (msg as any).content = 'Canvas screenshot skipped (model does not support vision).';
+          if (msg.role === 'tool' && typeof msg.content === 'string') {
+            const c = msg.content as string;
+            if (c.startsWith(SENTINEL_CANVAS)) {
+              (msg as any).content = 'Canvas screenshot skipped (model does not support vision).';
+            } else if (c.startsWith(SENTINEL_PREVIEW)) {
+              (msg as any).content = 'HTML preview screenshot skipped (model does not support vision).';
+            }
           }
         }
-      }
-      if (visionUrls.length > 0) {
-        // Only keep the most recent screenshot — older ones bloat context and are stale.
-        const latestUrl = visionUrls[visionUrls.length - 1];
-        const parts: unknown[] = [
-          { type: 'text', text: 'Canvas screenshot after your modifications — verify layout, colors, and content:' },
-          { type: 'image_url', image_url: { url: latestUrl } },
-        ];
-        loop.push({ role: 'user', content: parts as any });
       }
     }
 

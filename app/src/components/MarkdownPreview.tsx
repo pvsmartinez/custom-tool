@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { marked } from 'marked';
+import katex from 'katex';
+import 'katex/dist/katex.min.css';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import './MarkdownPreview.css';
 
@@ -8,14 +10,40 @@ marked.setOptions({ gfm: true, breaks: false });
 
 interface MarkdownPreviewProps {
   content: string;
+  /** Called when the user clicks a relative Markdown link (e.g. ./notes.md). */
+  onNavigate?: (relPath: string) => void;
+  /** Absolute path of the file currently being previewed — used to resolve
+   *  relative links (e.g. ../folder/other.md → folder/other.md). */
+  currentFilePath?: string;
 }
 
-export default function MarkdownPreview({ content }: MarkdownPreviewProps) {
+export default function MarkdownPreview({ content, onNavigate, currentFilePath }: MarkdownPreviewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   const html = useMemo(() => {
+    // Pre-process: replace $$...$$ (block) and $...$ (inline) with rendered KaTeX HTML
+    let processed = content;
+
+    // Block math: $$...$$
+    processed = processed.replace(/\$\$([\s\S]+?)\$\$/g, (_match, expr: string) => {
+      try {
+        return `<div class="katex-block">${katex.renderToString(expr.trim(), { displayMode: true, throwOnError: false })}</div>`;
+      } catch {
+        return `<div class="katex-block katex-error">${expr}</div>`;
+      }
+    });
+
+    // Inline math: $...$  (not preceded by another $)
+    processed = processed.replace(/(?<!\$)\$([^\n$]+?)\$/g, (_match, expr: string) => {
+      try {
+        return katex.renderToString(expr.trim(), { displayMode: false, throwOnError: false });
+      } catch {
+        return `<span class="katex-error">$${expr}$</span>`;
+      }
+    });
+
     try {
-      return marked.parse(content) as string;
+      return marked.parse(processed) as string;
     } catch {
       return '<p style="color:#c97570">Failed to render markdown.</p>';
     }
@@ -51,10 +79,29 @@ export default function MarkdownPreview({ content }: MarkdownPreviewProps) {
     e.preventDefault();
     if (href.startsWith('http://') || href.startsWith('https://')) {
       openUrl(href);
+      return;
     }
-    // Anchor / relative links (e.g. #heading) can be handled by the browser normally.
-    // For now we only intercept absolute external links to avoid WebView navigation.
-  }, []);
+    // Relative file link — resolve against current file's directory
+    if (!href.startsWith('#') && onNavigate) {
+      let target = href.split('#')[0]; // strip anchor fragment
+      if (target) {
+        // Resolve relative to the current file's directory
+        if (currentFilePath) {
+          const dir = currentFilePath.includes('/')
+            ? currentFilePath.split('/').slice(0, -1).join('/')
+            : '';
+          const parts = (dir ? dir + '/' + target : target).split('/');
+          const resolved: string[] = [];
+          for (const p of parts) {
+            if (p === '..') resolved.pop();
+            else if (p !== '.') resolved.push(p);
+          }
+          target = resolved.join('/');
+        }
+        onNavigate(target);
+      }
+    }
+  }, [onNavigate, currentFilePath]);
 
   return (
     <div className="md-preview-scroll">

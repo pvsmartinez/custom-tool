@@ -260,6 +260,20 @@
   color: var(--yellow);
 }
 
+/* Custom workspace action buttons */
+.sidebar-btn-custom {
+  color: var(--text-dim);
+  border-top: 1px solid transparent;
+}
+.sidebar-btn-custom:first-of-type {
+  border-top-color: var(--border);
+  margin-top: 4px;
+  padding-top: 8px;
+}
+.sidebar-btn-custom:hover {
+  color: var(--accent);
+}
+
 /* draggable image files get a grab cursor */
 .sidebar-tree-file.draggable-image {
   cursor: grab;

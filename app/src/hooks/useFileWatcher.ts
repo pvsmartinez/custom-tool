@@ -55,6 +55,10 @@ export function useFileWatcher({
 
     let unwatch: (() => void | Promise<void>) | null = null;
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    // Guard against the race where the cleanup runs *before* fsWatch resolves.
+    // Without this flag the resolved unlistener would never be called, leaving a
+    // stale watcher running until the next workspace switch.
+    let cancelled = false;
 
     fsWatch(
       watchPath,
@@ -90,10 +94,18 @@ export function useFileWatcher({
       },
       { recursive: true },
     )
-      .then((fn) => { unwatch = fn; })
+      .then((fn) => {
+        if (cancelled) {
+          // Cleanup already ran — stop the watcher immediately rather than leaking it.
+          try { fn(); } catch { /* ignore */ }
+          return;
+        }
+        unwatch = fn;
+      })
       .catch(() => { /* watch not available — ignore */ });
 
     return () => {
+      cancelled = true;
       if (debounceTimer) clearTimeout(debounceTimer);
       if (unwatch) { try { unwatch(); } catch { /* ignore */ } }
     };

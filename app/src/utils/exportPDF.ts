@@ -17,11 +17,75 @@ import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import { writeFile } from '@tauri-apps/plugin-fs';
 import { convertFileSrc } from '@tauri-apps/api/core';
+import 'katex/dist/katex.min.css';
+import { preprocessMath } from './mathPreprocess';
 
 marked.setOptions({ gfm: true, breaks: false });
 
-/** A4 page width at 96 dpi (CSS pixels) — height is handled dynamically */
+/** A4 page dimensions at 96 dpi (CSS pixels) */
 const A4_W_PX = 794;
+const A4_H_CSS = Math.round(A4_W_PX * 297 / 210); // ≈ 1123 px
+
+// ── Smart page-break helpers ─────────────────────────────────────────────────
+
+interface ElemBound { top: number; bottom: number; }
+
+/**
+ * Walk top-level children of `root` and return their CSS pixel positions
+ * relative to the root's offsetParent (the captured wrapper div).
+ */
+function measureChildren(root: HTMLElement): ElemBound[] {
+  return Array.from(root.children).map((el) => {
+    const e = el as HTMLElement;
+    return { top: e.offsetTop, bottom: e.offsetTop + e.offsetHeight };
+  });
+}
+
+/**
+ * Choose page-break positions that avoid splitting block elements.
+ * Returns CSS-pixel y-coordinates of the top of each page (starting with 0).
+ * A break is shifted up to `slack` px earlier or later to land between elements.
+ */
+function computeSmartBreaks(
+  bounds: ElemBound[],
+  totalHeight: number,
+  pageH: number,
+): number[] {
+  const breaks: number[] = [0];
+  const slack = Math.round(pageH * 0.30); // allow ±30% shift
+
+  let idealBreak = pageH;
+  while (idealBreak < totalHeight) {
+    let best = idealBreak;
+    let bestDist = Infinity;
+
+    for (const { top, bottom } of bounds) {
+      // Try breaking just before this element starts
+      if (top > breaks[breaks.length - 1] + 10) {
+        const d = Math.abs(top - idealBreak);
+        if (d < bestDist && top >= idealBreak - slack && top <= idealBreak + slack) {
+          bestDist = d;
+          best = top;
+        }
+      }
+      // Try breaking just after this element ends
+      if (bottom > breaks[breaks.length - 1] + 10) {
+        const d = Math.abs(bottom - idealBreak);
+        if (d < bestDist && bottom >= idealBreak - slack && bottom <= idealBreak + slack) {
+          bestDist = d;
+          best = bottom + 2;
+        }
+      }
+    }
+
+    // Guard against infinite loop: break must advance at least 20px
+    if (best <= breaks[breaks.length - 1] + 20) best = idealBreak;
+    breaks.push(best);
+    idealBreak = best + pageH;
+  }
+
+  return breaks;
+}
 
 const PRINT_STYLES = `
   * { box-sizing: border-box; }
@@ -88,8 +152,8 @@ export async function exportMarkdownToPDF(
   /** Absolute path of the workspace root, used to resolve relative image paths */
   workspaceAbsPath: string,
 ): Promise<void> {
-  // ── 1. Render markdown ───────────────────────────────────────────────────────
-  const rawHtml = marked.parse(content) as string;
+  // ── 1. Pre-process math (KaTeX), then render markdown ─────────────────────
+  const rawHtml = marked.parse(preprocessMath(content)) as string;
 
   // ── 2. Mount off-screen container ───────────────────────────────────────────
   const wrapper = document.createElement('div');
@@ -131,7 +195,11 @@ export async function exportMarkdownToPDF(
       });
     }));
 
-    // ── 4. Capture with html2canvas ──────────────────────────────────────────
+    // ── 4. Measure element positions BEFORE capturing (while still in DOM) ──
+    const elemBounds = measureChildren(body);
+    const contentHeightCss = wrapper.scrollHeight;
+
+    // ── 5. Capture with html2canvas ──────────────────────────────────────────
     const canvas = await html2canvas(wrapper, {
       scale: 2,               // retina sharpness
       useCORS: true,
@@ -142,24 +210,43 @@ export async function exportMarkdownToPDF(
       logging: false,
     });
 
-    // ── 5. Paginate into A4 PDF ──────────────────────────────────────────────
-    const imgData   = canvas.toDataURL('image/png');
+    // ── 6. Build element-aware page breaks, then paginate ────────────────────
+    const pxScale   = canvas.height / Math.max(1, contentHeightCss);
+    const breaks    = computeSmartBreaks(elemBounds, contentHeightCss, A4_H_CSS);
     const pdf       = new jsPDF({ orientation: 'portrait', unit: 'px', format: 'a4' });
     const pageW     = pdf.internal.pageSize.getWidth();
     const pageH     = pdf.internal.pageSize.getHeight();
+    const a4CanvasH = Math.round(A4_H_CSS * pxScale);
 
-    // Scale canvas to fit PDF page width
-    const ratio      = pageW / canvas.width;
-    const totalPdfH  = canvas.height * ratio;
-    let   yOffset    = 0;
+    for (let i = 0; i < breaks.length; i++) {
+      const cssTop = breaks[i];
+      const cssBot = i + 1 < breaks.length ? breaks[i + 1] : contentHeightCss;
 
-    while (yOffset < totalPdfH) {
-      if (yOffset > 0) pdf.addPage();
-      pdf.addImage(imgData, 'PNG', 0, -yOffset, pageW, totalPdfH);
-      yOffset += pageH;
+      const canvasTop    = Math.round(cssTop * pxScale);
+      const canvasSliceH = Math.max(
+        1,
+        Math.min(Math.round((cssBot - cssTop) * pxScale), canvas.height - canvasTop),
+      );
+
+      // Render slice into an A4-height canvas; whitespace fills any remaining space.
+      const sliceCanvas = document.createElement('canvas');
+      sliceCanvas.width  = canvas.width;
+      sliceCanvas.height = Math.max(1, a4CanvasH);
+      const ctx = sliceCanvas.getContext('2d')!;
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, sliceCanvas.width, sliceCanvas.height);
+      ctx.drawImage(
+        canvas,
+        0, canvasTop, canvas.width, canvasSliceH,
+        0, 0,         canvas.width, canvasSliceH,
+      );
+      const sliceData = sliceCanvas.toDataURL('image/png');
+
+      if (i > 0) pdf.addPage();
+      pdf.addImage(sliceData, 'PNG', 0, 0, pageW, pageH);
     }
 
-    // ── 6. Write to disk ─────────────────────────────────────────────────────
+    // ── 7. Write to disk ─────────────────────────────────────────────────────
     const pdfBytes = new Uint8Array(pdf.output('arraybuffer') as ArrayBuffer);
     await writeFile(destAbsPath, pdfBytes);
 

@@ -2,12 +2,13 @@
  * ExportModal — workspace Build / Export settings.
  *
  * Inspired by Unity's Build Settings:  define named targets, configure them,
- * run one or all.  Config is persisted in <workspace>/.customtool/config.json
+ * run one or all.  Config is persisted in <workspace>/.cafezin/config.json
  * via the saveWorkspaceConfig service.
  */
 
 import { useState, useCallback, useEffect } from 'react';
-import { X, Plus, Play, Trash, CaretDown, CaretUp, CheckCircle, WarningCircle, CircleNotch } from '@phosphor-icons/react';
+import { X, Plus, Play, Trash, CaretDown, CaretUp, CheckCircle, WarningCircle, CircleNotch, FolderOpen } from '@phosphor-icons/react';
+import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import { runExportTarget, listAllFiles, resolveFiles, type ExportResult } from '../utils/exportWorkspace';
 import { saveWorkspaceConfig } from '../services/workspace';
 import type { Workspace, ExportTarget, ExportFormat, WorkspaceExportConfig } from '../types';
@@ -54,6 +55,7 @@ type RunStatus = 'idle' | 'running' | 'done' | 'error';
 interface TargetStatus {
   status: RunStatus;
   result?: ExportResult;
+  progress?: { done: number; total: number; label: string };
 }
 
 // ── Component ──────────────────────────────────────────────────────────────────
@@ -157,6 +159,9 @@ export default function ExportModal({
         activeCanvasRel,
         onOpenFileForExport,
         onRestoreAfterExport,
+        onProgress: (done, total, label) => {
+          setStatus(target.id, { status: 'running', progress: { done, total, label } });
+        },
       });
       setStatus(target.id, {
         status: result.errors.length > 0 ? 'error' : 'done',
@@ -269,11 +274,34 @@ export default function ExportModal({
                   </button>
                 </div>
 
-                {/* Inline result */}
+                {/* Progress bar while canvas files are being processed */}
+                {s?.status === 'running' && s.progress && (
+                  <div className="em-progress-wrap">
+                    <div
+                      className="em-progress-bar"
+                      style={{ width: `${Math.round((s.progress.done / s.progress.total) * 100)}%` }}
+                    />
+                    <span className="em-progress-label">
+                      {s.progress.done}/{s.progress.total} — {s.progress.label.split('/').pop()}
+                    </span>
+                  </div>
+                )}
+
+                {/* Result row after completion */}
                 {s?.result && (
                   <div className={`em-result${s.status === 'error' ? ' em-result--error' : ''}`}>
                     {s.result.outputs.length > 0 && (
-                      <span>✓ {s.result.outputs.length} file{s.result.outputs.length !== 1 ? 's' : ''} → {s.result.outputs.join(', ')} ({s.result.elapsed}ms)</span>
+                      <div className="em-result-row">
+                        <span>✓ {s.result.outputs.length} file{s.result.outputs.length !== 1 ? 's' : ''} → {s.result.outputs.join(', ')} ({s.result.elapsed}ms)</span>
+                        <button
+                          className="em-reveal-btn"
+                          title="Reveal in Finder"
+                          onClick={() => revealItemInDir(`${workspace.path}/${s.result!.outputs[0]}`)}
+                        >
+                          <FolderOpen weight="fill" size={13} />
+                          Reveal
+                        </button>
+                      </div>
                     )}
                     {s.result.errors.map((e, i) => (
                       <span key={i} className="em-result-error">{e}</span>
@@ -422,7 +450,7 @@ export default function ExportModal({
                     )}
                     {(target.format === 'canvas-png' || target.format === 'canvas-pdf') && (
                       <div className="em-hint em-hint--block em-hint--info">
-                        Canvas files are auto-opened during export — the editor will briefly switch tabs, then restore where you were.
+                        Canvas files are opened headlessly during export. A full-screen overlay covers the UI — no visible tab switching.
                       </div>
                     )}
                   </div>

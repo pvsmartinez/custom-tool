@@ -632,6 +632,60 @@ button:focus-visible,
   background: rgba(var(--blue-rgb), 0.07);
 }
 
+/* ── Format button (code files) ─────────────────── */
+.app-format-btn {
+  background: none;
+  border: 1px solid var(--border2);
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  padding: 3px 9px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all var(--transition-base);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.app-format-btn:hover {
+  border-color: rgba(var(--purple-rgb, 180, 140, 255), 0.7);
+  color: rgba(var(--purple-rgb, 180, 140, 255), 0.9);
+  background: rgba(var(--purple-rgb, 180, 140, 255), 0.07);
+}
+
+/* ── Idea Dump button ────────────────────────────── */
+.app-dump-btn {
+  background: none;
+  border: 1px solid var(--border2);
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  padding: 3px 9px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all var(--transition-base);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.app-dump-btn:hover {
+  border-color: rgba(var(--green-rgb, 100, 200, 120), 0.7);
+  color: rgba(var(--green-rgb, 100, 200, 120), 0.9);
+  background: rgba(var(--green-rgb, 100, 200, 120), 0.07);
+}
+.app-dump-btn.recording {
+  border-color: #e05555;
+  color: #e05555;
+  background: rgba(224, 85, 85, 0.12);
+  animation: dump-pulse 1s ease-in-out infinite;
+}
+.app-dump-btn:disabled, .app-dump-btn.transcribing {
+  opacity: 0.6;
+  cursor: default;
+}
+@keyframes dump-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.65; }
+}
+
 /* ── Workspace wrapper: editor body + bottom panel ──── */
 .app-workspace {
   flex: 1;
@@ -732,6 +786,39 @@ button:focus-visible,
   user-select: none;
 }
 
+/* ── Export lock overlay (full-window, fixed) ───── */
+.export-lock-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9998;
+  pointer-events: all; /* block all clicks during export */
+  backdrop-filter: blur(4px) brightness(0.78) saturate(0.85);
+  -webkit-backdrop-filter: blur(4px) brightness(0.78) saturate(0.85);
+  background: rgba(14, 11, 8, 0.55);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  animation: copilot-lock-fade 2.4s ease-in-out infinite;
+}
+.export-lock-overlay::before {
+  content: '⍈';
+  font-size: 28px;
+  color: rgba(255,255,255,0.5);
+  line-height: 1;
+}
+/* Re-use .copilot-lock-label for the text inside */
+
+/* ── Suppress pointer-events on embedded content during any resize drag ── */
+body.is-resizing iframe,
+body.is-resizing canvas,
+body.is-resizing embed,
+body.is-resizing video,
+body.is-resizing webview {
+  pointer-events: none !important;
+}
+
 /* ── Drag-to-resize divider ──────────────────────── */
 .resize-divider {
   width: 4px;
@@ -808,4 +895,212 @@ button:focus-visible,
   height: 100%;
   color: var(--text-muted);
   font-size: var(--font-size-base);
+}
+
+/* ── Canvas error boundary ──────────────────────────────────────────── */
+.canvas-error-boundary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  background: var(--bg-primary);
+}
+.canvas-error-inner {
+  max-width: 420px;
+  width: 100%;
+  padding: 32px 28px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.canvas-error-icon {
+  font-size: 28px;
+  line-height: 1;
+  opacity: 0.7;
+}
+.canvas-error-title {
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.canvas-error-file {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+.canvas-error-msg {
+  font-size: var(--font-size-sm);
+  color: #e07070;
+  font-family: var(--font-mono);
+  background: rgba(224, 112, 112, 0.08);
+  border-radius: 5px;
+  padding: 8px 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 100px;
+  overflow-y: auto;
+}
+.canvas-error-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+.canvas-error-btn {
+  padding: 8px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--border-subtle);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+  text-align: left;
+}
+.canvas-error-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.canvas-error-btn--primary {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.canvas-error-btn--primary:hover:not(:disabled) {
+  opacity: 0.88;
+}
+.canvas-error-btn--danger {
+  background: transparent;
+  color: var(--text-secondary);
+}
+.canvas-error-btn--danger:hover:not(:disabled) {
+  background: rgba(224, 112, 112, 0.12);
+  color: #e07070;
+  border-color: rgba(224, 112, 112, 0.3);
+}
+.canvas-error-status {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+  padding: 6px 8px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 80px;
+  overflow-y: auto;
+}
+.canvas-error-hint {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  line-height: 1.5;
+  padding-top: 4px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+/* ── EditorErrorBoundary ──────────────────────────────────────────────────── */
+.editor-error-boundary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  background: var(--bg-primary);
+}
+.editor-error-boundary__card {
+  max-width: 380px;
+  width: 100%;
+  padding: 28px 24px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.editor-error-boundary__icon {
+  font-size: 26px;
+  line-height: 1;
+  opacity: 0.7;
+}
+.editor-error-boundary__title {
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.editor-error-boundary__message {
+  font-size: var(--font-size-sm);
+  color: #e07070;
+  font-family: var(--font-mono);
+  background: rgba(224, 112, 112, 0.08);
+  border-radius: 5px;
+  padding: 7px 9px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 90px;
+  overflow-y: auto;
+  margin: 0;
+}
+.editor-error-boundary__actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+.editor-error-boundary__btn {
+  padding: 7px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--border-subtle);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+}
+.editor-error-boundary__btn--primary {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.editor-error-boundary__btn--primary:hover {
+  opacity: 0.88;
+}
+.editor-error-boundary__btn--secondary {
+  background: transparent;
+  color: var(--text-secondary);
+}
+.editor-error-boundary__btn--secondary:hover {
+  background: var(--bg-tertiary);
+}
+
+/* ── Focus (distraction-free) mode ──────────────────────────────────────── */
+.focus-mode .app-header {
+  opacity: 0;
+  pointer-events: none;
+  height: 0;
+  overflow: hidden;
+  padding: 0;
+}
+.focus-mode .bottom-panel {
+  /* keep terminal fully accessible; just hide chrome */
+}
+/* Floating exit button — bottom-right corner */
+.app-focus-exit {
+  position: fixed;
+  bottom: 44px;
+  right: 16px;
+  z-index: var(--z-modal);
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  color: var(--text-dim);
+  font-size: 11px;
+  font-family: var(--font-ui);
+  padding: 4px 10px;
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  opacity: 0.4;
+  transition: opacity 0.2s;
+  letter-spacing: 0.03em;
+}
+.app-focus-exit:hover {
+  opacity: 1;
+  color: var(--text-muted);
 }

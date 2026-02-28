@@ -19,6 +19,7 @@
  *   Cmd/Ctrl+F           Toggle inline find/replace
  *   Cmd/Ctrl+Shift+F     Project-wide search
  *   Cmd/Ctrl+Shift+P     Toggle Edit / Preview mode
+ *   Cmd/Ctrl+Shift+.     Toggle focus (distraction-free) mode
  *   Escape               Close AI panel (when open)
  *   Cmd/Ctrl+J           Toggle terminal panel
  */
@@ -54,6 +55,8 @@ export interface KeyboardShortcutOptions {
   onGlobalSearch: () => void;
   onTogglePreview:() => void;
   onToggleTerminal:() => void;
+  onToggleFocusMode?: () => void;
+  focusMode?: boolean;
 }
 
 export function useKeyboardShortcuts(opts: KeyboardShortcutOptions): void {
@@ -62,6 +65,7 @@ export function useKeyboardShortcuts(opts: KeyboardShortcutOptions): void {
     onOpenAI, onCloseAI, onCloseTab, onOpenSettings,
     onToggleSidebar, onSave, onReload, onNewFile, onSwitchTab,
     onToggleFind, onGlobalSearch, onTogglePreview, onToggleTerminal,
+    onToggleFocusMode, focusMode,
   } = opts;
 
   useEffect(() => {
@@ -138,8 +142,16 @@ export function useKeyboardShortcuts(opts: KeyboardShortcutOptions): void {
           onTogglePreview();
         }
       }
-      // Escape → close AI panel
-      if (e.key === 'Escape' && aiOpen) onCloseAI();
+      // Escape → close AI panel or exit focus mode
+      if (e.key === 'Escape') {
+        if (focusMode) { onToggleFocusMode?.(); return; }
+        if (aiOpen) onCloseAI();
+      }
+      // Cmd+Shift+. → toggle focus (distraction-free) mode
+      if (cmd && e.shiftKey && e.key === '.') {
+        e.preventDefault();
+        onToggleFocusMode?.();
+      }
       // Cmd+J → toggle terminal panel
       if (cmd && e.key === 'j') {
         e.preventDefault();
@@ -150,8 +162,8 @@ export function useKeyboardShortcuts(opts: KeyboardShortcutOptions): void {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [aiOpen, fileTypeInfo, activeTabId, tabs,
+  }, [aiOpen, focusMode, fileTypeInfo, activeTabId, tabs,
       onOpenAI, onCloseAI, onCloseTab, onOpenSettings, onToggleSidebar,
       onSave, onReload, onNewFile, onSwitchTab, onToggleFind,
-      onGlobalSearch, onTogglePreview, onToggleTerminal]);
+      onGlobalSearch, onTogglePreview, onToggleTerminal, onToggleFocusMode]);
 }

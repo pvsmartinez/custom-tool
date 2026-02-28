@@ -1,14 +1,18 @@
 import { useRef, useState, useEffect, useCallback, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import type { Editor, TLEditorSnapshot, TLShape, TLComponents, TLShapeId } from 'tldraw';
 import {
   Tldraw, exportAs, createShapeId, toRichText,
   DefaultColorStyle, DefaultSizeStyle, DefaultFontStyle,
   DefaultFillStyle, DefaultDashStyle,
 } from 'tldraw';
-import { writeFile, mkdir, exists, readDir, readFile } from '@tauri-apps/plugin-fs';
+import { writeFile, mkdir, exists, readFile } from '@tauri-apps/plugin-fs';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import type { AIEditMark } from '../types';
 import { generateSlidePreviews, loadSlidePreviews } from '../utils/slidePreviews';
+import { getMimeType, IMAGE_EXTS } from '../utils/mime';
+import { walkFilesFlat } from '../services/workspace';
+import { placeImageOnCanvas } from '../utils/canvasAI';
 import 'tldraw/tldraw.css';
 import './CanvasEditor.css';
 
@@ -27,6 +31,39 @@ import {
 import { tauriAssetsStore } from './canvas/canvasAssets';
 import { loadFontOverrides, applyFontOverridesToContainer } from './canvas/canvasFontOverrides';
 import { CanvasOverlays } from './canvas/CanvasOverlays';
+
+// ── tldraw error fallback overrides ──────────────────────────────────────────
+// Replaces tldraw's built-in "Something went wrong / Reset" dialog with our own
+// recovery UI. The actual error is logged so developers can diagnose root causes.
+function TlErrorFallback({ error }: { error: unknown }) {
+  // eslint-disable-next-line no-console
+  console.error('[CanvasEditor] tldraw internal error boundary caught:', error);
+  return (
+    <div style={{
+      position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
+      alignItems: 'center', justifyContent: 'center', gap: 12,
+      background: 'var(--canvas-bg, #1a1a1a)', color: 'var(--text-muted, #999)',
+      fontSize: 13, padding: 24, textAlign: 'center',
+    }}>
+      <div style={{ fontSize: 18, marginBottom: 4 }}>⚠ Canvas error</div>
+      <div style={{ maxWidth: 340, lineHeight: 1.5 }}>
+        Something went wrong in the canvas renderer. Check the browser console for details.<br />
+        Try pressing <kbd>Ctrl+Z</kbd> to undo, or close and reopen the file.
+      </div>
+      <pre style={{ fontSize: 10, maxWidth: 400, overflow: 'auto', textAlign: 'left', color: '#f88', marginTop: 8, opacity: 0.7 }}>
+        {error instanceof Error ? `${error.name}: ${error.message}` : String(error)}
+      </pre>
+    </div>
+  );
+}
+
+// Per-shape error fallback — renders nothing (hides the broken shape) rather
+// than crashing the whole canvas. The error is logged for debugging.
+function TlShapeErrorFallback({ error }: { error: unknown }) {
+  // eslint-disable-next-line no-console
+  console.error('[CanvasEditor] tldraw shape render error:', error);
+  return null;
+}
 
 interface CanvasEditorProps {
   /** Raw JSON from disk, or empty string for a brand-new canvas. */
@@ -179,6 +216,12 @@ export default function CanvasEditor({
     Minimap: null,
     StylePanel: null,
     ContextMenu: null, // we provide our own shape context menu (lock/unlock)
+    // Override tldraw's built-in error dialogs — we log the real error and show
+    // a friendlier recovery message instead of the "Reset data" trap.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ErrorFallback: TlErrorFallback as any,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ShapeErrorFallback: TlShapeErrorFallback as any,
     ...(isPresenting ? {
       Toolbar: null,
       NavigationPanel: null,
@@ -208,7 +251,21 @@ export default function CanvasEditor({
       snapshotRef.current = undefined;
     } else {
       try { snapshotRef.current = JSON.parse(content) as TLEditorSnapshot; }
-      catch { snapshotRef.current = undefined; }
+      catch (parseErr) {
+        // IMPORTANT: do NOT fall back to `undefined` (empty canvas) here.
+        // If we did, tldraw would mount a blank canvas, the debounced store
+        // listener would fire within 500 ms, and onChange() would write that
+        // blank snapshot to disk — permanently overwriting whatever was in the
+        // (possibly truncated) file. Throwing causes CanvasErrorBoundary to
+        // intercept it and offer "restore from git" / "start fresh" options
+        // without touching the file at all.
+        throw new Error(
+          `Canvas file contains invalid JSON and cannot be opened safely. ` +
+          `This usually means the file was truncated by a failed write. ` +
+          `Use "Restore from last git commit" to recover your work. ` +
+          `(${parseErr instanceof Error ? parseErr.message : String(parseErr)})`
+        );
+      }
     }
   }
   const snapshot = snapshotRef.current ?? undefined;
@@ -244,11 +301,7 @@ export default function CanvasEditor({
 
     // Detect mime type from extension
     const ext = url.split('?')[0].split('.').pop()?.toLowerCase() ?? 'png';
-    const MIME_MAP: Record<string, string> = {
-      jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
-      gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml',
-    };
-    const mimeType = MIME_MAP[ext] ?? 'image/png';
+    const mimeType = getMimeType(ext, 'image/png');
 
     // Measure natural dimensions via browser Image
     let natW = 800;
@@ -262,70 +315,8 @@ export default function CanvasEditor({
       });
     } catch { /* use defaults */ }
 
-    // Scale down if wider than 800px
-    const maxW = 800;
-    const dispW = Math.min(natW, maxW);
-    const dispH = Math.round(natH * (dispW / natW));
-
-    // Place at current viewport center
-    const vp = editor.getViewportPageBounds();
-    const placeX = Math.round(vp.x + vp.w / 2 - dispW / 2);
-    const placeY = Math.round(vp.y + vp.h / 2 - dispH / 2);
-
-    const assetId = `asset:img_${Math.random().toString(36).slice(2)}` as ReturnType<typeof editor.getAssets>[0]['id'];
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    editor.createAssets([{
-      id: assetId,
-      typeName: 'asset',
-      type: 'image',
-      props: {
-        name: url.split('/').pop()?.split('?')[0] ?? 'image',
-        src: url,
-        w: natW,
-        h: natH,
-        mimeType,
-        isAnimated: mimeType === 'image/gif',
-      },
-      meta: {},
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any]);
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    editor.createShape({ type: 'image', x: placeX, y: placeY, props: { assetId, w: dispW, h: dispH } as any });
+    placeImageOnCanvas(editor, url, url.split('/').pop()?.split('?')[0] ?? 'image', mimeType, natW, natH);
   }
-
-  // ── Shared helper: place an already-measured image on the canvas ────────────
-  function placeImageOnCanvas(
-    editor: Editor,
-    src: string,
-    name: string,
-    mimeType: string,
-    natW: number,
-    natH: number,
-    dropPageX?: number,
-    dropPageY?: number,
-  ) {
-    const maxW = 800;
-    const scale = Math.min(1, maxW / natW);
-    const dispW = Math.round(natW * scale);
-    const dispH = Math.round(natH * scale);
-    let px: number, py: number;
-    if (dropPageX !== undefined && dropPageY !== undefined) {
-      px = Math.round(dropPageX - dispW / 2);
-      py = Math.round(dropPageY - dispH / 2);
-    } else {
-      const vp = editor.getViewportPageBounds();
-      px = Math.round(vp.x + vp.w / 2 - dispW / 2);
-      py = Math.round(vp.y + vp.h / 2 - dispH / 2);
-    }
-    const assetId = `asset:img_${Math.random().toString(36).slice(2)}` as ReturnType<typeof editor.getAssets>[0]['id'];
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    editor.createAssets([{ id: assetId, typeName: 'asset', type: 'image', props: { name, src, w: natW, h: natH, mimeType, isAnimated: mimeType === 'image/gif' }, meta: {} } as any]);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    editor.createShape({ type: 'image', x: px, y: py, props: { assetId, w: dispW, h: dispH } as any });
-  }
-
-  const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'avif', 'bmp', 'ico', 'tiff', 'tif']);
 
   function slugFile(name: string) {
     return name.replace(/[^a-z0-9._-]/gi, '-').replace(/-+/g, '-').toLowerCase();
@@ -345,13 +336,7 @@ export default function CanvasEditor({
     for (const file of Array.from(files)) {
       const ext = file.name.split('.').pop()?.toLowerCase() ?? 'png';
       if (!IMAGE_EXTS.has(ext)) continue;
-      const MIME_MAP: Record<string, string> = {
-        jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
-        gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml',
-        avif: 'image/avif', bmp: 'image/bmp', ico: 'image/x-icon',
-        tiff: 'image/tiff', tif: 'image/tiff',
-      };
-      const mimeType = MIME_MAP[ext] ?? 'image/png';
+      const mimeType = getMimeType(ext, 'image/png');
       // Save to workspace/images/
       const imagesDir = `${workspacePath}/images`;
       if (!(await exists(imagesDir))) await mkdir(imagesDir, { recursive: true });
@@ -368,7 +353,7 @@ export default function CanvasEditor({
         img.src = objUrl;
       });
       const src = convertFileSrc(absPath);
-      placeImageOnCanvas(editor, src, filename, mimeType, natW, natH, pagePos.x + offsetX, pagePos.y);
+      placeImageOnCanvas(editor, src, filename, mimeType, natW, natH, { dropX: pagePos.x + offsetX, dropY: pagePos.y });
       offsetX += Math.round(Math.min(natW, 800) + 20);
     }
     // Refresh workspace image lists after all files are saved
@@ -382,13 +367,7 @@ export default function CanvasEditor({
     if (!editor) return;
     const ext = relPath.split('.').pop()?.toLowerCase() ?? '';
     if (!IMAGE_EXTS.has(ext)) return;
-    const MIME_MAP: Record<string, string> = {
-      jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
-      gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml',
-      avif: 'image/avif', bmp: 'image/bmp', ico: 'image/x-icon',
-      tiff: 'image/tiff', tif: 'image/tiff',
-    };
-    const mimeType = MIME_MAP[ext] ?? 'image/png';
+    const mimeType = getMimeType(ext, 'image/png');
     const absPath = `${workspacePath}/${relPath}`;
     const src = convertFileSrc(absPath);
     // Measure via asset URL
@@ -402,7 +381,7 @@ export default function CanvasEditor({
     const screenX = dropClientX - (rect?.left ?? 0);
     const screenY = dropClientY - (rect?.top ?? 0);
     const pagePos = editor.screenToPage({ x: screenX, y: screenY });
-    placeImageOnCanvas(editor, src, relPath.split('/').pop() ?? relPath, mimeType, natW, natH, pagePos.x, pagePos.y);
+    placeImageOnCanvas(editor, src, relPath.split('/').pop() ?? relPath, mimeType, natW, natH, { dropX: pagePos.x, dropY: pagePos.y });
   }
 
   // Keep native drop ref in sync with latest handler closures (must be after the handler functions)
@@ -414,28 +393,8 @@ export default function CanvasEditor({
     setWsImagesLoading(true);
     try {
       const WS_IMG_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'avif', 'bmp']);
-      // readDir in this version of @tauri-apps/plugin-fs doesn’t support recursive;
-      // walk directories manually.
-      async function walk(absDir: string, prefix: string): Promise<string[]> {
-        let entries;
-        try { entries = await readDir(absDir); } catch { return []; }
-        const acc: string[] = [];
-        for (const entry of entries) {
-          if (!entry.name) continue;
-          const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
-          const abs = `${absDir}/${entry.name}`;
-          if (entry.isDirectory) {
-            // Skip hidden dirs and node_modules
-            if (entry.name.startsWith('.') || entry.name === 'node_modules') continue;
-            acc.push(...(await walk(abs, rel)));
-          } else {
-            const ext = entry.name.split('.').pop()?.toLowerCase() ?? '';
-            if (WS_IMG_EXTS.has(ext)) acc.push(rel);
-          }
-        }
-        return acc;
-      }
-      setWsImages(await walk(workspacePath, ''));
+      const images = await walkFilesFlat(workspacePath, '', (_, ext) => WS_IMG_EXTS.has(ext));
+      setWsImages(images);
     } catch {
       setWsImages([]);
     } finally {
@@ -552,7 +511,8 @@ export default function CanvasEditor({
     const editor = editorRef.current;
     if (!editor) return;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    onChangeRef.current(JSON.stringify(editor.getSnapshot()));
+    try { onChangeRef.current(JSON.stringify(editor.getSnapshot())); }
+    catch (err) { console.warn('[CanvasEditor] forceSave serialization failed:', err); }
   }
   if (forceSaveRef) forceSaveRef.current = forceSave;
 
@@ -856,6 +816,52 @@ export default function CanvasEditor({
     return () => window.removeEventListener('keydown', onKey, true);
   }, [isPresenting, frames, zoomToFrame]);
 
+  // ── Canvas layer-order + common shortcuts (Cmd+[/]) ───────────────────────────
+  useEffect(() => {
+    if (isPresenting) return;
+    function onKey(e: KeyboardEvent) {
+      const cmd = e.metaKey || e.ctrlKey;
+      if (!cmd) return;
+      const ed = editorRef.current;
+      // Layer order: Cmd+]  bring forward, Cmd+Shift+]  bring to front
+      //              Cmd+[  send backward, Cmd+Shift+[  send to back
+      if (e.key === ']' || e.key === '[') {
+        if (!ed) return;
+        const ids = ed.getSelectedShapeIds();
+        if (ids.length === 0) return;
+        e.preventDefault();
+        if (e.key === ']' && !e.shiftKey) { ed.bringForward(ids); return; }
+        if (e.key === ']' &&  e.shiftKey) { ed.bringToFront(ids); return; }
+        if (e.key === '[' && !e.shiftKey) { ed.sendBackward(ids); return; }
+        if (e.key === '[' &&  e.shiftKey) { ed.sendToBack(ids); return; }
+      }
+      // Cmd+D — duplicate selected shapes
+      if (e.key === 'd' && !e.shiftKey) {
+        if (!ed) return;
+        const ids = ed.getSelectedShapeIds();
+        if (ids.length === 0) return;
+        e.preventDefault();
+        ed.duplicateShapes(ids, { x: 16, y: 16 });
+        return;
+      }
+      // Cmd+G — group, Cmd+Shift+G — ungroup
+      if (e.key === 'g') {
+        if (!ed) return;
+        const ids = ed.getSelectedShapeIds();
+        if (ids.length === 0) return;
+        e.preventDefault();
+        if (e.shiftKey) {
+          ed.ungroupShapes(ids, { select: true });
+        } else {
+          ed.groupShapes(ids, { select: true });
+        }
+        return;
+      }
+    }
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [isPresenting]);
+
   // ── Mount ─────────────────────────────────────────────────────────────────────
   function handleMount(editor: Editor) {
     editorRef.current = editor;
@@ -864,31 +870,41 @@ export default function CanvasEditor({
     // Apply app-level dark/light theme immediately on mount.
     // isSnapMode: true → snapping is always active (no modifier key needed),
     // which also makes the alignment guide lines appear whenever a snap fires.
-    editor.user.updateUserPreferences({
-      colorScheme: darkMode ? 'dark' : 'light',
-      isSnapMode: true,
-    });
+    try {
+      editor.user.updateUserPreferences({
+        colorScheme: darkMode ? 'dark' : 'light',
+        isSnapMode: true,
+      });
+      // Enable grid (visible dot grid + snap-to-grid) by default
+      editor.updateInstanceState({ isGridMode: true });
 
-    // Enable grid (visible dot grid + snap-to-grid) by default
-    editor.updateInstanceState({ isGridMode: true });
+      // ── Professional flat defaults ──────────────────────────────────────────
+      // Ensure new shapes look clean and polished rather than hand-drawn.
+      editor.setStyleForNextShapes(DefaultDashStyle,      'solid');
+      editor.setStyleForNextShapes(DefaultFillStyle,      'none');
+      editor.setStyleForNextShapes(DefaultColorStyle,     'black');
+      editor.setStyleForNextShapes(DefaultFontStyle,      'sans');
+      editor.setStyleForNextShapes(DefaultSizeStyle,      'm');
+    } catch (err) {
+      console.warn('[CanvasEditor] handleMount: editor setup error (non-fatal):', err);
+    }
 
-    // ── Professional flat defaults ────────────────────────────────────────────
-    // Ensure new shapes look clean and polished rather than hand-drawn.
-    editor.setStyleForNextShapes(DefaultDashStyle,      'solid');
-    editor.setStyleForNextShapes(DefaultFillStyle,      'none');
-    editor.setStyleForNextShapes(DefaultColorStyle,     'black');
-    editor.setStyleForNextShapes(DefaultFontStyle,      'sans');
-    editor.setStyleForNextShapes(DefaultSizeStyle,      'm');
+    // Load persisted theme from document meta and apply backgrounds.
+    // Wrapped separately so a corrupt theme doesn't prevent the rest of mount.
+    try {
+      const savedTheme = loadThemeFromDoc(editor);
+      setTheme(savedTheme);
+      applyThemeToSlides(editor, savedTheme);
+    } catch (err) {
+      console.warn('[CanvasEditor] handleMount: theme load error (non-fatal):', err);
+    }
 
-    // Load persisted theme from document meta and apply backgrounds
-    const savedTheme = loadThemeFromDoc(editor);
-    setTheme(savedTheme);
-    // Apply background to any existing frames without a bg rect
-    applyThemeToSlides(editor, savedTheme);
-
-    // Load and apply persisted font overrides
-    const savedFontOverrides = loadFontOverrides(editor);
-    applyFontOverridesToContainer(editor, savedFontOverrides);
+    try {
+      const savedFontOverrides = loadFontOverrides(editor);
+      applyFontOverridesToContainer(editor, savedFontOverrides);
+    } catch (err) {
+      console.warn('[CanvasEditor] handleMount: font overrides error (non-fatal):', err);
+    }
 
     // Keep frame strip in sync — listen on ALL sources (not just 'user') so that
     // AI-agent canvas commands (which run asynchronously outside user-event context)
@@ -898,17 +914,23 @@ export default function CanvasEditor({
     const syncFrames = () => {
       if (syncFramesTimer) clearTimeout(syncFramesTimer);
       syncFramesTimer = setTimeout(() => {
-        const updated = editor.getCurrentPageShapesSorted()
-          .filter((s) => s.type === 'frame')
-          .sort((a, b) => (a as AnyFrame).x - (b as AnyFrame).x);
-        const prevCount = lastFrameCountRef.current;
-        lastFrameCountRef.current = updated.length;
-        setFrames(updated);
-        setFrameIndex((prev) => Math.min(prev, Math.max(0, updated.length - 1)));
-        // When new frames appear, apply the current theme so they get the bg rect.
-        if (updated.length > prevCount) {
-          const currentTheme = loadThemeFromDoc(editor);
-          applyThemeToSlides(editor, currentTheme);
+        try {
+          const updated = editor.getCurrentPageShapesSorted()
+            .filter((s) => s.type === 'frame')
+            .sort((a, b) => (a as AnyFrame).x - (b as AnyFrame).x);
+          const prevCount = lastFrameCountRef.current;
+          lastFrameCountRef.current = updated.length;
+          setFrames(updated);
+          setFrameIndex((prev) => Math.min(prev, Math.max(0, updated.length - 1)));
+          // When new frames appear, apply the current theme so they get the bg rect.
+          if (updated.length > prevCount) {
+            try {
+              const currentTheme = loadThemeFromDoc(editor);
+              applyThemeToSlides(editor, currentTheme);
+            } catch { /* theme apply on new frame failed — non-fatal */ }
+          }
+        } catch (err) {
+          console.warn('[CanvasEditor] syncFrames error (non-fatal):', err);
         }
       }, 80);
     };
@@ -923,13 +945,23 @@ export default function CanvasEditor({
 
     // Enforce that isThemeBg shapes always stay at the back of their parent frame.
     // Runs on every store change (debounced to animation frame).
+    // Guard: skip during active translate/resize to avoid interfering with tldraw's
+    // state machine while the user is dragging shapes.
     let bgEnforceRaf: number | null = null;
     editor.store.listen(
       () => {
         if (bgEnforceRaf !== null) return;
         bgEnforceRaf = requestAnimationFrame(() => {
           bgEnforceRaf = null;
-          enforceBgAtBack(editor);
+          // Do not call sendToBack() while shapes are being actively dragged or
+          // resized — it can confuse tldraw's translating state and trigger
+          // internal errors caught by the error boundary.
+          if (
+            editor.isIn('select.translating') ||
+            editor.isIn('select.resizing') ||
+            editor.isIn('select.dragging_handle')
+          ) return;
+          try { enforceBgAtBack(editor); } catch { /* non-fatal */ }
         });
       },
       { scope: 'document' },
@@ -963,8 +995,10 @@ export default function CanvasEditor({
     editor.store.listen(
       () => {
         if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-        saveTimerRef.current = setTimeout(() =>
-          onChangeRef.current(JSON.stringify(editor.getSnapshot())), 500);
+        saveTimerRef.current = setTimeout(() => {
+          try { onChangeRef.current(JSON.stringify(editor.getSnapshot())); }
+          catch (err) { console.warn('[CanvasEditor] save serialization failed:', err); }
+        }, 500);
 
         // Regenerate slide PNG previews 900ms after the last store change
         // (slightly after the save debounce so the file is already on disk).
@@ -1271,6 +1305,18 @@ export default function CanvasEditor({
             title="Re-scan canvas for slide frames"
           >↺</button>
 
+          {/* Undo / Redo */}
+          <button
+            className="canvas-strip-rescan"
+            onClick={() => editorRef.current?.undo()}
+            title="Undo (⌘Z)"
+          >↩</button>
+          <button
+            className="canvas-strip-rescan"
+            onClick={() => editorRef.current?.redo()}
+            title="Redo (⌘⇧Z)"
+          >↪</button>
+
           {/* Fit current slide in view */}
           {frames.length > 0 && (
             <button
@@ -1390,7 +1436,7 @@ export default function CanvasEditor({
       {shapeCtxMenu && (() => {
         const { x, y, shapeId } = shapeCtxMenu;
         const dismiss = () => setShapeCtxMenu(null);
-        return (
+        return createPortal(
           <>
             <div style={{ position: 'fixed', inset: 0, zIndex: 9998 }} onMouseDown={dismiss} />
             <div
@@ -1464,7 +1510,8 @@ export default function CanvasEditor({
                 <span className="canvas-ctx-icon">✕</span> Delete
               </button>
             </div>
-          </>
+          </>,
+          document.body
         );
       })()}
 
@@ -1472,7 +1519,7 @@ export default function CanvasEditor({
       {lockPill && (() => {
         const { x, y, shapeId } = lockPill;
         const dismiss = () => setLockPill(null);
-        return (
+        return createPortal(
           <>
             <div style={{ position: 'fixed', inset: 0, zIndex: 9998 }} onMouseDown={dismiss} />
             <button
@@ -1488,17 +1535,19 @@ export default function CanvasEditor({
             >
               🔓 Unlock
             </button>
-          </>
+          </>,
+          document.body
         );
       })()}
 
       {/* Lock-attempt flash — brief animated 🔒 when user first touches a locked shape */}
-      {lockFlash && (
+      {lockFlash && createPortal(
         <div
           className="canvas-lock-flash"
           style={{ position: 'fixed', left: lockFlash.x, top: lockFlash.y }}
           aria-hidden="true"
-        >🔒</div>
+        >🔒</div>,
+        document.body
       )}
 
         {/* Right-click context menu for slide cards */}
@@ -1507,7 +1556,7 @@ export default function CanvasEditor({
         const frame = frames[frameIdx];
         const totalFrames = frames.length;
         const dismiss = () => setCtxMenu(null);
-        return (
+        return createPortal(
           <>
             {/* Backdrop to catch outside clicks */}
             <div
@@ -1542,7 +1591,8 @@ export default function CanvasEditor({
                 <span className="canvas-ctx-icon">✕</span> Delete
               </button>
             </div>
-          </>
+          </>,
+          document.body
         );
       })()}
 

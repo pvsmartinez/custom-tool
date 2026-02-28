@@ -73,6 +73,24 @@
   opacity: 0.7;
 }
 
+/* File metrics status strip — always visible on the right of the tabrow */
+.bottom-panel-metrics {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+  padding: 0 10px;
+  flex-shrink: 0;
+}
+.bottom-panel-metric {
+  font-size: 11px;
+  font-family: var(--font-ui);
+  color: var(--text-muted);
+  opacity: 0.7;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+
 /* Last-line preview shown when the panel is collapsed */
 .bottom-panel-preview {
   display: flex;

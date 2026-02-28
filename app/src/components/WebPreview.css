@@ -26,13 +26,60 @@
   text-overflow: ellipsis;
 }
 
-.web-preview-frame {
+.web-preview-frame-wrapper {
   flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+
+.web-preview-frame {
   width: 100%;
+  height: 100%;
   border: none;
   background: #fff;
   /*
     Resetting to a white background here — the iframe renders the user's
     own HTML which controls its own background.
   */
+}
+
+/* Frosted overlay shown while Copilot is writing the file */
+.web-preview-lock-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.18);
+  backdrop-filter: blur(3px);
+  z-index: 10;
+  pointer-events: all;
+}
+
+.web-preview-lock-badge {
+  font-size: var(--font-size-xs);
+  font-family: var(--font-mono);
+  color: var(--accent);
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  animation: web-preview-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes web-preview-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+.web-preview-reload-btn {
+  margin-left: auto;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-dim);
+  font-size: 16px;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: color 0.15s, background 0.15s;
+}
+.web-preview-reload-btn:hover {
+  color: var(--text);
+  background: var(--hover-bg);
 }

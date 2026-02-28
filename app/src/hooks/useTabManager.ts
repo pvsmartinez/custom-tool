@@ -176,7 +176,6 @@ export function useTabManager(
   }
 
   function closeTab(filePath: string, onClosed?: (path: string) => void) {
-    _cleanRefs([filePath]);
     setPreviewTabId((prev) => (prev === filePath ? null : prev));
     onClosed?.(filePath);
 
@@ -185,20 +184,21 @@ export function useTabManager(
       if (activeTabIdRef.current === filePath) {
         const idx = prev.indexOf(filePath);
         const newActive = next[idx] ?? next[idx - 1] ?? null;
-        // Defer so React batches the setTabs + setActiveTabId/setContent updates
-        setTimeout(() => {
-          if (newActive) {
-            setContent(tabContentsRef.current.get(newActive) ?? '');
-            setViewMode(
-              tabViewModeRef.current.get(newActive) ??
-              (getFileTypeInfo(newActive).defaultMode as 'edit' | 'preview'),
-            );
-          } else {
-            setContent(fallbackContent);
-            setViewMode('edit');
-          }
-          setActiveTabId(newActive);
-        }, 0);
+        // Snapshot the content and view mode BEFORE cleaning refs, so a rapid
+        // sequence of closeTab calls (e.g. "Close All") doesn't delete the
+        // newActive entry from tabContentsRef before we can read it.
+        const nextContent = newActive
+          ? (tabContentsRef.current.get(newActive) ?? '')
+          : fallbackContent;
+        const nextViewMode = newActive
+          ? (tabViewModeRef.current.get(newActive) ?? (getFileTypeInfo(newActive).defaultMode as 'edit' | 'preview'))
+          : 'edit';
+        _cleanRefs([filePath]);
+        setContent(nextContent);
+        setViewMode(nextViewMode);
+        setActiveTabId(newActive);
+      } else {
+        _cleanRefs([filePath]);
       }
       return next;
     });

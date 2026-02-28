@@ -72,8 +72,15 @@ vi.mock('@uiw/react-codemirror', () => {
               const from = lines.slice(0, n - 1).reduce((sum, l) => sum + l.length + 1, 0);
               return { from, text: lineText };
             },
+            lineAt: (pos: number) => {
+              // find the start of the line containing pos
+              const text = props.value ?? '';
+              const before = text.lastIndexOf('\n', pos - 1);
+              return { from: before + 1 };
+            },
           },
-          selection: { main: { head: 0 } },
+          selection: { main: { from: 0, to: 0, head: 0, anchor: 0 } },
+          sliceDoc: (from: number, to: number) => (props.value ?? '').slice(from, to),
         },
         dispatch: vi.fn(),
         focus: vi.fn(),

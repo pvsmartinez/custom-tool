@@ -12,8 +12,10 @@ import {
   familyKey,
   sanitizeLoop,
   estimateTokens,
+  isQuotaError,
   getStoredOAuthToken,
   clearOAuthToken,
+  modelApiParams,
 } from '../services/copilot';
 import type { ChatMessage } from '../types';
 
@@ -189,6 +191,8 @@ describe('sanitizeLoop', () => {
         content: '',
         tool_calls: [{ id: 'c1', type: 'function', function: { name: 'fn', arguments: '{}' } }],
       },
+      // tool response resolves c1 so the merged assistant survives pass 3
+      { role: 'tool', tool_call_id: 'c1', content: 'result' },
     ];
     const out = sanitizeLoop(msgs);
     const assistants = out.filter((m) => m.role === 'assistant');
@@ -253,5 +257,188 @@ describe('getStoredOAuthToken / clearOAuthToken', () => {
     localStorage.setItem('copilot-github-oauth-token', 'ghp_test123');
     clearOAuthToken();
     expect(getStoredOAuthToken()).toBeNull();
+  });
+});
+
+// ── isQuotaError ─────────────────────────────────────────────────────────────
+describe('isQuotaError', () => {
+  it('returns true for insufficient_quota', () => {
+    expect(isQuotaError('insufficient_quota error')).toBe(true);
+  });
+
+  it('returns true for "over their token budget"', () => {
+    expect(isQuotaError('User is over their token budget')).toBe(true);
+  });
+
+  it('returns true for tokens_quota_exceeded', () => {
+    expect(isQuotaError('tokens_quota_exceeded')).toBe(true);
+  });
+
+  it('returns true for 429 with quota keyword', () => {
+    expect(isQuotaError('429 quota exceeded')).toBe(true);
+  });
+
+  it('returns true for 402 with billing keyword', () => {
+    expect(isQuotaError('402 billing required')).toBe(true);
+  });
+
+  it('returns false for generic network errors', () => {
+    expect(isQuotaError('network timeout')).toBe(false);
+  });
+
+  it('returns false for 400 bad request', () => {
+    expect(isQuotaError('400 bad request')).toBe(false);
+  });
+
+  it('is case-insensitive', () => {
+    expect(isQuotaError('INSUFFICIENT_QUOTA')).toBe(true);
+  });
+});
+
+// ── sanitizeLoop: UI-field stripping ─────────────────────────────────────────
+describe('sanitizeLoop — UI-only field stripping', () => {
+  it('strips items, activeFile, attachedImage, attachedFile before sending to API', () => {
+    const msgs = [
+      Object.assign(
+        { role: 'user' as const, content: 'hello world' } as ChatMessage,
+        {
+          activeFile: 'notes.md',
+          attachedImage: 'data:image/png;base64,abc123',
+          attachedFile: 'doc.pdf',
+          items: [{ type: 'text', text: 'hi' }],
+        },
+      ),
+    ];
+    const out = sanitizeLoop(msgs);
+    expect(out).toHaveLength(1);
+    expect(out[0].content).toBe('hello world');
+    expect((out[0] as any).activeFile).toBeUndefined();
+    expect((out[0] as any).attachedImage).toBeUndefined();
+    expect((out[0] as any).attachedFile).toBeUndefined();
+    expect((out[0] as any).items).toBeUndefined();
+  });
+
+  it('preserves role and content when no UI fields are present', () => {
+    const msgs: ChatMessage[] = [
+      { role: 'user', content: 'clean message' },
+    ];
+    const out = sanitizeLoop(msgs);
+    expect(out[0].content).toBe('clean message');
+  });
+});
+
+// ── sanitizeLoop: dangling tool_calls (Pass 3) ───────────────────────────────
+describe('sanitizeLoop — dangling tool_calls', () => {
+  it('drops a trailing assistant message whose tool_calls have no tool responses', () => {
+    const msgs: ChatMessage[] = [
+      { role: 'system', content: 'sys' },
+      { role: 'user', content: 'do something' },
+      {
+        role: 'assistant',
+        content: '',
+        tool_calls: [{ id: 'tc1', type: 'function', function: { name: 'read_workspace_file', arguments: '{}' } }],
+      },
+      // tool response for tc1 was sliced off — dangling assistant
+    ];
+    const out = sanitizeLoop(msgs);
+    expect(out.some((m) => m.role === 'assistant')).toBe(false);
+  });
+
+  it('keeps an assistant message when all tool_calls are resolved', () => {
+    const msgs: ChatMessage[] = [
+      { role: 'user', content: 'do something' },
+      {
+        role: 'assistant',
+        content: '',
+        tool_calls: [{ id: 'tc1', type: 'function', function: { name: 'read_workspace_file', arguments: '{}' } }],
+      },
+      { role: 'tool', tool_call_id: 'tc1', content: 'file contents' },
+    ];
+    const out = sanitizeLoop(msgs);
+    expect(out.find((m) => m.role === 'assistant')).toBeDefined();
+  });
+
+  it('keeps an assistant with no tool_calls', () => {
+    const msgs: ChatMessage[] = [
+      { role: 'user', content: 'hello' },
+      { role: 'assistant', content: 'Hi there!' },
+    ];
+    const out = sanitizeLoop(msgs);
+    expect(out.find((m) => m.role === 'assistant')?.content).toBe('Hi there!');
+  });
+
+  it('drops dangling assistant and any partial tool responses before it, then exposes the prior complete exchange', () => {
+    const msgs: ChatMessage[] = [
+      { role: 'user', content: 'step 1' },
+      {
+        role: 'assistant', content: '',
+        tool_calls: [{ id: 'tcA', type: 'function', function: { name: 'fn', arguments: '{}' } }],
+      },
+      { role: 'tool', tool_call_id: 'tcA', content: 'result A' },
+      { role: 'user', content: 'step 2' },
+      {
+        role: 'assistant', content: '',
+        tool_calls: [{ id: 'tcB', type: 'function', function: { name: 'fn2', arguments: '{}' } }],
+        // tc B has no tool response — dangling
+      },
+    ];
+    const out = sanitizeLoop(msgs);
+    // The dangling assistant (tcB) should be removed
+    const assistants = out.filter((m) => m.role === 'assistant');
+    expect(assistants).toHaveLength(1);
+    expect(assistants[0].tool_calls?.[0].id).toBe('tcA');
+  });
+
+  it('drops an assistant whose tool_calls are only partially resolved', () => {
+    const msgs: ChatMessage[] = [
+      { role: 'user', content: 'go' },
+      {
+        role: 'assistant', content: '',
+        tool_calls: [
+          { id: 'tc1', type: 'function', function: { name: 'fn', arguments: '{}' } },
+          { id: 'tc2', type: 'function', function: { name: 'fn2', arguments: '{}' } },
+        ],
+      },
+      // Only tc1 resolved, tc2 is missing
+      { role: 'tool', tool_call_id: 'tc1', content: 'result 1' },
+    ];
+    const out = sanitizeLoop(msgs);
+    expect(out.filter((m) => m.role === 'assistant')).toHaveLength(0);
+  });
+});
+
+// ── modelApiParams ───────────────────────────────────────────────────────────────
+describe('modelApiParams', () => {
+  it('returns temperature + max_tokens for standard GPT models', () => {
+    const p = modelApiParams('gpt-4o', 0.7, 16384);
+    expect(p).toEqual({ temperature: 0.7, max_tokens: 16384 });
+  });
+
+  it('returns temperature + max_tokens for Claude models', () => {
+    const p = modelApiParams('claude-sonnet-4-5', 0.3, 16000);
+    expect(p).toEqual({ temperature: 0.3, max_tokens: 16000 });
+  });
+
+  it('omits temperature and uses max_completion_tokens for o3', () => {
+    const p = modelApiParams('o3', 0.3, 16000);
+    expect(p).not.toHaveProperty('temperature');
+    expect(p).not.toHaveProperty('max_tokens');
+    expect(p).toEqual({ max_completion_tokens: 16000 });
+  });
+
+  it('omits temperature and uses max_completion_tokens for o4-mini', () => {
+    const p = modelApiParams('o4-mini', 0.3, 16000);
+    expect(p).toEqual({ max_completion_tokens: 16000 });
+  });
+
+  it('does NOT treat "ollama-..." as o-series', () => {
+    const p = modelApiParams('ollama-mistral', 0.5, 4096);
+    expect(p).toEqual({ temperature: 0.5, max_tokens: 4096 });
+  });
+
+  it('respects the caller-supplied temperature and maxTokens', () => {
+    const p = modelApiParams('gpt-4.1', 0.2, 1800);
+    expect(p.temperature).toBe(0.2);
+    expect(p.max_tokens).toBe(1800);
   });
 });

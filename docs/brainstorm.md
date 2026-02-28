@@ -1,4 +1,4 @@
-# Brainstorm — custom-tool
+# Brainstorm — Cafezin
 
 > Session: 2026-02-22  
 > Purpose: Explore capabilities, platform options, and tech stack before committing to an architecture.

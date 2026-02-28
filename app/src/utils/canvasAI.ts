@@ -15,13 +15,13 @@
  *   {"op":"delete",    "id":"abc123"}
  *   {"op":"clear"}
  *
- * "id" values match the last-6-characters of a shape ID shown in the summary.
+ * "id" values match the last-10-characters of a shape ID shown in the summary.
  *
  * NOTE: add_slide is the only way to create a frame/slide. After creation the
  * CanvasEditor store listener automatically applies the current theme to it.
  */
 
-import type { Editor, TLRichText } from 'tldraw';
+import type { Editor, TLRichText, TLShapeId } from 'tldraw';
 import { createShapeId, renderPlaintextFromRichText, toRichText } from 'tldraw';
 import type { TLNoteShape, TLGeoShape, TLTextShape, TLGeoShapeGeoStyle, TLArrowShape, TLFrameShape } from '@tldraw/tlschema';
 
@@ -76,7 +76,9 @@ function describeShape(editor: Editor, shape: ReturnType<Editor['getCurrentPageS
   } else if (typeof props.text === 'string') {
     text = props.text;
   }
-  const shortId = shape.id.slice(-6);
+  // 10 chars — 6 chars created ~1/16M collision probability at 50 shapes which is too risky;
+  // 10 chars reduces it to ~1/1T which is safe for any realistic canvas size.
+  const shortId = shape.id.slice(-10);
   const x = Math.round(shape.x);
   const y = Math.round(shape.y);
   const attrs: string[] = [];
@@ -99,6 +101,22 @@ function describeShape(editor: Editor, shape: ReturnType<Editor['getCurrentPageS
   return `[${shortId}] ${shape.type} at (${x},${y})` + (text ? ` text:"${text}"` : '') + attrStr;
 }
 
+/** Compute the axis-aligned bounding box for a set of shapes (parent-relative coords). */
+function shapeBounds(ss: ReturnType<Editor['getCurrentPageShapes']>): { x1: number; y1: number; x2: number; y2: number } | null {
+  if (ss.length === 0) return null;
+  let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
+  for (const s of ss) {
+    const p = s.props as { w?: number; h?: number };
+    const w = p.w ?? 200;
+    const h = p.h ?? 100;
+    x1 = Math.min(x1, s.x);
+    y1 = Math.min(y1, s.y);
+    x2 = Math.max(x2, s.x + w);
+    y2 = Math.max(y2, s.y + h);
+  }
+  return { x1: Math.round(x1), y1: Math.round(y1), x2: Math.round(x2), y2: Math.round(y2) };
+}
+
 /** Returns a short human-readable description of every shape on the canvas. */
 export function summarizeCanvas(editor: Editor): string {
   const shapes = editor.getCurrentPageShapes();
@@ -106,7 +124,8 @@ export function summarizeCanvas(editor: Editor): string {
 
   const page = editor.getCurrentPage();
   // Separate frames (slides) from regular shapes for clarity
-  const frames = shapes.filter((s) => s.type === 'frame') as TLFrameShape[];
+  // Sort frames left-to-right by x so the summary order matches the slide strip.
+  const frames = shapes.filter((s) => s.type === 'frame').sort((a, b) => (a as TLFrameShape).x - (b as TLFrameShape).x) as TLFrameShape[];
   const nonFrames = shapes.filter((s) => s.type !== 'frame');
   const lines: string[] = [
     `Canvas page: "${page.name}" — ${shapes.length} shape(s), ${frames.length} slide(s):`,
@@ -131,11 +150,17 @@ export function summarizeCanvas(editor: Editor): string {
     lines.push('  Slides (frames):');
     frames.forEach((f, i) => {
       const name = (f.props as { name?: string }).name ?? `Slide ${i + 1}`;
-      lines.push(`    [${f.id.slice(-6)}] slide ${i + 1}: "${name}" at (${Math.round(f.x)},${Math.round(f.y)}) size ${f.props.w}×${f.props.h}`);
       const children = frameChildren.get(f.id) ?? [];
+      lines.push(`    [${f.id.slice(-10)}] slide ${i + 1}: "${name}" at (${Math.round(f.x)},${Math.round(f.y)}) size ${f.props.w}\u00d7${f.props.h}`);
       if (children.length === 0) {
-        lines.push(`      (empty slide)`);
+        lines.push(`      (empty slide — free to fill entire ${f.props.w}\u00d7${f.props.h} area)`);
       } else {
+        // Show per-slide bounding box so the AI knows where free space is
+        const bb = shapeBounds(children);
+        if (bb) {
+          const freeY = bb.y2 + 20;
+          lines.push(`      Occupied area: (${bb.x1},${bb.y1})\u2192(${bb.x2},${bb.y2}). Next free row starts at y\u2248${freeY}`);
+        }
         for (const s of children) {
           lines.push('      ' + describeShape(editor, s));
         }
@@ -146,6 +171,13 @@ export function summarizeCanvas(editor: Editor): string {
   // Non-frame shapes not parented to any slide
   const shapesToList = frames.length > 0 ? freeShapes : shapes;
 
+  // Page-level bounding box for free shapes
+  if (shapesToList.length > 0) {
+    const bb = shapeBounds(shapesToList);
+    if (bb) {
+      lines.push(`  Page-level content occupies (${bb.x1},${bb.y1})\u2192(${bb.x2},${bb.y2}). Add new content below y\u2248${bb.y2 + 40} or right of x\u2248${bb.x2 + 40}.`);
+    }
+  }
   for (const shape of shapesToList) {
     lines.push('  ' + describeShape(editor, shape));
   }
@@ -161,24 +193,9 @@ export function canvasAIContext(editor: Editor, filename: string): string {
     `Canvas file: ${filename}`,
     summarizeCanvas(editor),
     '',
-    'To modify the canvas use the canvas_op tool (call it with a "commands" argument).',
-    'Each command is a JSON object on its own line. Supported ops:',
-    '  {"op":"add_slide","name":"Slide title"}          ← create a new 16:9 frame/slide (appended after the last existing one)',
-    '  {"op":"add_note","text":"Your text","x":100,"y":100,"color":"yellow"}',
-    '  {"op":"add_text","text":"Your text","x":100,"y":200,"color":"black"}',
-    '  {"op":"add_geo","geo":"rectangle","text":"Label","x":100,"y":100,"w":200,"h":120,"color":"blue","fill":"solid"}',
-    '  {"op":"add_arrow","x1":100,"y1":100,"x2":400,"y2":200,"label":"depends on","color":"grey"}',
-    '  {"op":"update","id":"abc123","text":"New text"}  ← id = last 6 chars of shape ID above',
-    '  {"op":"move","id":"abc123","x":300,"y":400}       ← reposition a shape',
-    '  {"op":"delete","id":"abc123"}',
-    '  {"op":"clear"}                                   ← removes all shapes',
-    'Slide note: when adding content to a specific slide, use x/y coordinates relative to that slide\'s frame position (shown in the summary).',
-    'To populate a slide, add_slide first, then add shapes whose x/y are offset from the slide origin.',
-    'Valid colors: yellow, blue, green, red, orange, violet, grey, black, white, light-blue, light-green, light-red, light-violet',
-    'Valid geo shapes: rectangle, ellipse, triangle, diamond, hexagon, cloud, star, arrow-right',
-    'Canvas coordinates: (0,0) is top-left; a typical 16:9 view is ~2200 wide × 1400 tall.',
-    'Plan layouts thoughtfully: use consistent spacing (e.g. 240px columns, 160px rows) so shapes do not overlap.',
-    'Use color to signal meaning: yellow=idea, blue=process, green=outcome, red=risk, grey=connection.',
+    'The summary above shows "Occupied area" and "Next free row" for each slide so you know exactly where to place new shapes without overlap.',
+    'Use canvas_op to modify (one JSON object per line). Always include "slide":"<frameId>" to parent shapes inside a frame.',
+    'x/y inside a slide are frame-relative: (0,0) = frame top-left, max ≈ (1280,720).',
   ].join('\n');
 }
 
@@ -211,23 +228,56 @@ export async function canvasToDataUrl(editor: Editor, pixelRatio = 1): Promise<s
  * IDs of any newly-created shapes.
  * Returns { count: 0, shapeIds: [] } if no canvas block is found.
  */
-export function executeCanvasCommands(editor: Editor, aiText: string): { count: number; shapeIds: string[] } {
-  const match = aiText.match(/```canvas\r?\n([\s\S]*?)```/);
-  if (!match) return { count: 0, shapeIds: [] };
+export function executeCanvasCommands(editor: Editor, aiText: string): { count: number; shapeIds: string[]; errors: string[] } {
+  const matches = [...aiText.matchAll(/```canvas\r?\n([\s\S]*?)```/g)];
+  if (matches.length === 0) return { count: 0, shapeIds: [], errors: [] };
 
+  // Only execute the LAST block — the AI often emits an explanatory example block
+  // before the real commands block, and running all blocks would duplicate shapes.
+  const match = matches[matches.length - 1];
   let count = 0;
   const shapeIds: string[] = [];
+  const errors: string[] = [];
+
+  // Atomic rollback: create a history stopping point before any mutations.
+  // If any command fails we bail back to this mark so the canvas is never left
+  // in a partial state.
+  const markId = editor.markHistoryStoppingPoint('canvas-op-batch');
+
   for (const line of match[1].split('\n').map((l) => l.trim()).filter(Boolean)) {
+    let parsed: Record<string, unknown>;
     try {
-      const result = runCommand(editor, JSON.parse(line) as Record<string, unknown>);
+      parsed = JSON.parse(line) as Record<string, unknown>;
+    } catch {
+      errors.push(`JSON parse error on: ${line.slice(0, 80)}`);
+      continue;
+    }
+    try {
+      const result = runCommand(editor, parsed);
       count += result.count;
       if (result.shapeId) shapeIds.push(result.shapeId);
-    } catch { /* skip malformed line */ }
+    } catch (e) {
+      errors.push(`Command "${parsed.op}" failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
   }
-  return { count, shapeIds: [...new Set(shapeIds)] };
+
+  // Any error = roll back the entire batch atomically so the canvas is never
+  // left partially applied. The caller will surface all error messages.
+  if (errors.length > 0) {
+    try { editor.bailToMark(markId); } catch { /* history may be empty — ignore */ }
+    return { count: 0, shapeIds: [], errors };
+  }
+
+  return { count, shapeIds: [...new Set(shapeIds)], errors };
 }
 
 type CommandResult = { count: number; shapeId: string | null };
+
+/** Coerce an AI-supplied number to a finite value — guards against NaN/Infinity in AI output. */
+function safeCoord(v: unknown, fallback: number): number {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fallback;
+}
 
 function runCommand(editor: Editor, cmd: Record<string, unknown>): CommandResult {
   const op = String(cmd.op ?? '');
@@ -235,10 +285,17 @@ function runCommand(editor: Editor, cmd: Record<string, unknown>): CommandResult
 
   // ── add_slide (frame) ────────────────────────────────────────
   if (op === 'add_slide') {
-    const frames = editor.getCurrentPageShapesSorted().filter((s) => s.type === 'frame') as TLFrameShape[];
+    // Sort by x so the new slide is appended after the rightmost existing slide,
+    // not after the topmost z-layer (getCurrentPageShapesSorted is z-order).
+    // Re-use `existing` (already fetched above) — no need to call getCurrentPageShapes() again.
+    const frames = existing
+      .filter((s) => s.type === 'frame')
+      .sort((a, b) => (a as TLFrameShape).x - (b as TLFrameShape).x) as TLFrameShape[];
     const last = frames[frames.length - 1];
     const sx = last ? last.x + (last.props.w ?? SLIDE_W) + SLIDE_GAP : 0;
-    const sy = last ? last.y : 0;
+    // Normalize y to the minimum y of all existing frames so slides always sit on the
+    // same horizontal baseline — prevents a manually-dragged frame from skewing new ones.
+    const sy = frames.length > 0 ? Math.min(...frames.map((f) => f.y)) : 0;
     const slideName = String(cmd.name ?? `Slide ${frames.length + 1}`);
     const slideId = createShapeId();
     editor.createShapes<TLFrameShape>([{
@@ -253,50 +310,93 @@ function runCommand(editor: Editor, cmd: Record<string, unknown>): CommandResult
 
   // ── clear ────────────────────────────────────────────────────
   if (op === 'clear') {
-    if (existing.length > 0) editor.deleteShapes(existing);
+    // Require an explicit confirmation field to prevent accidental wipes from
+    // a hallucinated or malformed command.
+    if (cmd.confirm !== 'yes') {
+      console.warn('[canvasAI] clear op blocked: missing confirm:"yes"');
+      return { count: 0, shapeId: null };
+    }
+    if (existing.length > 0) editor.deleteShapes(existing.map((s) => s.id as TLShapeId));
     return { count: existing.length, shapeId: null };
   }
 
   // ── delete ───────────────────────────────────────────────────
   if (op === 'delete') {
     const suffix = String(cmd.id ?? '');
+    // Empty suffix matches every shape via .endsWith('') — guard to avoid
+    // silently deleting the first shape when the AI omits the "id" field.
+    if (!suffix) return { count: 0, shapeId: null };
     const target = existing.find((s) => s.id.endsWith(suffix));
     if (!target) return { count: 0, shapeId: null };
-    editor.deleteShapes([target]);
+    editor.deleteShapes([target.id as TLShapeId]);
     return { count: 1, shapeId: null };
   }
 
   // ── update ───────────────────────────────────────────────────
   if (op === 'update') {
     const suffix = String(cmd.id ?? '');
+    // Guard empty suffix — endsWith('') matches everything, so omitting "id"
+    // would otherwise silently update the first shape on the canvas.
+    if (!suffix) throw new Error('Missing "id" field on update command — call list_canvas_shapes to find shape IDs.');
     const target = existing.find((s) => s.id.endsWith(suffix));
-    if (!target || cmd.text === undefined) return { count: 0, shapeId: null };
-    // updateShapes is typed on the concrete shape union, cast via any
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    editor.updateShapes([{
-      id: target.id,
-      type: target.type,
-      props: { richText: toRichText(String(cmd.text)) },
-    } as any]);
+    if (!target) throw new Error(`Shape not found: "${suffix}" — call list_canvas_shapes to get valid IDs.`);
+    // Require at least one updatable field — avoids silent no-ops
+    if (cmd.text === undefined && cmd.color === undefined && cmd.fill === undefined)
+      return { count: 0, shapeId: null };
+
+    // Shape-type aware update — prevents writing richText into shapes that don't
+    // support it (image, bookmark, etc.) which would corrupt the store JSON.
+    const RICH_TEXT_TYPES = new Set(['note', 'text', 'geo', 'arrow']);
+    if (target.type === 'frame') {
+      // Frame labels are stored in props.name (plain string), not richText.
+      const patch: Record<string, unknown> = {};
+      if (cmd.text !== undefined) patch.name = String(cmd.text);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      editor.updateShapes([{ id: target.id, type: 'frame', props: patch } as any]);
+    } else if (RICH_TEXT_TYPES.has(target.type)) {
+      const patch: Record<string, unknown> = {};
+      if (cmd.text  !== undefined) patch.richText = toRichText(String(cmd.text));
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      if (cmd.color !== undefined) patch.color = mapColor(cmd.color, (target.props as any).color);
+      if (cmd.fill  !== undefined) patch.fill  = mapFill(cmd.fill);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      editor.updateShapes([{ id: target.id, type: target.type, props: patch } as any]);
+    } else {
+      // Shape type doesn't support these props (image, bookmark, etc.) — skip.
+      return { count: 0, shapeId: null };
+    }
     // Return the shape ID so the parent can record it in an AI mark highlight.
     return { count: 1, shapeId: target.id };
   }
   // ── move ─────────────────────────────────────────────────
   if (op === 'move') {
     const suffix = String(cmd.id ?? '');
+    // Guard empty suffix — same empty-id risk as update above.
+    if (!suffix) throw new Error('Missing "id" field on move command — call list_canvas_shapes to find shape IDs.');
     const target = existing.find((s) => s.id.endsWith(suffix));
-    if (!target) return { count: 0, shapeId: null };
-    const newX = typeof cmd.x === 'number' ? cmd.x : target.x;
-    const newY = typeof cmd.y === 'number' ? cmd.y : target.y;
+    if (!target) throw new Error(`Shape not found: "${suffix}" — call list_canvas_shapes to get valid IDs.`);
+    // Use safeCoord so string numbers (e.g. "300") are coerced correctly
+    // rather than silently falling back to the shape's current position.
+    const newX = safeCoord(cmd.x, target.x);
+    const newY = safeCoord(cmd.y, target.y);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     editor.updateShapes([{ id: target.id, type: target.type, x: newX, y: newY } as any]);
     // Return the shape ID so the parent can record it in an AI mark highlight.
     return { count: 1, shapeId: target.id };
   }
   // ── auto-position new shapes (cascade so they don't all stack at 0,0) ────
+  // safeCoord guards against NaN/Infinity that the AI may accidentally emit.
   const idx = existing.length;
-  const x = typeof cmd.x === 'number' ? cmd.x : 100 + (idx % 5) * 220;
-  const y = typeof cmd.y === 'number' ? cmd.y : 100 + Math.floor(idx / 5) * 160;
+  const x = safeCoord(cmd.x, 100 + (idx % 5) * 220);
+  const y = safeCoord(cmd.y, 100 + Math.floor(idx / 5) * 160);
+
+  // Optional slide/frame parentage — when the AI supplies "slide":"<frameId>"
+  // the shape is parented directly inside that frame so it's grouped with it.
+  // Coordinates are then PARENT-RELATIVE (0,0 = frame top-left), matching what
+  // the canvas summary shows as frame-relative child positions.
+  const parentFrameId = cmd.slide
+    ? (existing.find((s) => s.type === 'frame' && s.id.endsWith(String(cmd.slide)))?.id as TLShapeId | undefined)
+    : undefined;
 
   // ── add_note (sticky note) ───────────────────────────────────
   if (op === 'add_note') {
@@ -304,6 +404,7 @@ function runCommand(editor: Editor, cmd: Record<string, unknown>): CommandResult
     editor.createShapes<TLNoteShape>([{
       id: noteId,
       type: 'note',
+      ...(parentFrameId ? { parentId: parentFrameId } : {}),
       x,
       y,
       props: {
@@ -320,6 +421,7 @@ function runCommand(editor: Editor, cmd: Record<string, unknown>): CommandResult
     editor.createShapes<TLTextShape>([{
       id: textId,
       type: 'text',
+      ...(parentFrameId ? { parentId: parentFrameId } : {}),
       x,
       y,
       props: {
@@ -333,17 +435,26 @@ function runCommand(editor: Editor, cmd: Record<string, unknown>): CommandResult
 
   // ── add_geo (rectangle, ellipse, triangle, …) ────────────────
   if (op === 'add_geo') {
-    const geoVal = String(cmd.geo ?? 'rectangle') as TLGeoShapeGeoStyle;
+    const VALID_GEO = new Set([
+      'rectangle', 'ellipse', 'triangle', 'diamond', 'pentagon', 'hexagon',
+      'octagon', 'star', 'rhombus', 'rhombus-2', 'oval', 'trapezoid',
+      'arrow-right', 'arrow-left', 'arrow-up', 'arrow-down',
+      'x-box', 'check-box', 'cloud', 'heart',
+    ]);
+    const rawGeo = String(cmd.geo ?? 'rectangle');
+    if (!VALID_GEO.has(rawGeo)) throw new Error(`Unknown geo type "${rawGeo}". Valid types: ${[...VALID_GEO].join(', ')}.`);
+    const geoVal = rawGeo as TLGeoShapeGeoStyle;
     const geoId = createShapeId();
     editor.createShapes<TLGeoShape>([{
       id: geoId,
       type: 'geo',
+      ...(parentFrameId ? { parentId: parentFrameId } : {}),
       x,
       y,
       props: {
         geo: geoVal,
-        w: typeof cmd.w === 'number' ? cmd.w : 200,
-        h: typeof cmd.h === 'number' ? cmd.h : 120,
+        w: safeCoord(cmd.w, 200),
+        h: safeCoord(cmd.h, 120),
         richText: toRichText(String(cmd.text ?? '')),
         color: mapColor(cmd.color, 'blue'),
         fill: mapFill(cmd.fill),
@@ -354,15 +465,16 @@ function runCommand(editor: Editor, cmd: Record<string, unknown>): CommandResult
 
   // ── add_arrow (free-standing arrow between two points) ───────
   if (op === 'add_arrow') {
-    const x1 = typeof cmd.x1 === 'number' ? cmd.x1 : x;
-    const y1 = typeof cmd.y1 === 'number' ? cmd.y1 : y;
-    const x2 = typeof cmd.x2 === 'number' ? cmd.x2 : x1 + 200;
-    const y2 = typeof cmd.y2 === 'number' ? cmd.y2 : y1;
+    const x1 = safeCoord(cmd.x1, x);
+    const y1 = safeCoord(cmd.y1, y);
+    const x2 = safeCoord(cmd.x2, x1 + 200);
+    const y2 = safeCoord(cmd.y2, y1);
     const label = String(cmd.label ?? cmd.text ?? '');
     const arrowId = createShapeId();
     editor.createShapes<TLArrowShape>([{
       id: arrowId,
       type: 'arrow',
+      ...(parentFrameId ? { parentId: parentFrameId } : {}),
       x: x1,
       y: y1,
       props: {
@@ -378,4 +490,72 @@ function runCommand(editor: Editor, cmd: Record<string, unknown>): CommandResult
   }
 
   return { count: 0, shapeId: null };
+}
+
+// ── Shared image-placement helper ────────────────────────────────────────────
+/**
+ * Create a tldraw image asset + shape in a single call.
+ *
+ * Placement priority (first wins):
+ *   1. `opts.x` / `opts.y`  — explicit top-left page coords (AI tool semantics)
+ *   2. `opts.dropX` / `opts.dropY` — mouse-drop page center (drag-drop semantics)
+ *   3. No coords — center in the current viewport
+ *
+ * `opts.width` overrides the default display width (capped at 800 px otherwise).
+ */
+export interface PlaceImageOpts {
+  /** Explicit top-left page X (AI / direct placement). */
+  x?: number;
+  /** Explicit top-left page Y. */
+  y?: number;
+  /** Mouse-drop page center X (shape will be centered on this point). */
+  dropX?: number;
+  /** Mouse-drop page center Y. */
+  dropY?: number;
+  /** Override display width in pixels. */
+  width?: number;
+}
+
+export function placeImageOnCanvas(
+  editor: Editor,
+  src: string,
+  name: string,
+  mimeType: string,
+  natW: number,
+  natH: number,
+  opts: PlaceImageOpts = {},
+): { x: number; y: number; w: number; h: number } {
+  const maxW = 800;
+  const desiredW = typeof opts.width === 'number' ? opts.width : Math.min(natW, maxW);
+  const scale = natW > 0 ? desiredW / natW : 1;
+  const dispW = Math.round(desiredW);
+  const dispH = Math.round(natH * scale);
+
+  let px: number, py: number;
+  if (opts.x !== undefined && opts.y !== undefined) {
+    // Explicit top-left coords — used by AI tools
+    px = Math.round(opts.x);
+    py = Math.round(opts.y);
+  } else if (opts.dropX !== undefined && opts.dropY !== undefined) {
+    // Mouse-drop — center shape on the drop point
+    px = Math.round(opts.dropX - dispW / 2);
+    py = Math.round(opts.dropY - dispH / 2);
+  } else {
+    // Fallback — viewport centre
+    const vp = editor.getViewportPageBounds();
+    px = Math.round(vp.x + vp.w / 2 - dispW / 2);
+    py = Math.round(vp.y + vp.h / 2 - dispH / 2);
+  }
+
+  // Generate a unique asset ID in tldraw's expected "asset:<id>" format.
+  // crypto.randomUUID() gives 128-bit uniqueness — far better than Math.random().
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const assetId = `asset:${crypto.randomUUID()}` as any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  editor.createAssets([{ id: assetId, typeName: 'asset', type: 'image', props: { name, src, w: natW, h: natH, mimeType, isAnimated: mimeType === 'image/gif' }, meta: {} } as any]);
+  // Explicitly set all tldraw v4 image shape props so legacy canvas files that
+  // pre-date fields like `altText` (added in v4.4.0) don't hit schema gaps.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  editor.createShape({ type: 'image', x: px, y: py, props: { assetId, w: dispW, h: dispH, playing: true, url: '', crop: null, flipX: false, flipY: false, altText: '' } as any });
+  return { x: px, y: py, w: dispW, h: dispH };
 }

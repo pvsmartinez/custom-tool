@@ -209,6 +209,66 @@
 .em-result.em-result--error { color: var(--text-muted); }
 .em-result-error { color: var(--red); }
 
+/* Result row with inline Reveal button */
+.em-result-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.em-reveal-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--accent-bg);
+  border: 1px solid rgba(var(--accent-rgb, 212 169 106), 0.3);
+  border-radius: var(--radius-sm);
+  padding: 2px 7px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background var(--transition-fast);
+}
+.em-reveal-btn:hover { background: rgba(var(--accent-rgb, 212 169 106), 0.18); }
+
+/* ── Progress bar ────────────────────────────────────────────────────────── */
+.em-progress-wrap {
+  position: relative;
+  height: 20px;
+  margin: 0 0 2px;
+  border-top: 1px solid var(--border);
+  background: var(--surface-deep);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+}
+
+.em-progress-bar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  background: rgba(var(--accent-rgb, 212 169 106), 0.25);
+  transition: width 0.3s ease;
+  border-right: 1px solid rgba(var(--accent-rgb, 212 169 106), 0.5);
+}
+
+.em-progress-label {
+  position: relative; /* above the bar */
+  z-index: 1;
+  padding: 0 8px;
+  font-size: calc(var(--font-size-xs) - 1px);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
 /* ── Expanded config ─────────────────────────────────────────────────────── */
 .em-config {
   padding: 12px 14px 14px;

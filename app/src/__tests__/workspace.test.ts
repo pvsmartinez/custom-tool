@@ -252,13 +252,13 @@ describe('getRecents', () => {
 
   it('returns parsed recents from localStorage', () => {
     const entries = [{ path: '/foo', name: 'Foo', lastOpened: new Date().toISOString() }];
-    localStorage.setItem('custom-tool-recent-workspaces', JSON.stringify(entries));
+    localStorage.setItem('cafezin-recent-workspaces', JSON.stringify(entries));
     expect(getRecents()).toHaveLength(1);
     expect(getRecents()[0].name).toBe('Foo');
   });
 
   it('returns an empty array when the stored value is malformed JSON', () => {
-    localStorage.setItem('custom-tool-recent-workspaces', '}{bad json}{');
+    localStorage.setItem('cafezin-recent-workspaces', '}{bad json}{')
     expect(getRecents()).toEqual([]);
   });
 });
@@ -269,7 +269,7 @@ describe('removeRecent', () => {
       { path: '/a', name: 'A', lastOpened: new Date().toISOString() },
       { path: '/b', name: 'B', lastOpened: new Date().toISOString() },
     ];
-    localStorage.setItem('custom-tool-recent-workspaces', JSON.stringify(entries));
+    localStorage.setItem('cafezin-recent-workspaces', JSON.stringify(entries));
     removeRecent('/a');
     const remaining = getRecents();
     expect(remaining.some((r) => r.path === '/a')).toBe(false);
@@ -278,7 +278,7 @@ describe('removeRecent', () => {
 
   it('is a no-op when the path does not exist in recents', () => {
     const entries = [{ path: '/a', name: 'A', lastOpened: new Date().toISOString() }];
-    localStorage.setItem('custom-tool-recent-workspaces', JSON.stringify(entries));
+    localStorage.setItem('cafezin-recent-workspaces', JSON.stringify(entries));
     removeRecent('/nonexistent');
     expect(getRecents()).toHaveLength(1);
   });

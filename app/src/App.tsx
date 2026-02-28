@@ -6,12 +6,15 @@ import { copyFile } from '@tauri-apps/plugin-fs';
 import Editor from './components/Editor';
 import type { EditorHandle } from './components/Editor';
 import AIPanel from './components/AIPanel';
+import type { AIPanelHandle } from './components/AIPanel';
+import { CanvasErrorBoundary } from './components/CanvasErrorBoundary';
+import { EditorErrorBoundary } from './components/EditorErrorBoundary';
 import WorkspacePicker from './components/WorkspacePicker';
 import SplashScreen from './components/SplashScreen';
 import WorkspaceHome from './components/WorkspaceHome';
 import Sidebar from './components/Sidebar';
 import MarkdownPreview from './components/MarkdownPreview';
-import WebPreview from './components/WebPreview';
+import WebPreview, { type WebPreviewHandle } from './components/WebPreview';
 import PDFViewer from './components/PDFViewer';
 import MediaViewer from './components/MediaViewer';
 import UpdateModal from './components/UpdateModal';
@@ -22,7 +25,7 @@ import FindReplaceBar from './components/FindReplaceBar';
 import AIMarkOverlay from './components/AIMarkOverlay';
 
 import TabBar from './components/TabBar';
-import BottomPanel from './components/BottomPanel';
+import BottomPanel, { type FileMeta } from './components/BottomPanel';
 import { useDragResize } from './hooks/useDragResize';
 import { useTabManager } from './hooks/useTabManager';
 import { useAutosave } from './hooks/useAutosave';
@@ -48,6 +51,8 @@ import { getFileTypeInfo } from './utils/fileType';
 import { generateId } from './utils/generateId';
 import type { Workspace, AIEditMark, AppSettings, WorkspaceExportConfig } from './types';
 import { DEFAULT_APP_SETTINGS, APP_SETTINGS_KEY } from './types';
+import { useBacklinks } from './hooks/useBacklinks';
+import BacklinksPanel from './components/BacklinksPanel';
 import './App.css';
 
 function loadAppSettings(): AppSettings {
@@ -87,6 +92,12 @@ export default function App() {
     const t1 = setTimeout(() => setSplashVisible(false), 700);
     const t2 = setTimeout(() => setSplash(false), 1060);
     return () => { clearTimeout(t1); clearTimeout(t2); };
+  }, []);
+
+  // Mark component as unmounted so async polls (e.g. export canvas mount check) can bail out
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
   }, []);
 
   // Keep window title = workspace name (tabs already show the active file)
@@ -133,6 +144,16 @@ export default function App() {
   const [terminalHeight, setTerminalHeight] = useState(240);
   /** Changing this value tells BottomPanel to cd to the given absolute path. */
   const [terminalRequestCd, setTerminalRequestCd] = useState<string | undefined>();
+  /** Changing this value tells BottomPanel to run the given shell command. Format: "cmd|timestamp" */
+  const [terminalRequestRun, setTerminalRequestRun] = useState<string | undefined>();
+  /** Distraction-free writing mode — hides header/sidebar/panels */
+  const [focusMode, setFocusMode] = useState(false);
+  /** Idea Dump — one-tap record → transcribe → append to inbox */
+  const [isDumping, setIsDumping] = useState(false);
+  const [isDumpTranscribing, setIsDumpTranscribing] = useState(false);
+  const [dumpError, setDumpError] = useState<string | null>(null);
+  const dumpRecorderRef = useRef<MediaRecorder | null>(null);
+  const dumpChunksRef = useRef<Blob[]>([]);
   const [lockedFiles, setLockedFiles] = useState<Set<string>>(() => getLockedFiles());
 
   // Subscribe to Copilot file-lock changes
@@ -142,7 +163,7 @@ export default function App() {
   }, []);
   // ── Panel resize (sidebar ↔ editor ↔ AI panel) ───────────────────────────
   const { sidebarWidth, aiPanelWidth, startSidebarDrag, startAiDrag } = useDragResize();
-  const { saveTimerRef, autosaveDelayRef, scheduleAutosave } = useAutosave({
+  const { autosaveDelayRef, scheduleAutosave, cancelAutosave } = useAutosave({
     savedContentRef,
     setDirtyFiles,
     setSaveError: (err) => setSaveError(err as string | null),
@@ -170,6 +191,13 @@ export default function App() {
   const editorAreaRef = useRef<HTMLDivElement>(null);
   // Holds the live tldraw Editor instance when a canvas file is open
   const canvasEditorRef = useRef<TldrawEditor | null>(null);
+  const aiPanelRef = useRef<AIPanelHandle | null>(null);
+  /** Ref to the live HTML preview pane — used by the screenshot_preview agent tool. */
+  const webPreviewRef = useRef<WebPreviewHandle | null>(null);
+  // Tracks whether this component is still mounted (used to cancel async polls on cleanup)
+  const mountedRef = useRef(true);
+  // Incremented each time the user recovers from a canvas error — forces remount
+  const [canvasResetKey, setCanvasResetKey] = useState(0);
   // Lets CanvasEditor expose its rescanFrames() so AIPanel can force-sync
   // the slide strip immediately after canvas_op (belt-and-suspenders alongside
   // the debounced store listener).
@@ -185,16 +213,45 @@ export default function App() {
 
   // Derived from active file
   const fileTypeInfo = activeFile ? getFileTypeInfo(activeFile) : null;
+  // Backlinks — scan only markdown files; disable during focus mode for perf
+  const { backlinks, outlinks, loading: backlinksLoading } = useBacklinks(
+    activeFile,
+    workspace,
+    fileTypeInfo?.kind === 'markdown',
+  );
+  const fileMeta = useMemo<FileMeta>(() => ({
+    kind: fileTypeInfo?.kind ?? null,
+    wordCount,
+    lines: content.split('\n').length,
+    slides: canvasSlideCount,
+    fileStat,
+  }), [fileTypeInfo?.kind, wordCount, content, canvasSlideCount, fileStat]);
 
   // ── In-app update ───────────────────────────────────────────
-  function handleUpdate() {
-    setShowUpdateModal(true);
+  // dev  → open UpdateModal (runs build script)
+  // mas  → open Mac App Store page
+  // ios  → open iOS App Store page
+  const APP_STORE_URL = 'https://apps.apple.com/app/id6759814955';
+  async function handleUpdate() {
+    let channel = 'dev';
+    try { channel = await invoke<string>('build_channel'); } catch { /* older build */ }
+    if (channel === 'mas') {
+      const { openUrl } = await import('@tauri-apps/plugin-opener');
+      openUrl(`macappstore://apps.apple.com/app/id6759814955`).catch(() =>
+        openUrl(APP_STORE_URL)
+      );
+    } else if (channel === 'ios') {
+      const { openUrl } = await import('@tauri-apps/plugin-opener');
+      openUrl(APP_STORE_URL).catch(() => {});
+    } else {
+      setShowUpdateModal(true);
+    }
   }
 
   // Listen for the native menu "Update Cafezin…" event
   useEffect(() => {
     const unlisten = listen('menu-update-app', () => handleUpdate());
-    return () => { unlisten.then((fn) => fn()); };
+    return () => { unlisten.then((fn) => fn()).catch(() => {}); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -204,7 +261,7 @@ export default function App() {
       setSettingsInitialTab('general');
       setShowSettings(true);
     });
-    return () => { unlisten.then((fn) => fn()); };
+    return () => { unlisten.then((fn) => fn()).catch(() => {}); };
   }, []);
 
   // First-launch sync prompt: if sync was never configured and user hasn't
@@ -245,11 +302,24 @@ export default function App() {
         // Ignore internal DOM drags (e.g. slide strip reorder) — they have no paths
         if (paths.length === 0) return;
         setDragFiles(paths);
-        setDragOver(true);
+        // Don't show full-screen overlay when hovering over the AI panel
+        const pos = (event.payload as { position?: { x: number; y: number } }).position;
+        const hitEl = pos ? document.elementFromPoint(pos.x, pos.y) : null;
+        setDragOver(!hitEl?.closest('[data-panel="ai"]'));
       } else if (type === 'drop') {
         setDragOver(false);
         const paths: string[] = (event.payload as { paths?: string[] }).paths ?? [];
-        if (paths.length > 0 && workspace) handleDroppedFiles(paths);
+        if (paths.length > 0 && workspace) {
+          // Route to AI panel if the drop landed over it, otherwise open as file
+          const pos = (event.payload as { position?: { x: number; y: number } }).position;
+          const hitEl = pos ? document.elementFromPoint(pos.x, pos.y) : null;
+          if (aiPanelRef.current && hitEl?.closest('[data-panel="ai"]')) {
+            setAiOpen(true);
+            aiPanelRef.current.receiveFinderFiles(paths);
+          } else {
+            handleDroppedFiles(paths);
+          }
+        }
       } else {
         setDragOver(false);
         setDragFiles([]);
@@ -305,7 +375,7 @@ export default function App() {
       if (activeTabId && workspace && kind !== 'pdf' && kind !== 'video' && kind !== 'image') {
         if (kind === 'canvas') forceSaveRef.current?.();
         const current = tabContentsRef.current.get(activeTabId) ?? content;
-        if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+        cancelAutosave();
         let textToSave = current;
         if (appSettings.formatOnSave !== false && fileTypeInfo?.language && kind !== 'canvas') {
           const formatted = await formatContent(current, fileTypeInfo.language);
@@ -343,6 +413,13 @@ export default function App() {
       }
     },
     onToggleTerminal: () => setTerminalOpen((v) => !v),
+    focusMode,
+    onToggleFocusMode: () => {
+      setFocusMode((v) => {
+        if (!v) { setSidebarOpen(false); setAiOpen(false); }
+        return !v;
+      });
+    },
   });
 
   // ── Jump to text/line after project-search navigation ───────────────────────
@@ -364,7 +441,18 @@ export default function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── Format-on-save via Prettier standalone ──────────────────────────────────
+  // ── Format via Prettier standalone ─────────────────────────────────────────
+  async function handleFormat() {
+    if (!activeFile || !workspace || fileTypeInfo?.kind !== 'code') return;
+    const current = tabContentsRef.current.get(activeFile) ?? content;
+    const formatted = await formatContent(current, fileTypeInfo.language ?? '');
+    if (formatted !== current) {
+      tabContentsRef.current.set(activeFile, formatted);
+      setContent(formatted);
+      scheduleAutosave(workspace, activeFile, formatted);
+    }
+  }
+
   async function formatContent(code: string, language: string): Promise<string> {
     try {
       const prettier = await import('prettier/standalone');
@@ -494,7 +582,7 @@ export default function App() {
   }
 
   function handleCloseAllTabs() {
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    cancelAutosave();
     closeAllTabs();
   }
 
@@ -523,15 +611,23 @@ export default function App() {
 
     try {
       await handleOpenFile(relPath);
-      // Poll until tldraw Editor is mounted (key={activeFile} on CanvasEditor remounts on switch)
+      // Poll until tldraw Editor is mounted (key={activeFile} on CanvasEditor remounts on switch).
+      // The `mountedRef` guard ensures the poll stops immediately if the component unmounts
+      // (e.g. user switches workspace mid-export), preventing ghost state updates.
       await new Promise<void>((resolve, reject) => {
         const start = Date.now();
+        let timerId: ReturnType<typeof setTimeout> | null = null;
         const check = () => {
+          if (!mountedRef.current) { reject(new Error('Component unmounted during export')); return; }
           if (canvasEditorRef.current) { resolve(); return; }
           if (Date.now() - start > 10_000) { reject(new Error('Canvas editor did not mount in time')); return; }
-          setTimeout(check, 80);
+          timerId = setTimeout(check, 80);
         };
+        // Store cleanup so the poll can be cancelled if the promise is abandoned
         check();
+        // If the promise is gc'd (workspace switch) timerId will just fire once more
+        // then bail via !mountedRef.current — no additional cleanup needed.
+        void timerId;
       });
     } catch (e) {
       // Ensure lock is always cleared even when open/mount fails
@@ -586,6 +682,7 @@ export default function App() {
       trackFileOpen(workspace, filename).then(setWorkspace).catch(() => {});
     } catch (err) {
       console.error('Failed to open file:', err);
+      setSaveError(`Could not open "${filename}": ${(err as Error)?.message ?? String(err)}`);
     }
   }
 
@@ -613,12 +710,15 @@ export default function App() {
 
       // Auto-remove AI marks whose text no longer exists in the document.
       // This covers the case where a human types over an AI-inserted chunk.
+      // Canvas marks are identified by canvasShapeIds, not text content — the
+      // tldraw JSON snapshot never contains the mark's display text, so we must
+      // skip the text-presence check for them or they'd be wiped on every save.
       setAiMarks((prev) => {
         const fileMarks = prev.filter(
           (m) => m.fileRelPath === activeFile && !m.reviewed,
         );
         const toRemove = fileMarks
-          .filter((m) => !newContent.includes(m.text))
+          .filter((m) => !m.canvasShapeIds?.length && !newContent.includes(m.text))
           .map((m) => m.id);
         if (toRemove.length === 0) return prev;
         const updated = prev.map((m) =>
@@ -630,6 +730,21 @@ export default function App() {
         saveMarks(workspace, updated).catch(() => {});
         return updated;
       });
+
+      // Canvas files: the tldraw store listener already debounces to 500ms before
+      // calling onChange — a second autosave debounce (1s) is redundant and pushes
+      // disk writes to ~1500ms. Write immediately here so the total latency is just
+      // the 500ms from the tldraw store listener.
+      if (activeFile.endsWith('.tldr.json')) {
+        writeFile(workspace, activeFile, newContent)
+          .then(() => {
+            savedContentRef.current.set(activeFile, newContent);
+            setDirtyFiles((prev) => { const s = new Set(prev); s.delete(activeFile); return s; });
+            setSaveError(null);
+          })
+          .catch((err) => setSaveError(String((err as Error)?.message ?? err)));
+        return;
+      }
 
       scheduleAutosave(workspace, activeFile, newContent);
     },
@@ -652,7 +767,7 @@ export default function App() {
     if (!activeTabId || !workspace) return;
     if (fileTypeInfo?.kind === 'canvas') forceSaveRef.current?.();
     const current = tabContentsRef.current.get(activeTabId) ?? content;
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    cancelAutosave();
     writeFile(workspace, activeTabId, current)
       .then(() => {
         savedContentRef.current.set(activeTabId, current);
@@ -663,6 +778,70 @@ export default function App() {
         savedToastTimerRef.current = setTimeout(() => setSavedToast(false), 1800);
       })
       .catch((err) => setSaveError(String((err as Error)?.message ?? err)));
+  }
+
+  // ── Idea Dump — voice record → transcribe → append to inbox file ──────────
+  async function handleToggleDump() {
+    if (isDumpTranscribing) return; // ignore while processing
+    setDumpError(null);
+
+    if (isDumping) {
+      // Stop recording — onstop handler will transcribe + save
+      dumpRecorderRef.current?.stop();
+      dumpRecorderRef.current = null;
+      return;
+    }
+
+    const groqKey = localStorage.getItem('cafezin-groq-key') ?? '';
+    if (!groqKey) {
+      setDumpError('Groq API key not set — configure it in the AI panel.');
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm'
+        : MediaRecorder.isTypeSupported('audio/ogg') ? 'audio/ogg'
+        : 'audio/mp4';
+      const recorder = new MediaRecorder(stream, { mimeType });
+      dumpChunksRef.current = [];
+      recorder.ondataavailable = (e) => { if (e.data.size > 0) dumpChunksRef.current.push(e.data); };
+      recorder.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        setIsDumping(false);
+        setIsDumpTranscribing(true);
+        try {
+          const blob = new Blob(dumpChunksRef.current, { type: mimeType });
+          const arrayBuf = await blob.arrayBuffer();
+          const uint8 = new Uint8Array(arrayBuf);
+          let binary = '';
+          uint8.forEach((b) => (binary += String.fromCharCode(b)));
+          const b64 = btoa(binary);
+          const transcript = await invoke<string>('transcribe_audio', {
+            audioBase64: b64,
+            mimeType,
+            apiKey: groqKey,
+          });
+          if (transcript.trim() && workspace) {
+            const inboxRel = workspace.config?.inboxFile ?? '00_Inbox/raw_transcripts.md';
+            const now = new Date();
+            const header = `\n\n## Voice dump: ${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}\n\n`;
+            let existing = '';
+            try { existing = await readFile(workspace, inboxRel); } catch { /* file may not exist yet */ }
+            await writeFile(workspace, inboxRel, existing + header + transcript.trim() + '\n');
+          }
+        } catch (err) {
+          setDumpError(`Dump failed: ${String((err as Error)?.message ?? err)}`);
+        } finally {
+          setIsDumpTranscribing(false);
+        }
+      };
+      dumpRecorderRef.current = recorder;
+      recorder.start();
+      setIsDumping(true);
+    } catch (err) {
+      setDumpError(`Mic access denied: ${String((err as Error)?.message ?? err)}`);
+    }
   }
 
   // ── Export current markdown to PDF (pure-JS, no system deps) ────────────────
@@ -803,9 +982,14 @@ export default function App() {
       if (activeFile) tabContentsRef.current.set(activeFile, newContent);
       return newContent;
     });
-    // Schedule auto-save and record AI edit provenance
+    // Schedule auto-save and record AI edit provenance.
+    // NOTE: newContent is assigned synchronously inside the setContent updater
+    // above (React calls functional updaters synchronously during reconciliation
+    // when not inside a concurrent transition). To be safe, we read from
+    // tabContentsRef which is always written first inside the updater.
+    const contentToSave = activeFile ? (tabContentsRef.current.get(activeFile) ?? newContent) : newContent;
     if (workspace && activeFile) {
-      scheduleAutosave(workspace, activeFile, newContent);
+      scheduleAutosave(workspace, activeFile, contentToSave);
       const mark: AIEditMark = {
         id: generateId(),
         fileRelPath: activeFile,
@@ -908,7 +1092,7 @@ export default function App() {
       if (!ok) return;
     }
     // Cancel any pending auto-save and clear all tabs
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    cancelAutosave();
     clearAll();
     setWorkspace(null);
     setDirtyFiles(new Set());
@@ -977,8 +1161,21 @@ export default function App() {
   }
 
   return (
-    <div className="app">
+    <div className={`app${focusMode ? ' focus-mode' : ''}${exportLock ? ' app--exporting' : ''}`}>
       {splash && <SplashScreen visible={splashVisible} />}
+      {/* Export lock overlay — full-window fixed overlay while canvas export runs */}
+      {exportLock && (
+        <div className="export-lock-overlay" aria-hidden>
+          <span className="copilot-lock-label">exporting…</span>
+        </div>
+      )}
+      {focusMode && (
+        <button
+          className="app-focus-exit"
+          onClick={() => setFocusMode(false)}
+          title="Exit focus mode (Esc or ⌘⇧.)"
+        >… focus</button>
+      )}
       {/* Header */}
       <header className="app-header">
         <div className="app-header-left">
@@ -1038,6 +1235,16 @@ export default function App() {
               </button>
             </div>
           )}
+          {/* Format — code files in edit mode only */}
+          {fileTypeInfo?.kind === 'code' && viewMode === 'edit' && (
+            <button
+              className="app-format-btn"
+              onClick={handleFormat}
+              title="Format file with Prettier (⌥F)"
+            >
+              ⌥ Format
+            </button>
+          )}
           {/* Export to PDF via pandoc — markdown files only */}
           {fileTypeInfo?.kind === 'markdown' && (
             <button
@@ -1059,18 +1266,23 @@ export default function App() {
               ⍈ Export
             </button>
           )}
-          {(() => {
-            const kind = fileTypeInfo?.kind;
-            if (fileStat && (kind === 'video' || kind === 'audio' || kind === 'image' || kind === 'pdf'))
-              return <span className="app-wordcount">{fileStat}</span>;
-            if (kind === 'markdown' && appSettings.showWordCount)
-              return <span className="app-wordcount">{wordCount.toLocaleString()} words</span>;
-            if (kind === 'canvas' && canvasSlideCount > 0)
-              return <span className="app-wordcount">{canvasSlideCount} slide{canvasSlideCount !== 1 ? 's' : ''}</span>;
-            if (kind === 'code' && content)
-              return <span className="app-wordcount">{content.split('\n').length.toLocaleString()} lines</span>;
-            return null;
-          })()}
+          {/* Idea Dump — voice record → transcribe → append to inbox */}
+          {workspace && (
+            <button
+              className={`app-dump-btn${isDumping ? ' recording' : ''}${isDumpTranscribing ? ' transcribing' : ''}`}
+              onClick={handleToggleDump}
+              disabled={isDumpTranscribing}
+              title={isDumping ? 'Stop recording and save to inbox' : isDumpTranscribing ? 'Transcribing…' : 'Record voice note → append to inbox file'}
+            >
+              {isDumping ? '⏹ Stop' : isDumpTranscribing ? '…' : '🎙 Dump'}
+            </button>
+          )}
+          {dumpError && (
+            <span className="app-save-error" title={dumpError} onClick={() => setDumpError(null)}>
+              ⚠ {dumpError.length > 40 ? dumpError.slice(0, 40) + '…' : dumpError}
+            </span>
+          )}
+
           {/* Save state indicators — shown only when a saveable file is active */}
           {activeTabId && fileTypeInfo && !['pdf','video','audio','image'].includes(fileTypeInfo.kind ?? '') && (
             saveError ? (
@@ -1176,6 +1388,10 @@ export default function App() {
                 setTerminalOpen(true);
                 setTerminalRequestCd(absDir + '|' + Date.now());
               }}
+              onRunButtonCommand={(command) => {
+                setTerminalOpen(true);
+                setTerminalRequestRun(command + '|' + Date.now());
+              }}
             />
             {/* Sidebar resize handle */}
             <div className="resize-divider" onMouseDown={startSidebarDrag} />
@@ -1190,12 +1406,6 @@ export default function App() {
               <span className="copilot-lock-label">writing…</span>
             </div>
           )}
-          {/* Export lock overlay — shown while auto-opening canvas for export */}
-          {exportLock && (
-            <div className="copilot-lock-overlay" aria-hidden>
-              <span className="copilot-lock-label">exporting…</span>
-            </div>
-          )}
           <FindReplaceBar
             open={findReplaceOpen}
             onClose={() => setFindReplaceOpen(false)}
@@ -1206,6 +1416,11 @@ export default function App() {
 
         {/* ── Active file viewer ─ key triggers CSS fade on every file switch ── */}
         <div key={activeFile ?? ''} className="editor-file-view">
+        <EditorErrorBoundary
+          activeFile={activeFile}
+          onReload={handleOpenFile}
+          onClose={handleCloseTab}
+        >
         {fileTypeInfo?.kind === 'pdf' && activeFile ? (
           <PDFViewer
             absPath={`${workspace.path}/${activeFile}`}
@@ -1220,9 +1435,24 @@ export default function App() {
             onStat={setFileStat}
           />
         ) : fileTypeInfo?.kind === 'canvas' && activeFile ? (
+          <CanvasErrorBoundary
+            key={`${activeFile}-${canvasResetKey}`}
+            workspacePath={workspace.path}
+            canvasRelPath={activeFile}
+            onRecovered={async () => {
+              // Re-read file from disk (bypasses tab cache so new content loads)
+              try {
+                const fresh = await readFile(workspace, activeFile);
+                savedContentRef.current.set(activeFile, fresh);
+                tabContentsRef.current.set(activeFile, fresh);
+                setContent(fresh);
+              } catch { /* keep whatever is on disk */ }
+              setCanvasResetKey((k) => k + 1);
+            }}
+          >
           <Suspense fallback={<div className="canvas-loading">Loading canvas…</div>}>
           <CanvasEditor
-            key={activeFile}
+            key={`${activeFile}-${canvasResetKey}`}
             content={content}
             onChange={handleContentChange}
             workspacePath={workspace.path}
@@ -1248,6 +1478,7 @@ export default function App() {
             canvasRelPath={activeFile ?? undefined}
           />
           </Suspense>
+          </CanvasErrorBoundary>
         ) : !activeFile ? (
           <WorkspaceHome
             workspace={workspace}
@@ -1256,12 +1487,18 @@ export default function App() {
             onOpenAIReview={() => { setAiHighlight(true); setAiNavIndex(0); }}
           />
         ) : viewMode === 'preview' && fileTypeInfo?.kind === 'markdown' ? (
-          <MarkdownPreview content={content} />
+          <MarkdownPreview
+            content={content}
+            onNavigate={handleOpenFile}
+            currentFilePath={activeFile ?? undefined}
+          />
         ) : viewMode === 'preview' && fileTypeInfo?.kind === 'code' && fileTypeInfo.supportsPreview && activeFile && workspace ? (
           <WebPreview
+            ref={webPreviewRef}
             content={content}
             absPath={`${workspace.path}/${activeFile}`}
             filename={activeFile}
+            isLocked={lockedFiles.has(activeFile)}
           />
         ) : (
           <Editor
@@ -1276,8 +1513,11 @@ export default function App() {
             onImagePaste={handleEditorImagePaste}
             language={fileTypeInfo?.language}
             isDark={appSettings.theme === 'dark'}
+            isLocked={activeFile ? lockedFiles.has(activeFile) : false}
+            onFormat={fileTypeInfo?.kind === 'code' ? handleFormat : undefined}
           />
         )}
+        </EditorErrorBoundary>
         </div> {/* end editor-file-view */}
 
         {/* AI mark hover overlay — text/markdown/code editors only, edit mode only */}
@@ -1292,6 +1532,16 @@ export default function App() {
           />
         )}
 
+        {/* Backlinks strip — markdown files only */}
+        {fileTypeInfo?.kind === 'markdown' && (
+          <BacklinksPanel
+            backlinks={backlinks}
+            outlinks={outlinks}
+            loading={backlinksLoading}
+            onOpen={handleOpenFile}
+          />
+        )}
+
         </div> {/* end editor-area */}
 
 
@@ -1299,6 +1549,7 @@ export default function App() {
         {/* AI panel resize handle — only visible when open */}
         {aiOpen && <div className="resize-divider" onMouseDown={startAiDrag} />}
         <AIPanel
+          ref={aiPanelRef}
           isOpen={aiOpen}
           onClose={() => setAiOpen(false)}
           initialPrompt={aiInitialPrompt}
@@ -1323,6 +1574,7 @@ export default function App() {
           onStreamingChange={setIsAIStreaming}
           style={aiOpen ? { width: aiPanelWidth } : undefined}
           screenshotTargetRef={editorAreaRef}
+          webPreviewRef={webPreviewRef}
           workspaceExportConfig={workspace.config.exportConfig}
           onExportConfigChange={handleExportConfigChange}
         />
@@ -1349,6 +1601,8 @@ export default function App() {
         onToggle={() => setTerminalOpen((v) => !v)}
         onHeightChange={setTerminalHeight}
         requestCd={terminalRequestCd}
+        requestRun={terminalRequestRun}
+        fileMeta={fileMeta}
       />
       </div> {/* end app-workspace */}
 

@@ -96,12 +96,16 @@ describe('read_workspace_file', () => {
     expect(result).toContain('path is required');
   });
 
-  it('truncates files larger than 12 000 characters', async () => {
+  it('truncates files larger than 40 000 characters at a line boundary', async () => {
+    // The CAP is 40 KB — build a file of 41 000 chars (over the limit).
+    // Use lines so the truncation message lands on a clean boundary.
+    const line = 'x'.repeat(100) + '\n';          // 101 chars per line
+    const bigText = line.repeat(410);             // ~41 410 chars total
     vi.mocked(tauriFs.exists).mockResolvedValue(true);
-    vi.mocked(tauriFs.readTextFile).mockResolvedValue('x'.repeat(15_000));
+    vi.mocked(tauriFs.readTextFile).mockResolvedValue(bigText);
     const exec = makeExecutor();
     const result = await exec('read_workspace_file', { path: 'big.md' });
-    expect(result.length).toBeLessThan(15_000);
+    expect(result.length).toBeLessThanOrEqual(bigText.length);
     expect(result).toContain('truncated');
   });
 
@@ -244,5 +248,72 @@ describe('unknown tool', () => {
     const result = await exec('totally_fake_tool', {});
     expect(result).toContain('Unknown tool');
     expect(result).toContain('totally_fake_tool');
+  });
+});
+
+// ── read_workspace_file: path traversal ──────────────────────────────────────
+describe('read_workspace_file — path traversal', () => {
+  it('rejects paths that escape the workspace via ../', async () => {
+    const exec = makeExecutor();
+    const result = await exec('read_workspace_file', { path: '../../etc/passwd' });
+    expect(result).toContain('Path traversal detected');
+    expect(tauriFs.readTextFile).not.toHaveBeenCalled();
+  });
+
+  it('rejects multi-hop traversal that resolves outside the workspace', async () => {
+    const exec = makeExecutor();
+    const result = await exec('read_workspace_file', { path: 'sub/../../../secret' });
+    expect(result).toContain('Path traversal detected');
+    expect(tauriFs.readTextFile).not.toHaveBeenCalled();
+  });
+});
+
+// ── write_workspace_file: canvas file rejection ───────────────────────────────
+describe('write_workspace_file — canvas file rejection', () => {
+  it('refuses to write content to a .tldr.json canvas file', async () => {
+    const exec = makeExecutor();
+    const result = await exec('write_workspace_file', {
+      path: 'board.tldr.json',
+      content: '{"shapes":[]}',
+    });
+    expect(result).toContain('canvas files (.tldr.json) cannot be written');
+    expect(tauriFs.writeTextFile).not.toHaveBeenCalled();
+  });
+
+  it('blocks top-level and subdirectory canvas files alike', async () => {
+    const exec = makeExecutor();
+    const result = await exec('write_workspace_file', {
+      path: 'slides/deck.tldr.json',
+      content: '{}',
+    });
+    expect(result).toContain('canvas files (.tldr.json) cannot be written');
+    expect(tauriFs.writeTextFile).not.toHaveBeenCalled();
+  });
+});
+
+// ── search_workspace: canvas file exclusion ───────────────────────────────────
+describe('search_workspace — canvas file exclusion', () => {
+  it('does not read .tldr.json files when searching', async () => {
+    vi.mocked(tauriFs.readDir).mockResolvedValue([
+      { name: 'notes.md', isDirectory: false, isFile: true, isSymlink: false } as DirEntry,
+      { name: 'board.tldr.json', isDirectory: false, isFile: true, isSymlink: false } as DirEntry,
+    ]);
+    vi.mocked(tauriFs.readTextFile).mockResolvedValue('TARGET keyword here');
+    const exec = makeExecutor();
+    await exec('search_workspace', { query: 'TARGET' });
+
+    // Only notes.md should have been read — not the canvas file
+    expect(tauriFs.readTextFile).toHaveBeenCalledOnce();
+    expect(tauriFs.readTextFile).toHaveBeenCalledWith(`${WS_PATH}/notes.md`);
+  });
+
+  it('reports zero text files when only canvas files exist', async () => {
+    vi.mocked(tauriFs.readDir).mockResolvedValue([
+      { name: 'board.tldr.json', isDirectory: false, isFile: true, isSymlink: false } as DirEntry,
+    ]);
+    const exec = makeExecutor();
+    const result = await exec('search_workspace', { query: 'anything' });
+    expect(result).toContain('No matches found');
+    expect(tauriFs.readTextFile).not.toHaveBeenCalled();
   });
 });

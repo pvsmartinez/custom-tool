@@ -672,12 +672,12 @@
 .ai-btn-screenshot.capturing {
   color: var(--accent);
   border-color: var(--accent);
-  animation: screenshot-pulse 0.8s ease-in-out infinite alternate;
+  animation: screenshot-flash 0.4s ease-out forwards;
 }
 
-@keyframes screenshot-pulse {
-  from { opacity: 0.4; }
-  to   { opacity: 1; }
+@keyframes screenshot-flash {
+  0%   { opacity: 1; transform: scale(1.15); }
+  100% { opacity: 0.5; transform: scale(1); }
 }
 
 /* Attach-file button — same shape as screenshot button */
@@ -794,7 +794,7 @@
   padding: 3px 7px;
   cursor: pointer;
   transition: border-color var(--transition-base), background var(--transition-base);
-  max-width: 180px;
+  max-width: 140px;
 }
 
 .ai-model-trigger:hover:not(:disabled) {
@@ -866,6 +866,31 @@
 
 .ai-model-option.selected {
   background: var(--accent-bg);
+}
+
+.ai-model-menu-divider {
+  height: 1px;
+  background: var(--border2);
+  margin: 4px 0;
+}
+
+.ai-model-signout-btn {
+  display: block;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 5px 12px;
+  text-align: left;
+  font-size: var(--font-size-xs);
+  color: var(--text-dim);
+  cursor: pointer;
+  font-family: inherit;
+  transition: color var(--transition-base), background var(--transition-base);
+}
+
+.ai-model-signout-btn:hover {
+  color: var(--text-muted);
+  background: var(--surface2);
 }
 
 .ai-model-option-name {

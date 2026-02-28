@@ -103,6 +103,17 @@ export interface WorkspaceExportConfig {
   targets: ExportTarget[];
 }
 
+/** A custom action button shown at the bottom of the sidebar. */
+export interface SidebarButton {
+  id: string;
+  /** Short label displayed on the button, e.g. "⊡ Export" */
+  label: string;
+  /** Shell command run with the workspace root as cwd */
+  command: string;
+  /** Optional tooltip / description */
+  description?: string;
+}
+
 export interface WorkspaceConfig {
   name: string;
   lastOpenedFile?: string;
@@ -113,6 +124,10 @@ export interface WorkspaceConfig {
   lastEditedAt?: string;
   /** Export / Build targets, persisted in the workspace config file */
   exportConfig?: WorkspaceExportConfig;
+  /** Custom action buttons shown at the bottom of the sidebar */
+  sidebarButtons?: SidebarButton[];
+  /** Relative path of the voice-dump inbox file (default: 00_Inbox/raw_transcripts.md) */
+  inboxFile?: string;
 }
 
 /** A span of text inserted by the AI and not yet reviewed by the human. */

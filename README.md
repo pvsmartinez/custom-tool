@@ -1,4 +1,4 @@
-# custom-tool
+# Cafezin
 
 A general-purpose AI-assisted productivity tool built for writers, educators, and knowledge workers — inspired by the power of VS Code + GitHub Copilot, but designed for everyone, not just developers.
 
@@ -31,8 +31,8 @@ bash scripts/sync.sh "optional commit message"
 Clone the repo and start building:
 
 ```sh
-git clone https://github.com/pvsmartinez/custom-tool.git
-cd custom-tool
+git clone https://github.com/pvsmartinez/cafezin.git
+cd cafezin
 ```
 
 ## Contributing

@@ -54,6 +54,8 @@ interface EditorProps {
   content: string;
   onChange: (value: string) => void;
   onAIRequest?: (selectedText: string) => void;
+  /** When true the editor becomes read-only — shown while Copilot is writing this file. */
+  isLocked?: boolean;
   /**
    * AI-generated marks to highlight.  Each entry carries the mark id and the
    * exact inserted text so edits inside a marked range auto-promote to reviewed.
@@ -78,6 +80,11 @@ interface EditorProps {
    * to a full-width code-editor layout with appropriate syntax highlighting.
    */
   language?: string;
+  /**
+   * Called when the user clicks the Format button in code mode.
+   * The callback receives the current content and should return the formatted string.
+   */
+  onFormat?: () => void;
 }
 
 // ── AI-mark decoration helpers ────────────────────────────────────────────────
@@ -206,13 +213,89 @@ function getLanguageExtension(language: string): Extension {
 
 const DEFAULT_FONT_SIZE = 14;
 
+// ── Markdown toolbar ─────────────────────────────────────────────────────────
+const MD_TOOLBAR_ITEMS = [
+  { label: 'B',   title: 'Bold (⌘B)',           wrap: ['**', '**'],       block: false },
+  { label: 'I',   title: 'Italic (⌘I)',          wrap: ['_', '_'],         block: false },
+  { label: 'S',   title: 'Strikethrough',        wrap: ['~~', '~~'],       block: false },
+  { label: '`',   title: 'Inline code',          wrap: ['`', '`'],         block: false },
+  { label: 'H1',  title: 'Heading 1',            prefix: '# ',             block: true  },
+  { label: 'H2',  title: 'Heading 2',            prefix: '## ',            block: true  },
+  { label: 'H3',  title: 'Heading 3',            prefix: '### ',           block: true  },
+  { label: '—',   title: 'Horizontal rule',      insert: '\n---\n',         block: false },
+  { label: '≡',   title: 'Bullet list',          prefix: '- ',             block: true  },
+  { label: '#.',  title: 'Numbered list',        prefix: '1. ',            block: true  },
+  { label: '>',   title: 'Blockquote',           prefix: '> ',             block: true  },
+  { label: '[]',  title: 'Link',                 link: true,               block: false },
+  { label: '⊡',  title: 'Image',                image: true,              block: false },
+  { label: '```', title: 'Code block',           codeBlock: true,          block: false },
+  { label: '⊞',   title: 'Table',               table: true,              block: false },
+  { label: '$$',  title: 'Math block (KaTeX)',   mathBlock: true,          block: false },
+] as const;
+
+function applyMdToolbar(
+  view: import('@codemirror/view').EditorView,
+  item: typeof MD_TOOLBAR_ITEMS[number],
+) {
+  const state = view.state;
+  const { from, to } = state.selection.main;
+  const sel = state.sliceDoc(from, to);
+
+  let insert = '';
+  let anchor = from;
+  let head = from;
+
+  if ('wrap' in item && item.wrap) {
+    const [before, after] = item.wrap;
+    insert = before + (sel || 'text') + after;
+    anchor = from + before.length;
+    head = anchor + (sel || 'text').length;
+  } else if ('prefix' in item && item.prefix) {
+    const lineStart = state.doc.lineAt(from).from;
+    view.dispatch({ changes: { from: lineStart, insert: item.prefix } });
+    view.focus();
+    return;
+  } else if ('insert' in item && item.insert) {
+    insert = item.insert;
+    anchor = head = from + insert.length;
+  } else if ('link' in item && item.link) {
+    insert = `[${sel || 'text'}](url)`;
+    anchor = from + 1;
+    head = from + 1 + (sel || 'text').length;
+  } else if ('image' in item && item.image) {
+    insert = `![${sel || 'alt text'}](url)`;
+    anchor = from + 2;
+    head = from + 2 + (sel || 'alt text').length;
+  } else if ('codeBlock' in item && item.codeBlock) {
+    insert = '```\n' + (sel || '') + '\n```';
+    anchor = from + 4;
+    head = anchor + (sel || '').length;
+  } else if ('table' in item && item.table) {
+    insert = '| Col 1 | Col 2 |\n|-------|-------|\n| cell  | cell  |';
+    anchor = head = from + insert.length;
+  } else if ('mathBlock' in item && item.mathBlock) {
+    insert = '$$\n' + (sel || 'expression') + '\n$$';
+    anchor = from + 3;
+    head = anchor + (sel || 'expression').length;
+  }
+
+  if (insert) {
+    view.dispatch({
+      changes: { from, to, insert },
+      selection: { anchor, head },
+    });
+  }
+  view.focus();
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 const Editor = forwardRef<EditorHandle, EditorProps>(
-  ({ content, onChange, onAIRequest, aiMarks, onAIMarkEdited, fontSize = DEFAULT_FONT_SIZE, onImagePaste, language, isDark = true }, ref) => {
+  ({ content, onChange, onAIRequest, aiMarks, onAIMarkEdited, fontSize = DEFAULT_FONT_SIZE, onImagePaste, language, isDark = true, isLocked = false, onFormat }, ref) => {
     const codeMode = !!language && language !== 'markdown';
     const viewRef = useRef<EditorView | null>(null);
     const compartmentRef = useRef(new Compartment());
     const fontCompartmentRef = useRef(new Compartment());
+    const editableCompartmentRef = useRef(new Compartment());
 
     // Stable refs so the single update-listener always sees the latest values
     // without needing to be recreated on every render.
@@ -312,15 +395,38 @@ const Editor = forwardRef<EditorHandle, EditorProps>(
       });
     }, [fontSize, codeMode, isDark]);
 
+    // Toggle read-only when Copilot locks/unlocks this file
+    useEffect(() => {
+      if (!viewRef.current) return;
+      viewRef.current.dispatch({
+        effects: editableCompartmentRef.current.reconfigure(EditorView.editable.of(!isLocked)),
+      });
+    }, [isLocked]);
+
     const handleKeyDown = useCallback(
       (e: React.KeyboardEvent) => {
         if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
           e.preventDefault();
           const selection = window.getSelection()?.toString() ?? '';
           onAIRequest?.(selection);
+          return;
+        }
+        // ⌥F — format code file (mirrors the header button)
+        // On macOS ⌥F produces 'ƒ'; on other platforms e.altKey + 'f'
+        if (codeMode && (e.key === 'ƒ' || (e.altKey && e.key === 'f'))) {
+          e.preventDefault();
+          onFormat?.();
+          return;
+        }
+        if (!codeMode && (e.metaKey || e.ctrlKey)) {
+          const view = viewRef.current;
+          if (!view) return;
+          if (e.key === 'b') { e.preventDefault(); applyMdToolbar(view, MD_TOOLBAR_ITEMS[0]); return; }
+          if (e.key === 'i') { e.preventDefault(); applyMdToolbar(view, MD_TOOLBAR_ITEMS[1]); return; }
         }
       },
-      [onAIRequest],
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      [onAIRequest, onFormat, codeMode],
     );
 
     // ── Clipboard image paste ─────────────────────────────────────────────────
@@ -354,6 +460,7 @@ const Editor = forwardRef<EditorHandle, EditorProps>(
       codeMode
         ? getLanguageExtension(language ?? '')
         : markdown({ base: markdownLanguage, codeLanguages: languages }),
+      editableCompartmentRef.current.of(EditorView.editable.of(!isLocked)),
       history(),
       keymap.of([
         ...defaultKeymap,
@@ -371,7 +478,39 @@ const Editor = forwardRef<EditorHandle, EditorProps>(
     ];
 
     return (
-      <div className="editor-wrapper" onKeyDown={handleKeyDown} onPaste={handlePaste}>
+      <div className="editor-wrapper" onKeyDown={handleKeyDown} onPaste={handlePaste} data-locked={isLocked ? 'true' : undefined}>
+        {/* ── Markdown formatting toolbar ── */}
+        {!codeMode && (
+          <div className="editor-md-toolbar" aria-label="Markdown formatting">
+            {MD_TOOLBAR_ITEMS.map((item) => (
+              <button
+                key={item.label}
+                className="editor-md-toolbar-btn"
+                title={item.title}
+                onMouseDown={(e) => {
+                  e.preventDefault(); // prevent blur
+                  const view = viewRef.current;
+                  if (view) applyMdToolbar(view, item);
+                }}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+        )}
+        {/* Format button is in the app header — no in-editor toolbar */}
+        {/* In code mode, also show an inline Format button when onFormat is provided */}
+        {codeMode && onFormat && (
+          <div className="editor-code-toolbar" aria-label="Code actions">
+            <button
+              className="editor-code-toolbar-btn"
+              title="Format file (Prettier)"
+              onClick={() => onFormat()}
+            >
+              ⌥F
+            </button>
+          </div>
+        )}
         <CodeMirror
           value={content}
           onChange={onChange}

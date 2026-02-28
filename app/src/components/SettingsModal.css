@@ -615,3 +615,47 @@
 .sm-sync-register .sm-input {
   flex: 1;
 }
+
+/* ── Sidebar buttons manager ─────────────────────────── */
+.sm-sidebar-btn-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 6px 8px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  margin-bottom: 6px;
+}
+.sm-sidebar-btn-label {
+  font-size: var(--font-size-sm);
+  color: var(--text);
+  font-weight: 500;
+  min-width: 80px;
+  flex-shrink: 0;
+}
+.sm-sidebar-btn-cmd {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sm-sidebar-btn-delete {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+}
+.sm-sidebar-btn-delete:hover { color: var(--red, #c97570); }
+.sm-sidebar-btn-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}

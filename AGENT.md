@@ -7,7 +7,7 @@
 ## Project: Cafezin
 
 **Owner:** Pedro Martinez (pvsmartinez@gmail.com)  
-**Repo:** https://github.com/pvsmartinez/custom-tool  
+**Repo:** https://github.com/pvsmartinez/cafezin  
 **Started:** February 2026  
 **Last major session:** February 23, 2026
 
@@ -62,7 +62,7 @@ A general-purpose AI-assisted productivity tool, inspired by how Pedro uses VS C
 ## Project Structure
 
 ```
-custom-tool/
+cafezin/
 ├── app/                          # Tauri v2 app root
 │   ├── src/
 │   │   ├── components/
@@ -88,8 +88,8 @@ custom-tool/
 │   │   ├── services/
 │   │   │   ├── copilot.ts    # streamCopilotChat(), runCopilotAgent(), fetchCopilotModels(),
 │   │   │   │                 #   modelSupportsVision(), startDeviceFlow(), getStoredOAuthToken()
-│   │   │   ├── aiMarks.ts    # loadMarks(), addMark(), markReviewed() — .customtool/ai-marks.json
-│   │   │   ├── copilotLog.ts # appendLogEntry() — session log in .customtool/copilot-log.jsonl
+│   │   │   ├── aiMarks.ts    # loadMarks(), addMark(), markReviewed() — .cafezin/ai-marks.json
+│   │   │   ├── copilotLog.ts # appendLogEntry() — session log in .cafezin/copilot-log.jsonl
 │   │   │   ├── google.ts     # OAuth PKCE, Drive backup/restore, Slides generation (dormant)
 │   │   │   └── workspace.ts  # loadWorkspace(), readFile(), writeFile(), buildFileTree(), createCanvasFile()
 │   │   ├── types/
@@ -149,14 +149,14 @@ The agent tracks estimated token usage on every round (rough proxy: `JSON.chars 
 
 **Token-triggered summarization** (`CONTEXT_TOKEN_LIMIT = 90_000`):
 1. When `estimateTokens(loop) > 90_000`, the agent calls the model (non-streaming) with a summarization prompt asking for a dense technical briefing (400–700 words).
-2. The full conversation snapshot (base64 images stripped) is written to `<workspace>/customtool/copilot-log.jsonl` as an `archive` entry.
+2. The full conversation snapshot (base64 images stripped) is written to `<workspace>/cafezin/copilot-log.jsonl` as an `archive` entry.
 3. The context window is rebuilt to a compact form: system messages → original user task → synthetic `[SESSION SUMMARY]` user message → last 8 messages verbatim.
 4. A brief inline notice is streamed to the user: `_[Context approaching limit — summarizing prior session and continuing...]_`
 
 **Lightweight fallback** (active only when under the token limit): keeps last 14 assistant+tool round groups and deduplicates stale vision messages.
 
 ### Copilot log file format
-All agent activity is persisted to `<workspace>/customtool/copilot-log.jsonl` — one JSON object per line.
+All agent activity is persisted to `<workspace>/cafezin/copilot-log.jsonl` — one JSON object per line.
 
 Two entry types coexist in the same file:
 
@@ -174,13 +174,13 @@ Two entry types coexist in the same file:
 
 **As the in-app agent, you can read this file:**
 ```
-read_file({ path: "<workspacePath>/customtool/copilot-log.jsonl" })
+read_file({ path: "<workspacePath>/cafezin/copilot-log.jsonl" })
 ```
 Parse each line as JSON. Look for `entryType === "archive"` entries to reconstruct earlier session context. The `summary` field gives a concise overview; `messages` gives the full transcript.
 
 ### Workspace load
 - `loadWorkspace(path)` → reads config, AGENT.md, runs `git_init`, builds `fileTree` (recursive, depth≤8), lists `.md` files
-- Config stored in `<workspace>/.customtool/config.json`
+- Config stored in `<workspace>/.cafezin/config.json`
 - Recent workspaces persisted to `localStorage`
 
 ### In-app update
@@ -190,7 +190,7 @@ Parse each line as JSON. Look for `entryType === "archive"` entries to reconstru
 
 ## Workspace / Sidebar Behaviour
 
-- File tree is **fully recursive**, skipping: `node_modules`, `.git`, `.customtool`, `target`, `.DS_Store`, dotfiles
+- File tree is **fully recursive**, skipping: `node_modules`, `.git`, `.cafezin`, `target`, `.DS_Store`, dotfiles
 - Depth limit: 8 levels
 - Directories sort before files; both alphabetical within group
 - Root-level directories auto-expanded on load
@@ -323,7 +323,7 @@ cd app && npx tsc --noEmit
 - **2026-02-23 (slide-strip-ux)** — Slide strip UX overhaul: drag-to-reorder (x-position swap), right-click context menu (Export PNG / Move Left / Move Right / Duplicate / Delete), format panel "Slide / ↓ Export PNG" section when frame selected, reduced card width 180→120px. Fixed `TLFrameShape` (not exported by tldraw v4 — use `AnyFrame` cast), `editor.batch()` (doesn't exist — use plain loop), `executeCanvasCommands` return type (destructure `{ count }`).
 - **2026-02-23 (image-save-fix)** — Pexels image save button was silently doing nothing: root cause was native `fetch()` being blocked by Tauri HTTP allow-list (only `api.pexels.com` was listed, not `images.pexels.com`). Fixed: switched to `tauriFetch`, added `images.pexels.com/**` to `capabilities/default.json`.
 - **2026-02-23 (ai-review-panel)** — `AIReviewPanel` was built but never mounted. Wired up: import + `showAIReview` state in App.tsx; both `onOpenAIReview` callbacks (Sidebar + WorkspaceHome) now open the panel; `onJumpToText` closes panel and jumps editor to passage.
-- **2026-02-23 (context-summarization)** — Mid-run context summarization added to `runCopilotAgent`: `estimateTokens()` tracks approximate token usage per round (chars/4); when over `CONTEXT_TOKEN_LIMIT=90_000` the agent calls the model for a dense session summary, writes a full conversation snapshot (sans base64) to `customtool/copilot-log.jsonl` as a new `archive` entry type, then rebuilds the context window to: system msgs + original task + `[SESSION SUMMARY]` + last 8 messages. Fallback blind round-pruning retained for sub-limit overage. `runCopilotAgent` now accepts `workspacePath?` and `sessionId?` params, threaded from AIPanel. `copilotLog.ts` extended with `CopilotArchiveEntry` interface + `appendArchiveEntry()`. AGENT.md updated with log format docs.
+- **2026-02-23 (context-summarization)** — Mid-run context summarization added to `runCopilotAgent`: `estimateTokens()` tracks approximate token usage per round (chars/4); when over `CONTEXT_TOKEN_LIMIT=90_000` the agent calls the model for a dense session summary, writes a full conversation snapshot (sans base64) to `cafezin/copilot-log.jsonl` as a new `archive` entry type, then rebuilds the context window to: system msgs + original task + `[SESSION SUMMARY]` + last 8 messages. Fallback blind round-pruning retained for sub-limit overage. `runCopilotAgent` now accepts `workspacePath?` and `sessionId?` params, threaded from AIPanel. `copilotLog.ts` extended with `CopilotArchiveEntry` interface + `appendArchiveEntry()`. AGENT.md updated with log format docs.
 - **2026-02-23 (canvas-slide-sync)** — Slide strip ordering and theme system hardened. (1) Frame sort uses `.sort((a, b) => a.x - b.x)` in `syncFrames`, `addSlide`, `rescanFrames`, `enterPresent` — fixes reorder inconsistencies. (2) Camera-based active frame tracking in `handleMount` (store listener on viewport change). (3) `applyThemeToSlides()` extended to restyle shapes tagged `meta.textRole` (heading/body) — changes font/color/size when theme switches. (4) `insertTextPreset(variant)` creates a properly-themed text shape inside the current slide and immediately enters edit mode — replaces the old pen-style-only buttons. (5) Strip active highlight works outside presentation mode too.
 - **2026-02-23 (canvas-theme-bg)** — Theme image background loading fixed end-to-end. Root causes: (a) `convertFileSrc` produces `asset://localhost/…` URLs which required `assetProtocol` plugin — now enabled in `tauri.conf.json` with `scope: ["$HOME/**"]`. (b) `asset://` paths don't persist across restarts. Fix: theme image picker reads the chosen file via `readFile` (imported from `@tauri-apps/plugin-fs`), converts to base64 data URL via `FileReader`, stores the self-contained data URL in `slideBgImage`. Active image label shows "Custom image" for data URLs instead of a garbage path.
 - **2026-02-23 (canvas-slide-layouts)** — Slide layout system added to `CanvasEditor`. `applySlideLayout(editor, frame, layoutId, theme)` provides 6 presets: `blank`, `title-only`, `title-body`, `title-subtitle`, `two-column`, `image-right`. Shapes created by layouts are tagged `meta.textRole` so theme changes auto-restyle them. `CanvasTheme` interface gains `defaultLayout?: string`. Theme panel gains a 3×2 grid of layout buttons + Apply to Slide. New slides created via `addSlide` auto-populate using `defaultLayout` (default: `title-body`).

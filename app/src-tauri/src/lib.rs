@@ -1,12 +1,15 @@
 use std::path::Path;
-use std::process::{Command, Stdio};
+#[cfg(not(any(feature = "mas", target_os = "ios")))]
+use std::process::Command;
+// Stdio is only needed by update_app which is desktop-only
+#[cfg(not(target_os = "ios"))]
+use std::process::Stdio;
+#[cfg(desktop)]
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::Emitter;
 use tauri_plugin_opener::OpenerExt;
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
-use sha2::{Digest, Sha256};
-use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-use rand::RngCore;
+use tokio::io::AsyncBufReadExt;
+
 
 /// Opens the webview DevTools inspector (debug builds only).
 #[tauri::command]
@@ -17,9 +20,9 @@ fn open_devtools(webview_window: tauri::WebviewWindow) {
     let _ = webview_window; // no-op in release builds
 }
 
-/// Run an arbitrary shell (bash) command in the given working directory.
-/// Returns {stdout, stderr, exit_code}. Output capped at ~8 KB each.
-/// The `cwd` must be within the user's $HOME directory to prevent path traversal.
+// ── shell_run ─────────────────────────────────────────────────────────────────
+// CLI variant: desktop dev builds (local, PC, Linux)
+#[cfg(not(any(feature = "mas", target_os = "ios")))]
 #[tauri::command]
 fn shell_run(cmd: String, cwd: String) -> Result<serde_json::Value, String> {
     let home = std::env::var("HOME").unwrap_or_default();
@@ -48,7 +51,20 @@ fn shell_run(cmd: String, cwd: String) -> Result<serde_json::Value, String> {
     }))
 }
 
-/// Initialize a git repository at the given path (no-op if already a repo).
+// Store/sandbox variant: App Sandbox and iOS do not allow arbitrary shell execution
+#[cfg(any(feature = "mas", target_os = "ios"))]
+#[tauri::command]
+fn shell_run(_cmd: String, _cwd: String) -> Result<serde_json::Value, String> {
+    Err("shell_run is not available in App Store / iOS builds".into())
+}
+
+// ── git commands ──────────────────────────────────────────────────────────────
+// Each command has two variants selected at compile-time:
+//   • not(mas | ios)  → wraps the system `git` CLI (dev builds, Linux, Windows)
+//   • mas | ios       → pure-Rust via libgit2 (App Store / iOS sandbox)
+
+// git_init ────────────────────────────────────────────────────────────────────
+#[cfg(not(any(feature = "mas", target_os = "ios")))]
 #[tauri::command]
 fn git_init(path: String) -> Result<String, String> {
     let p = Path::new(&path);
@@ -67,10 +83,16 @@ fn git_init(path: String) -> Result<String, String> {
     }
 }
 
-/// Returns changed file list (git status --short) and a unified diff vs HEAD.
+#[cfg(any(feature = "mas", target_os = "ios"))]
+#[tauri::command]
+fn git_init(path: String) -> Result<String, String> {
+    git_native::git_init(path)
+}
+
+// git_diff ────────────────────────────────────────────────────────────────────
+#[cfg(not(any(feature = "mas", target_os = "ios")))]
 #[tauri::command]
 fn git_diff(path: String) -> Result<serde_json::Value, String> {
-    // Changed files (staged + unstaged + untracked)
     let status_out = Command::new("git")
         .args(["status", "--short"])
         .current_dir(&path)
@@ -82,7 +104,6 @@ fn git_diff(path: String) -> Result<serde_json::Value, String> {
         .map(|l| l.to_string())
         .collect();
 
-    // Unified diff vs HEAD (falls back to empty string when no commits yet)
     let diff_out = Command::new("git")
         .args(["diff", "HEAD"])
         .current_dir(&path)
@@ -97,7 +118,14 @@ fn git_diff(path: String) -> Result<serde_json::Value, String> {
     Ok(serde_json::json!({ "files": files, "diff": diff }))
 }
 
-/// Quick "add all + commit" for a workspace (mirrors sync.sh but from inside the app).
+#[cfg(any(feature = "mas", target_os = "ios"))]
+#[tauri::command]
+fn git_diff(path: String) -> Result<serde_json::Value, String> {
+    git_native::git_diff(path)
+}
+
+// git_sync ────────────────────────────────────────────────────────────────────
+#[cfg(not(any(feature = "mas", target_os = "ios")))]
 #[tauri::command]
 fn git_sync(path: String, message: String) -> Result<String, String> {
     let run = |args: &[&str]| -> Result<(), String> {
@@ -110,18 +138,22 @@ fn git_sync(path: String, message: String) -> Result<String, String> {
         else { Err(String::from_utf8_lossy(&out.stderr).to_string()) }
     };
     run(&["add", "-A"])?;
-    // Allow empty commits (nothing staged is fine)
     let _ = Command::new("git")
         .args(["commit", "-m", &message, "--allow-empty"])
         .current_dir(&path)
         .output();
-    run(&["push", "origin", "HEAD"])
-        .unwrap_or(()); // push is best-effort (no remote = ok)
+    run(&["push", "origin", "HEAD"]).unwrap_or(());
     Ok("synced".into())
 }
 
-/// Return the `origin` remote URL for the workspace at `path`.
-/// Errors if the folder is not a git repo or has no remote named `origin`.
+#[cfg(any(feature = "mas", target_os = "ios"))]
+#[tauri::command]
+fn git_sync(path: String, message: String) -> Result<String, String> {
+    git_native::git_sync(path, message)
+}
+
+// git_get_remote ──────────────────────────────────────────────────────────────
+#[cfg(not(any(feature = "mas", target_os = "ios")))]
 #[tauri::command]
 fn git_get_remote(path: String) -> Result<String, String> {
     let out = Command::new("git")
@@ -136,8 +168,14 @@ fn git_get_remote(path: String) -> Result<String, String> {
     }
 }
 
-/// Revert a single file to the last committed state (`git checkout -- <file>`).
-/// `path` is the workspace root, `file` is the relative path within it.
+#[cfg(any(feature = "mas", target_os = "ios"))]
+#[tauri::command]
+fn git_get_remote(path: String) -> Result<String, String> {
+    git_native::git_get_remote(path)
+}
+
+// git_checkout_file ───────────────────────────────────────────────────────────
+#[cfg(not(any(feature = "mas", target_os = "ios")))]
 #[tauri::command]
 fn git_checkout_file(path: String, file: String) -> Result<String, String> {
     let out = Command::new("git")
@@ -152,109 +190,162 @@ fn git_checkout_file(path: String, file: String) -> Result<String, String> {
     }
 }
 
-/// Percent-encode a string for use in a URL query parameter value.
-fn pct_encode(s: &str) -> String {
-    let mut out = String::with_capacity(s.len() * 3);
-    for byte in s.bytes() {
-        match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9'
-            | b'-' | b'_' | b'.' | b'~' => out.push(byte as char),
-            b => out.push_str(&format!("%{:02X}", b)),
-        }
-    }
-    out
+#[cfg(any(feature = "mas", target_os = "ios"))]
+#[tauri::command]
+fn git_checkout_file(path: String, file: String) -> Result<String, String> {
+    git_native::git_checkout_file(path, file)
 }
 
-/// Start a Google OAuth2 PKCE flow:
-///   1. Generate code verifier + challenge.
-///   2. Bind a local TCP listener on a random port (redirect_uri).
-///   3. Open the user's browser to the Google consent page.
-///   4. Wait up to 3 min for the browser callback (HTTP GET with ?code=).
-///   5. Return { code, code_verifier, redirect_uri } to the frontend
-///      so it can exchange the code for tokens directly.
+// ── Native git2 implementations (MAS / iOS) ───────────────────────────────────
+// Compiled only when feature = "mas" OR target_os = "ios".
+// Uses libgit2 (vendored) — no external `git` binary required.
+#[cfg(any(feature = "mas", target_os = "ios"))]
+mod git_native {
+    use git2::{build::CheckoutBuilder, IndexAddOption, PushOptions,
+               RemoteCallbacks, Repository, RepositoryInitOptions, Signature};
+
+    pub fn git_init(path: String) -> Result<String, String> {
+        if std::path::Path::new(&path).join(".git").exists() {
+            return Ok("already_initialized".into());
+        }
+        let mut opts = RepositoryInitOptions::new();
+        opts.initial_head("main");
+        Repository::init_opts(&path, &opts).map_err(|e| e.to_string())?;
+        Ok("initialized".into())
+    }
+
+    pub fn git_diff(path: String) -> Result<serde_json::Value, String> {
+        let repo = Repository::open(&path).map_err(|e| e.to_string())?;
+
+        let statuses = repo.statuses(None).map_err(|e| e.to_string())?;
+        let files: Vec<String> = statuses
+            .iter()
+            .filter(|e| !e.status().is_empty() && e.status() != git2::Status::CURRENT)
+            .filter_map(|e| {
+                let s = e.status();
+                let flag = if s.contains(git2::Status::WT_NEW)
+                             || s.contains(git2::Status::INDEX_NEW)
+                {
+                    "?? "
+                } else if s.contains(git2::Status::INDEX_MODIFIED)
+                           || s.contains(git2::Status::WT_MODIFIED)
+                {
+                    " M "
+                } else if s.contains(git2::Status::INDEX_DELETED)
+                           || s.contains(git2::Status::WT_DELETED)
+                {
+                    " D "
+                } else {
+                    "   "
+                };
+                Some(format!("{}{}", flag, e.path().unwrap_or("")))
+            })
+            .collect();
+
+        // Unified diff vs HEAD
+        let diff_text = repo
+            .head()
+            .ok()
+            .and_then(|h| h.peel_to_commit().ok())
+            .and_then(|c| c.tree().ok())
+            .and_then(|tree| {
+                repo.diff_tree_to_workdir_with_index(Some(&tree), None).ok()
+            })
+            .map(|d| {
+                let mut out = String::new();
+                let _ = d.print(git2::DiffFormat::Patch, |_, _, line| {
+                    let origin = line.origin();
+                    // Include all patch lines; B = Binary (skip)
+                    if origin != 'B' {
+                        out.push(origin);
+                        out.push_str(std::str::from_utf8(line.content()).unwrap_or(""));
+                    }
+                    true
+                });
+                out
+            })
+            .unwrap_or_default();
+
+        Ok(serde_json::json!({ "files": files, "diff": diff_text }))
+    }
+
+    pub fn git_sync(path: String, message: String) -> Result<String, String> {
+        let repo = Repository::open(&path).map_err(|e| e.to_string())?;
+
+        // Stage all changes
+        let mut index = repo.index().map_err(|e| e.to_string())?;
+        index
+            .add_all(["*"].iter(), IndexAddOption::DEFAULT, None)
+            .map_err(|e| e.to_string())?;
+        index.write().map_err(|e| e.to_string())?;
+
+        // Commit
+        let tree_id = index.write_tree().map_err(|e| e.to_string())?;
+        let tree = repo.find_tree(tree_id).map_err(|e| e.to_string())?;
+        let sig = repo
+            .signature()
+            .or_else(|_| Signature::now("Cafezin", "cafezin@local"))
+            .map_err(|e| e.to_string())?;
+        let parent = repo.head().ok().and_then(|h| h.peel_to_commit().ok());
+        let parents: Vec<&git2::Commit> = parent.iter().collect();
+        repo.commit(Some("HEAD"), &sig, &sig, &message, &tree, &parents)
+            .map_err(|e| e.to_string())?;
+
+        // Push best-effort (uses SSH agent / system credential helper)
+        if let Ok(mut remote) = repo.find_remote("origin") {
+            let mut callbacks = RemoteCallbacks::new();
+            callbacks.credentials(|_url, username, allowed| {
+                if allowed.contains(git2::CredentialType::SSH_KEY) {
+                    git2::Cred::ssh_key_from_agent(username.unwrap_or("git"))
+                } else if allowed.contains(git2::CredentialType::DEFAULT) {
+                    git2::Cred::default()
+                } else {
+                    Err(git2::Error::from_str("no credential method available"))
+                }
+            });
+            let mut push_opts = PushOptions::new();
+            push_opts.remote_callbacks(callbacks);
+            // Detect current branch name
+            let branch = repo
+                .head()
+                .ok()
+                .and_then(|h| h.shorthand().map(|s| s.to_string()))
+                .unwrap_or_else(|| "main".to_string());
+            let refspec = format!("refs/heads/{branch}:refs/heads/{branch}");
+            let _ = remote.push(&[&refspec], Some(&mut push_opts)); // best-effort
+        }
+
+        Ok("synced".into())
+    }
+
+    pub fn git_get_remote(path: String) -> Result<String, String> {
+        let repo = Repository::open(&path).map_err(|e| e.to_string())?;
+        let remote = repo
+            .find_remote("origin")
+            .map_err(|_| "no remote".to_string())?;
+        Ok(remote.url().unwrap_or("").to_string())
+    }
+
+    pub fn git_checkout_file(path: String, file: String) -> Result<String, String> {
+        let repo = Repository::open(&path).map_err(|e| e.to_string())?;
+        let mut opts = CheckoutBuilder::new();
+        opts.path(&file).force();
+        repo.checkout_head(Some(&mut opts))
+            .map_err(|e| e.to_string())?;
+        Ok("reverted".into())
+    }
+}
+
+
+/// Returns the distribution channel so the frontend can adapt its update UI.
+/// "dev"  → local dev build / sideload / non-store build (script-based update)
+/// "mas"  → Mac App Store (cargo feature `mas`)
+/// "ios"  → iOS App Store
 #[tauri::command]
-async fn google_oauth(app: tauri::AppHandle, client_id: String) -> Result<serde_json::Value, String> {
-    // 1. PKCE: random 64-byte verifier → base64url; challenge = BASE64URL(SHA256(verifier))
-    let mut verifier_bytes = [0u8; 64];
-    rand::thread_rng().fill_bytes(&mut verifier_bytes);
-    let code_verifier = URL_SAFE_NO_PAD.encode(verifier_bytes);
-
-    let challenge = URL_SAFE_NO_PAD.encode(Sha256::digest(code_verifier.as_bytes()));
-
-    // 2. Bind to OS-assigned port
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-        .await
-        .map_err(|e| e.to_string())?;
-    let port = listener.local_addr().map_err(|e| e.to_string())?.port();
-    let redirect_uri = format!("http://127.0.0.1:{}", port);
-
-    // 3. Build auth URL and open browser
-    let scopes = "https://www.googleapis.com/auth/drive.file \
-                  https://www.googleapis.com/auth/presentations";
-    let auth_url = format!(
-        "https://accounts.google.com/o/oauth2/v2/auth\
-         ?client_id={client_id}\
-         &redirect_uri={}\
-         &response_type=code\
-         &scope={}\
-         &code_challenge={challenge}\
-         &code_challenge_method=S256\
-         &access_type=offline\
-         &prompt=consent",
-        pct_encode(&redirect_uri),
-        pct_encode(scopes),
-    );
-    app.opener()
-        .open_url(&auth_url, None::<&str>)
-        .map_err(|e| e.to_string())?;
-
-    // 4. Accept the redirect (3-minute timeout)
-    let (mut stream, _) = tokio::time::timeout(
-        tokio::time::Duration::from_secs(180),
-        listener.accept(),
-    )
-    .await
-    .map_err(|_| "OAuth timed out — no response after 3 minutes".to_string())?
-    .map_err(|e| e.to_string())?;
-
-    // Read the HTTP GET request
-    let mut buf = [0u8; 8192];
-    let n = stream.read(&mut buf).await.map_err(|e| e.to_string())?;
-    let request = String::from_utf8_lossy(&buf[..n]).into_owned();
-
-    // Parse code= from the request path  (GET /?code=XXX&... HTTP/1.1)
-    let code = request
-        .lines()
-        .next()
-        .and_then(|line| line.split_whitespace().nth(1))
-        .and_then(|path| {
-            let idx = path.find("code=")?;
-            let rest = &path[idx + 5..];
-            let end = rest.find(|c: char| c == '&' || c == ' ').unwrap_or(rest.len());
-            Some(rest[..end].to_string())
-        })
-        .ok_or_else(|| {
-            let snippet = &request[..request.len().min(300)];
-            format!("OAuth callback did not contain a code. Response: {snippet}")
-        })?;
-
-    // 5. Send a nice success page to the browser
-    let body = "<html><body style='font-family:-apple-system,sans-serif;\
-                text-align:center;padding:80px;background:#1e2127;color:#abb2bf'>\
-                <h2 style='color:#98c379'>✓ Connected to Google</h2>\
-                <p>You can close this tab and return to Cafezin.</p></body></html>";
-    let response = format!(
-        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\
-         Content-Length: {}\r\nConnection: close\r\n\r\n{}",
-        body.len(), body
-    );
-    stream.write_all(response.as_bytes()).await.ok();
-
-    Ok(serde_json::json!({
-        "code": code,
-        "code_verifier": code_verifier,
-        "redirect_uri": redirect_uri,
-    }))
+fn build_channel() -> &'static str {
+    if cfg!(target_os = "ios") { "ios" }
+    else if cfg!(feature = "mas") { "mas" }
+    else { "dev" }
 }
 
 /// Transcribe a base64-encoded audio blob (webm/ogg/mp4) via Groq's Whisper endpoint.
@@ -296,11 +387,19 @@ async fn transcribe_audio(audio_base64: String, mime_type: String, api_key: Stri
     }
 }
 
+/// Stub for iOS — App Store handles updates.
+#[cfg(target_os = "ios")]
+#[tauri::command]
+async fn update_app(_app: tauri::AppHandle, _project_root: String) -> Result<(), String> {
+    Err("update_app is not available on iOS — updates come through the App Store".into())
+}
+
 /// Build the app from source, streaming every output line to the frontend,
 /// then copy to ~/Applications and relaunch. Events emitted:
 ///   update:log     { line: String }
 ///   update:success ()
 ///   update:error   { message: String }
+#[cfg(not(target_os = "ios"))]
 #[tauri::command]
 async fn update_app(app: tauri::AppHandle, project_root: String) -> Result<(), String> {
     let emit_log = |line: &str| { let _ = app.emit("update:log", line.to_string()); };
@@ -412,49 +511,60 @@ async fn update_app(app: tauri::AppHandle, project_root: String) -> Result<(), S
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
-            // ── Native macOS menu bar ───────────────────────────────
-            let update_item = MenuItem::with_id(
-                app, "update_app", "Update Cafezin\u{2026}", true, Some("cmd+shift+u")
-            )?;
-            let settings_item = MenuItem::with_id(
-                app, "settings", "Settings\u{2026}", true, Some("cmd+,")
-            )?;
-            let separator = PredefinedMenuItem::separator(app)?;
-            let separator2 = PredefinedMenuItem::separator(app)?;
-            let hide      = PredefinedMenuItem::hide(app, None)?;
-            let hide_others = PredefinedMenuItem::hide_others(app, None)?;
-            let quit      = PredefinedMenuItem::quit(app, Some("Quit Cafezin"))?;
+            // ── Native macOS menu bar (desktop only) ───────────────
+            #[cfg(desktop)]
+            {
+                // Label changes based on build channel:
+                // dev → "Update Cafezin…" (triggers in-app build script)
+                // mas → "Open App Store…"  (opens the store page)
+                let update_label = if cfg!(feature = "mas") {
+                    "Open App Store\u{2026}"
+                } else {
+                    "Update Cafezin\u{2026}"
+                };
+                let update_item = MenuItem::with_id(
+                    app, "update_app", update_label, true, Some("cmd+shift+u")
+                )?;
+                let settings_item = MenuItem::with_id(
+                    app, "settings", "Settings\u{2026}", true, Some("cmd+,")
+                )?;
+                let separator = PredefinedMenuItem::separator(app)?;
+                let separator2 = PredefinedMenuItem::separator(app)?;
+                let hide      = PredefinedMenuItem::hide(app, None)?;
+                let hide_others = PredefinedMenuItem::hide_others(app, None)?;
+                let quit      = PredefinedMenuItem::quit(app, Some("Quit Cafezin"))?;
 
-            let app_menu = Submenu::with_items(
-                app, "Cafezin", true,
-                &[&update_item, &settings_item, &separator, &hide, &hide_others, &separator2, &quit],
-            )?;
+                let app_menu = Submenu::with_items(
+                    app, "Cafezin", true,
+                    &[&update_item, &settings_item, &separator, &hide, &hide_others, &separator2, &quit],
+                )?;
 
-            // Standard Edit menu so copy/paste/undo work normally
-            let undo       = PredefinedMenuItem::undo(app, None)?;
-            let redo       = PredefinedMenuItem::redo(app, None)?;
-            let sep2       = PredefinedMenuItem::separator(app)?;
-            let cut        = PredefinedMenuItem::cut(app, None)?;
-            let copy       = PredefinedMenuItem::copy(app, None)?;
-            let paste      = PredefinedMenuItem::paste(app, None)?;
-            let select_all = PredefinedMenuItem::select_all(app, None)?;
-            let edit_menu  = Submenu::with_items(
-                app, "Edit", true,
-                &[&undo, &redo, &sep2, &cut, &copy, &paste, &select_all],
-            )?;
+                // Standard Edit menu so copy/paste/undo work normally
+                let undo       = PredefinedMenuItem::undo(app, None)?;
+                let redo       = PredefinedMenuItem::redo(app, None)?;
+                let sep2       = PredefinedMenuItem::separator(app)?;
+                let cut        = PredefinedMenuItem::cut(app, None)?;
+                let copy       = PredefinedMenuItem::copy(app, None)?;
+                let paste      = PredefinedMenuItem::paste(app, None)?;
+                let select_all = PredefinedMenuItem::select_all(app, None)?;
+                let edit_menu  = Submenu::with_items(
+                    app, "Edit", true,
+                    &[&undo, &redo, &sep2, &cut, &copy, &paste, &select_all],
+                )?;
 
-            let menu = Menu::with_items(app, &[&app_menu, &edit_menu])?;
-            app.set_menu(menu)?;
+                let menu = Menu::with_items(app, &[&app_menu, &edit_menu])?;
+                app.set_menu(menu)?;
 
-            // Emit to the webview so the frontend can respond
-            let handle = app.handle().clone();
-            app.on_menu_event(move |_app, event| {
-                match event.id().as_ref() {
-                    "update_app" => { let _ = handle.emit("menu-update-app", ()); }
-                    "settings"   => { let _ = handle.emit("menu-settings", ()); }
-                    _ => {}
-                }
-            });
+                // Emit to the webview so the frontend can respond
+                let handle = app.handle().clone();
+                app.on_menu_event(move |_app, event: tauri::menu::MenuEvent| {
+                    match event.id().as_ref() {
+                        "update_app" => { let _ = handle.emit("menu-update-app", ()); }
+                        "settings"   => { let _ = handle.emit("menu-settings", ()); }
+                        _ => {}
+                    }
+                });
+            }
 
             Ok(())
         })
@@ -462,7 +572,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_http::init())
-        .invoke_handler(tauri::generate_handler![git_init, git_diff, git_sync, git_checkout_file, git_get_remote, shell_run, update_app, google_oauth, transcribe_audio, open_devtools])
+        .invoke_handler(tauri::generate_handler![git_init, git_diff, git_sync, git_checkout_file, git_get_remote, shell_run, update_app, transcribe_audio, open_devtools, build_channel])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

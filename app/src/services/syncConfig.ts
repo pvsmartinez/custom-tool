@@ -27,9 +27,9 @@ import { invoke } from '@tauri-apps/api/core';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-// TODO: Replace with a dedicated Cafezin OAuth App client ID.
-// Using VS Code's public client ID for now — device flow works with any scope.
-const SYNC_CLIENT_ID = 'Iv1.b507a08c87ecfe98';
+// TODO: Replace with a dedicated Cafezin GitHub OAuth App client ID
+// (same App as copilot.ts, just needs gist + repo scopes added).
+const SYNC_CLIENT_ID = 'Iv1.b507a08c87ecfe98'; // ← swap for your own App
 
 const GIST_FILENAME    = 'cafezin-sync.json';
 const GIST_DESCRIPTION = 'cafezin workspace sync config (do not delete)';
