@@ -7,7 +7,6 @@ use std::process::Stdio;
 #[cfg(desktop)]
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::Emitter;
-use tauri_plugin_opener::OpenerExt;
 use tokio::io::AsyncBufReadExt;
 
 
@@ -337,6 +336,66 @@ mod git_native {
 }
 
 
+// ── GitHub Device Flow (credentials stay in Rust, never exposed to the renderer) ──────────────
+
+const GITHUB_CLIENT_ID: &str = "Ov23li7VtfwtGGr0Rv5C";
+const GITHUB_CLIENT_SECRET: &str = "REDACTED_GITHUB_OAUTH_SECRET";
+
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct DeviceFlowInit {
+    pub device_code: String,
+    pub user_code: String,
+    pub verification_uri: String,
+    pub expires_in: u64,
+    pub interval: u64,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct DeviceFlowPollResult {
+    pub access_token: Option<String>,
+    pub error: Option<String>,
+    pub error_description: Option<String>,
+}
+
+/// Step 1: Request a user_code / device_code pair from GitHub.
+/// The client_id stays in Rust — the renderer receives only the display data.
+#[tauri::command]
+async fn github_device_flow_init() -> Result<DeviceFlowInit, String> {
+    let client = reqwest::Client::new();
+    let res = client
+        .post("https://github.com/login/device/code")
+        .header("Accept", "application/json")
+        .json(&serde_json::json!({ "client_id": GITHUB_CLIENT_ID, "scope": "copilot" }))
+        .send()
+        .await
+        .map_err(|e| format!("device flow init request failed: {e}"))?;
+    if !res.status().is_success() {
+        let status = res.status().as_u16();
+        let body = res.text().await.unwrap_or_default();
+        return Err(format!("Device flow init failed ({status}): {body}"));
+    }
+    res.json::<DeviceFlowInit>().await.map_err(|e| format!("device flow init parse error: {e}"))
+}
+
+/// Step 2: Poll for the access token. The client secret stays in Rust.
+#[tauri::command]
+async fn github_device_flow_poll(device_code: String) -> Result<DeviceFlowPollResult, String> {
+    let client = reqwest::Client::new();
+    let res = client
+        .post("https://github.com/login/oauth/access_token")
+        .header("Accept", "application/json")
+        .json(&serde_json::json!({
+            "client_id":     GITHUB_CLIENT_ID,
+            "client_secret": GITHUB_CLIENT_SECRET,
+            "device_code":   device_code,
+            "grant_type":    "urn:ietf:params:oauth:grant-type:device_code",
+        }))
+        .send()
+        .await
+        .map_err(|e| format!("device flow poll request failed: {e}"))?;
+    res.json::<DeviceFlowPollResult>().await.map_err(|e| format!("device flow poll parse error: {e}"))
+}
+
 /// Returns the distribution channel so the frontend can adapt its update UI.
 /// "dev"  → local dev build / sideload / non-store build (script-based update)
 /// "mas"  → Mac App Store (cargo feature `mas`)
@@ -572,7 +631,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_http::init())
-        .invoke_handler(tauri::generate_handler![git_init, git_diff, git_sync, git_checkout_file, git_get_remote, shell_run, update_app, transcribe_audio, open_devtools, build_channel])
+        .invoke_handler(tauri::generate_handler![git_init, git_diff, git_sync, git_checkout_file, git_get_remote, shell_run, update_app, transcribe_audio, open_devtools, build_channel, github_device_flow_init, github_device_flow_poll])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

@@ -64,7 +64,111 @@ export interface SyncConfig {
   workspaces: SyncedWorkspace[];
 }
 
+// ── Pending device-flow persistence (survives WKWebView reload on iOS) ─────────
+
+const PENDING_FLOW_KEY = 'cafezin-pending-device-flow';
+
+interface PendingFlow {
+  deviceCode: string;
+  userCode: string;
+  verificationUri: string;
+  expiresAt: number;   // epoch ms
+  intervalMs: number;
+}
+
+function savePendingFlow(f: PendingFlow): void {
+  sessionStorage.setItem(PENDING_FLOW_KEY, JSON.stringify(f));
+}
+
+function clearPendingFlow(): void {
+  sessionStorage.removeItem(PENDING_FLOW_KEY);
+}
+
+/** Returns the saved pending device-flow if not yet expired, or null. */
+export function getPendingDeviceFlow(): (PendingFlow & SyncDeviceFlowState) | null {
+  const raw = sessionStorage.getItem(PENDING_FLOW_KEY);
+  if (!raw) return null;
+  try {
+    const f = JSON.parse(raw) as PendingFlow;
+    if (Date.now() > f.expiresAt) { clearPendingFlow(); return null; }
+    return {
+      ...f,
+      userCode: f.userCode,
+      verificationUri: f.verificationUri,
+      expiresIn: Math.round((f.expiresAt - Date.now()) / 1000),
+    };
+  } catch { return null; }
+}
+
+/**
+ * Resume polling for a saved pending flow (e.g. after a page reload on iOS).
+ * Calls onState immediately with the saved code so the UI can be re-shown.
+ * Returns the access token when the user authorizes.
+ */
+export async function resumeDeviceFlow(
+  onState: (state: SyncDeviceFlowState) => void,
+): Promise<string> {
+  const pending = getPendingDeviceFlow();
+  if (!pending) throw new Error('No pending device flow to resume');
+
+  onState({
+    userCode: pending.userCode,
+    verificationUri: pending.verificationUri,
+    expiresIn: pending.expiresIn,
+  });
+
+  try {
+    return await pollLoop(pending.deviceCode, pending.expiresAt, pending.intervalMs);
+  } finally {
+    clearPendingFlow();
+  }
+}
+
 // ── Internal device-flow helper ────────────────────────────────────────────────
+
+// On iOS, setTimeout is suspended while the app is in background (e.g. while
+// the user is in Safari entering the auth code). This resolves on either the
+// timeout OR the moment the page becomes visible again.
+function waitOrResume(ms: number): Promise<void> {
+  return new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') {
+        clearTimeout(timer);
+        document.removeEventListener('visibilitychange', onVisible);
+        resolve();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisible);
+  });
+}
+
+async function pollLoop(deviceCode: string, deadline: number, intervalMs: number): Promise<string> {
+  while (Date.now() < deadline) {
+    await waitOrResume(intervalMs);
+
+    const pollRes = await fetch('https://github.com/login/oauth/access_token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({
+        client_id: SYNC_CLIENT_ID,
+        device_code: deviceCode,
+        grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
+      }),
+    });
+    const poll = await pollRes.json() as {
+      access_token?: string;
+      error?: string;
+      error_description?: string;
+    };
+
+    if (poll.access_token) return poll.access_token;
+    if (poll.error === 'slow_down') { await waitOrResume(3000); continue; }
+    if (poll.error === 'authorization_pending') continue;
+    throw new Error(poll.error_description ?? poll.error ?? 'Authorization failed');
+  }
+  throw new Error('Device flow timed out — please try again');
+}
 
 async function runDeviceFlow(
   scope: string,
@@ -85,39 +189,30 @@ async function runDeviceFlow(
     interval: number;
   };
 
+  const intervalMs = (d.interval + 1) * 1000;
+  const expiresAt = Date.now() + d.expires_in * 1000;
+
+  // Persist to sessionStorage so polling can resume if the WKWebView reloads
+  // (common in Tauri iOS dev mode when returning from Safari).
+  savePendingFlow({
+    deviceCode: d.device_code,
+    userCode: d.user_code,
+    verificationUri: d.verification_uri,
+    expiresAt,
+    intervalMs,
+  });
+
   onState({
     userCode: d.user_code,
     verificationUri: d.verification_uri,
     expiresIn: d.expires_in,
   });
 
-  const intervalMs = (d.interval + 1) * 1000;
-  const deadline = Date.now() + d.expires_in * 1000;
-
-  while (Date.now() < deadline) {
-    await new Promise((r) => setTimeout(r, intervalMs));
-
-    const pollRes = await fetch('https://github.com/login/oauth/access_token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify({
-        client_id: SYNC_CLIENT_ID,
-        device_code: d.device_code,
-        grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
-      }),
-    });
-    const poll = await pollRes.json() as {
-      access_token?: string;
-      error?: string;
-      error_description?: string;
-    };
-
-    if (poll.access_token) return poll.access_token;
-    if (poll.error === 'slow_down') { await new Promise((r) => setTimeout(r, 3000)); continue; }
-    if (poll.error === 'authorization_pending') continue;
-    throw new Error(poll.error_description ?? poll.error ?? 'Authorization failed');
+  try {
+    return await pollLoop(d.device_code, expiresAt, intervalMs);
+  } finally {
+    clearPendingFlow();
   }
-  throw new Error('Device flow timed out — please try again');
 }
 
 // ── Sync account ────────────────────────────────────────────────────────────────

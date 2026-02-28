@@ -7,6 +7,8 @@ import {
   getSyncAccountToken,
   startSyncAccountFlow,
   clearSyncAccountToken,
+  getPendingDeviceFlow,
+  resumeDeviceFlow,
 } from './services/syncConfig';
 import type { SyncedWorkspace, SyncDeviceFlowState } from './services/syncConfig';
 import type { Workspace } from './types';
@@ -44,12 +46,31 @@ export default function MobileApp() {
     const lastPath = localStorage.getItem(LAST_WS_KEY);
     if (lastPath) {
       openWorkspacePath(lastPath);
-    } else {
-      setLoadingWs(false);
-      if (getSyncAccountToken()) {
-        setIsLoggedIn(true);
-        loadSyncedList();
-      }
+      return;
+    }
+    setLoadingWs(false);
+    if (getSyncAccountToken()) {
+      setIsLoggedIn(true);
+      loadSyncedList();
+      return;
+    }
+    // Check for a device-flow that was in progress before a page reload
+    // (common in Tauri iOS dev mode: WKWebView reconnects to Vite on resume).
+    const pending = getPendingDeviceFlow();
+    if (pending) {
+      setDeviceFlow(pending);
+      setAuthStep('polling');
+      resumeDeviceFlow((state) => setDeviceFlow(state))
+        .then((token) => {
+          localStorage.setItem('cafezin-sync-account-token', token);
+          setIsLoggedIn(true);
+          setAuthStep('done');
+          loadSyncedList();
+        })
+        .catch((err: unknown) => {
+          setAuthError(err instanceof Error ? err.message : String(err));
+          setAuthStep('error');
+        });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -95,6 +116,17 @@ export default function MobileApp() {
     } catch (err) {
       setAuthError(err instanceof Error ? err.message : String(err));
       setAuthStep('error');
+    }
+  }
+
+  // Manually re-check token after user returns from Safari (belt-and-suspenders
+  // in case the visibilitychange poll didn't fire on this iOS version).
+  function checkAuthNow() {
+    const token = getSyncAccountToken();
+    if (token) {
+      setIsLoggedIn(true);
+      setAuthStep('done');
+      loadSyncedList();
     }
   }
 
@@ -188,6 +220,14 @@ export default function MobileApp() {
                 <div className="mb-spinner" style={{ width: 16, height: 16 }} />
                 Waiting for authorization…
               </div>
+
+              <button
+                className="mb-btn mb-btn-ghost"
+                style={{ width: '100%', maxWidth: 300, fontSize: 14 }}
+                onClick={checkAuthNow}
+              >
+                I've authorized it ✓
+              </button>
 
               <button className="mb-btn mb-btn-ghost" style={{ fontSize: 13 }} onClick={cancelLogin}>
                 Cancel

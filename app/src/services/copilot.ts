@@ -1,6 +1,7 @@
 import type { ChatMessage, CopilotStreamChunk, CopilotModel, CopilotModelInfo, ToolActivity } from '../types';
 import { FALLBACK_MODELS, DEFAULT_MODEL } from '../types';
 import { fetch } from '@tauri-apps/plugin-http';
+import { invoke } from '@tauri-apps/api/core';
 import type { ToolDefinition, ToolExecutor } from '../utils/workspaceTools';
 import { appendArchiveEntry } from './copilotLog';
 
@@ -79,9 +80,8 @@ function buildRequestDump(
 // Until then the device flow re-uses VS Code's public client ID.
 const EDITOR_HEADERS = {
   'User-Agent': 'Cafezin/1.0',
-  'Editor-Version': 'Cafezin/1.0',
-  'Editor-Plugin-Version': 'cafezin/1.0',
-  'Copilot-Integration-Id': 'cafezin',
+  'Editor-Version': 'vscode/1.95.3',       // must be a recognized IDE name for copilot_internal auth
+  'Editor-Plugin-Version': 'cafezin/1.0',  // identifies this app specifically
 };
 
 // ── Rate limit / quota tracking ────────────────────────────
@@ -405,9 +405,8 @@ export function sanitizeLoop(msgs: ChatMessage[]): ChatMessage[] {
 
 // ── OAuth / Device Flow ──────────────────────────────────────────────────────────
 // The Copilot session-token endpoint only accepts OAuth App tokens, not PATs.
-// TODO: replace with a dedicated Cafezin GitHub OAuth App client ID
-// (see https://github.com/settings/developers — Device flow + copilot scope).
-const GITHUB_CLIENT_ID = 'Iv1.b507a08c87ecfe98'; // ← swap for your own App
+// Credentials (client_id + client_secret) live exclusively in the Rust backend.
+// The frontend calls invoke('github_device_flow_init') and invoke('github_device_flow_poll').
 const OAUTH_TOKEN_KEY = 'copilot-github-oauth-token';
 
 export interface DeviceFlowState {
@@ -434,20 +433,13 @@ export function clearOAuthToken(): void {
 export async function startDeviceFlow(
   onState: (state: DeviceFlowState) => void
 ): Promise<void> {
-  const deviceRes = await fetch('https://github.com/login/device/code', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify({ client_id: GITHUB_CLIENT_ID, scope: 'copilot' }),
-  });
-  if (!deviceRes.ok) throw new Error(`Device flow init failed: ${deviceRes.status}`);
-
-  const d = await deviceRes.json() as {
+  const d = await invoke<{
     device_code: string;
     user_code: string;
     verification_uri: string;
     expires_in: number;
     interval: number;
-  };
+  }>('github_device_flow_init');
 
   onState({ userCode: d.user_code, verificationUri: d.verification_uri, expiresIn: d.expires_in });
 
@@ -457,20 +449,11 @@ export async function startDeviceFlow(
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, intervalMs));
 
-    const pollRes = await fetch('https://github.com/login/oauth/access_token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify({
-        client_id: GITHUB_CLIENT_ID,
-        device_code: d.device_code,
-        grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
-      }),
-    });
-    const poll = await pollRes.json() as {
+    const poll = await invoke<{
       access_token?: string;
       error?: string;
       error_description?: string;
-    };
+    }>('github_device_flow_poll', { deviceCode: d.device_code });
 
     if (poll.access_token) {
       localStorage.setItem(OAUTH_TOKEN_KEY, poll.access_token);

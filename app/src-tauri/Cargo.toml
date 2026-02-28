@@ -27,7 +27,7 @@ tokio = { version = "1", features = ["process", "time", "rt", "io-util"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 base64 = "0.22"
-reqwest = { version = "0.12", features = ["multipart"] }
+reqwest = { version = "0.12", features = ["multipart", "json"] }
 git2 = { version = "0.19", optional = true, features = ["vendored-libgit2"] }
 
 [target.'cfg(target_os = "ios")'.dependencies]

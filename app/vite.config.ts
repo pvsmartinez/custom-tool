@@ -66,6 +66,21 @@ export default defineConfig(async () => ({
               id.includes('node_modules/js-yaml')) {
             return 'vendor-content';
           }
+          // KaTeX — math rendering
+          if (id.includes('node_modules/katex')) {
+            return 'vendor-katex';
+          }
+          // PDF / ZIP / canvas-capture utilities
+          if (id.includes('node_modules/jspdf') ||
+              id.includes('node_modules/jszip') ||
+              id.includes('node_modules/html-to-image') ||
+              id.includes('node_modules/html2canvas')) {
+            return 'vendor-export';
+          }
+          // Icon library
+          if (id.includes('node_modules/@phosphor-icons')) {
+            return 'vendor-icons';
+          }
         },
       },
     },
