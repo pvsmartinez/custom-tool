@@ -1,4 +1,3 @@
-use std::path::Path;
 #[cfg(not(any(feature = "mas", target_os = "ios")))]
 use std::process::Command;
 // Stdio is only needed by update_app which is desktop-only
@@ -7,6 +6,7 @@ use std::process::Stdio;
 #[cfg(desktop)]
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::Emitter;
+use tauri_plugin_deep_link::DeepLinkExt;
 use tokio::io::AsyncBufReadExt;
 
 
@@ -57,145 +57,84 @@ fn shell_run(_cmd: String, _cwd: String) -> Result<serde_json::Value, String> {
     Err("shell_run is not available in App Store / iOS builds".into())
 }
 
-// ── git commands ──────────────────────────────────────────────────────────────
-// Each command has two variants selected at compile-time:
-//   • not(mas | ios)  → wraps the system `git` CLI (dev builds, Linux, Windows)
-//   • mas | ios       → pure-Rust via libgit2 (App Store / iOS sandbox)
-
-// git_init ────────────────────────────────────────────────────────────────────
+// ── git_cli — CLI/shell variant (dev builds, Linux, Windows) ─────────────────
+// Compiled only for non-MAS, non-iOS targets. Uses the system `git` binary.
 #[cfg(not(any(feature = "mas", target_os = "ios")))]
-#[tauri::command]
-fn git_init(path: String) -> Result<String, String> {
-    let p = Path::new(&path);
-    if p.join(".git").exists() {
-        return Ok("already_initialized".into());
-    }
-    let output = Command::new("git")
-        .args(["init", "-b", "main"])
-        .current_dir(&path)
-        .output()
-        .map_err(|e| e.to_string())?;
-    if output.status.success() {
-        Ok("initialized".into())
-    } else {
-        Err(String::from_utf8_lossy(&output.stderr).to_string())
-    }
-}
+mod git_cli {
+    use std::path::Path;
+    use std::process::Command;
 
-#[cfg(any(feature = "mas", target_os = "ios"))]
-#[tauri::command]
-fn git_init(path: String) -> Result<String, String> {
-    git_native::git_init(path)
-}
-
-// git_diff ────────────────────────────────────────────────────────────────────
-#[cfg(not(any(feature = "mas", target_os = "ios")))]
-#[tauri::command]
-fn git_diff(path: String) -> Result<serde_json::Value, String> {
-    let status_out = Command::new("git")
-        .args(["status", "--short"])
-        .current_dir(&path)
-        .output()
-        .map_err(|e| e.to_string())?;
-    let files: Vec<String> = String::from_utf8_lossy(&status_out.stdout)
-        .lines()
-        .filter(|l| !l.trim().is_empty())
-        .map(|l| l.to_string())
-        .collect();
-
-    let diff_out = Command::new("git")
-        .args(["diff", "HEAD"])
-        .current_dir(&path)
-        .output()
-        .map_err(|e| e.to_string())?;
-    let diff = if diff_out.status.success() {
-        String::from_utf8_lossy(&diff_out.stdout).to_string()
-    } else {
-        String::new()
-    };
-
-    Ok(serde_json::json!({ "files": files, "diff": diff }))
-}
-
-#[cfg(any(feature = "mas", target_os = "ios"))]
-#[tauri::command]
-fn git_diff(path: String) -> Result<serde_json::Value, String> {
-    git_native::git_diff(path)
-}
-
-// git_sync ────────────────────────────────────────────────────────────────────
-#[cfg(not(any(feature = "mas", target_os = "ios")))]
-#[tauri::command]
-fn git_sync(path: String, message: String) -> Result<String, String> {
-    let run = |args: &[&str]| -> Result<(), String> {
-        let out = Command::new("git")
-            .args(args)
+    pub fn git_init(path: String) -> Result<String, String> {
+        if Path::new(&path).join(".git").exists() {
+            return Ok("already_initialized".into());
+        }
+        let output = Command::new("git")
+            .args(["init", "-b", "main"])
             .current_dir(&path)
             .output()
             .map_err(|e| e.to_string())?;
-        if out.status.success() { Ok(()) }
+        if output.status.success() { Ok("initialized".into()) }
+        else { Err(String::from_utf8_lossy(&output.stderr).to_string()) }
+    }
+
+    pub fn git_diff(path: String) -> Result<serde_json::Value, String> {
+        let status_out = Command::new("git")
+            .args(["status", "--short"])
+            .current_dir(&path)
+            .output()
+            .map_err(|e| e.to_string())?;
+        let files: Vec<String> = String::from_utf8_lossy(&status_out.stdout)
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .map(|l| l.to_string())
+            .collect();
+        let diff_out = Command::new("git")
+            .args(["diff", "HEAD"])
+            .current_dir(&path)
+            .output()
+            .map_err(|e| e.to_string())?;
+        let diff = if diff_out.status.success() {
+            String::from_utf8_lossy(&diff_out.stdout).to_string()
+        } else { String::new() };
+        Ok(serde_json::json!({ "files": files, "diff": diff }))
+    }
+
+    pub fn git_sync(path: String, message: String) -> Result<String, String> {
+        let run = |args: &[&str]| -> Result<(), String> {
+            let out = Command::new("git").args(args).current_dir(&path)
+                .output().map_err(|e| e.to_string())?;
+            if out.status.success() { Ok(()) }
+            else { Err(String::from_utf8_lossy(&out.stderr).to_string()) }
+        };
+        run(&["add", "-A"])?;
+        let _ = Command::new("git")
+            .args(["commit", "-m", &message, "--allow-empty"])
+            .current_dir(&path).output();
+        run(&["push", "origin", "HEAD"]).unwrap_or(());
+        Ok("synced".into())
+    }
+
+    pub fn git_get_remote(path: String) -> Result<String, String> {
+        let out = Command::new("git")
+            .args(["remote", "get-url", "origin"])
+            .current_dir(&path).output()
+            .map_err(|e| e.to_string())?;
+        if out.status.success() {
+            Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+        } else { Err("no remote".into()) }
+    }
+
+    pub fn git_checkout_file(path: String, file: String) -> Result<String, String> {
+        let out = Command::new("git")
+            .args(["checkout", "--", &file])
+            .current_dir(&path).output()
+            .map_err(|e| e.to_string())?;
+        if out.status.success() { Ok("reverted".into()) }
         else { Err(String::from_utf8_lossy(&out.stderr).to_string()) }
-    };
-    run(&["add", "-A"])?;
-    let _ = Command::new("git")
-        .args(["commit", "-m", &message, "--allow-empty"])
-        .current_dir(&path)
-        .output();
-    run(&["push", "origin", "HEAD"]).unwrap_or(());
-    Ok("synced".into())
-}
-
-#[cfg(any(feature = "mas", target_os = "ios"))]
-#[tauri::command]
-fn git_sync(path: String, message: String) -> Result<String, String> {
-    git_native::git_sync(path, message)
-}
-
-// git_get_remote ──────────────────────────────────────────────────────────────
-#[cfg(not(any(feature = "mas", target_os = "ios")))]
-#[tauri::command]
-fn git_get_remote(path: String) -> Result<String, String> {
-    let out = Command::new("git")
-        .args(["remote", "get-url", "origin"])
-        .current_dir(&path)
-        .output()
-        .map_err(|e| e.to_string())?;
-    if out.status.success() {
-        Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
-    } else {
-        Err("no remote".into())
     }
 }
 
-#[cfg(any(feature = "mas", target_os = "ios"))]
-#[tauri::command]
-fn git_get_remote(path: String) -> Result<String, String> {
-    git_native::git_get_remote(path)
-}
-
-// git_checkout_file ───────────────────────────────────────────────────────────
-#[cfg(not(any(feature = "mas", target_os = "ios")))]
-#[tauri::command]
-fn git_checkout_file(path: String, file: String) -> Result<String, String> {
-    let out = Command::new("git")
-        .args(["checkout", "--", &file])
-        .current_dir(&path)
-        .output()
-        .map_err(|e| e.to_string())?;
-    if out.status.success() {
-        Ok("reverted".into())
-    } else {
-        Err(String::from_utf8_lossy(&out.stderr).to_string())
-    }
-}
-
-#[cfg(any(feature = "mas", target_os = "ios"))]
-#[tauri::command]
-fn git_checkout_file(path: String, file: String) -> Result<String, String> {
-    git_native::git_checkout_file(path, file)
-}
-
-// ── Native git2 implementations (MAS / iOS) ───────────────────────────────────
+// ── git_native — libgit2 variant (MAS / iOS sandbox) ─────────────────────────
 // Compiled only when feature = "mas" OR target_os = "ios".
 // Uses libgit2 (vendored) — no external `git` binary required.
 #[cfg(any(feature = "mas", target_os = "ios"))]
@@ -327,19 +266,42 @@ mod git_native {
 
     pub fn git_checkout_file(path: String, file: String) -> Result<String, String> {
         let repo = Repository::open(&path).map_err(|e| e.to_string())?;
-        let mut opts = CheckoutBuilder::new();
-        opts.path(&file).force();
-        repo.checkout_head(Some(&mut opts))
-            .map_err(|e| e.to_string())?;
+        let mut checkout = CheckoutBuilder::new();
+        checkout.force().path(&file);
+        repo.checkout_head(Some(&mut checkout)).map_err(|e| e.to_string())?;
         Ok("reverted".into())
     }
+
 }
+
+// ── Compile-time routing: dev/Linux → git_cli, MAS/iOS → git_native ──────────────────
+// A single `use` alias lets the Tauri command wrappers below reference
+// `git::git_init` etc. without any per-function #[cfg] duplication.
+#[cfg(not(any(feature = "mas", target_os = "ios")))]
+use git_cli as git;
+#[cfg(any(feature = "mas", target_os = "ios"))]
+use git_native as git;
+
+// ── Tauri command dispatchers (one per git command, no duplication) ───────────────
+#[tauri::command]
+fn git_init(path: String) -> Result<String, String> { git::git_init(path) }
+#[tauri::command]
+fn git_diff(path: String) -> Result<serde_json::Value, String> { git::git_diff(path) }
+#[tauri::command]
+fn git_sync(path: String, message: String) -> Result<String, String> { git::git_sync(path, message) }
+#[tauri::command]
+fn git_get_remote(path: String) -> Result<String, String> { git::git_get_remote(path) }
+#[tauri::command]
+fn git_checkout_file(path: String, file: String) -> Result<String, String> { git::git_checkout_file(path, file) }
 
 
 // ── GitHub Device Flow (credentials stay in Rust, never exposed to the renderer) ──────────────
 
-const GITHUB_CLIENT_ID: &str = "Ov23li7VtfwtGGr0Rv5C";
-const GITHUB_CLIENT_SECRET: &str = "REDACTED_GITHUB_OAUTH_SECRET";
+// Credentials are injected at compile time from cafezin/.env.local (git-ignored).
+// See build.rs — it reads the file and emits `cargo:rustc-env=GITHUB_OAUTH_CLIENT_*`.
+// To set up: copy .env.local.example → .env.local and fill in your OAuth App values.
+const GITHUB_CLIENT_ID: &str = env!("GITHUB_OAUTH_CLIENT_ID");
+const GITHUB_CLIENT_SECRET: &str = env!("GITHUB_OAUTH_CLIENT_SECRET");
 
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct DeviceFlowInit {
@@ -426,6 +388,7 @@ async fn transcribe_audio(audio_base64: String, mime_type: String, api_key: Stri
     let form = reqwest::multipart::Form::new()
         .part("file", part)
         .text("model", "whisper-large-v3-turbo")
+        .text("language", "pt")
         .text("response_format", "text");
 
     let client = reqwest::Client::new();
@@ -569,7 +532,22 @@ async fn update_app(app: tauri::AppHandle, project_root: String) -> Result<(), S
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .setup(|app| {
+        .setup(|app| {            // ── Deep link handler — OAuth callback (cafezin://auth/callback) ────
+            {
+                let handle = app.handle().clone();
+                app.deep_link().on_open_url(move |event| {
+                    for url in event.urls() {
+                        let url_str = url.to_string();
+                        // Only forward auth callbacks to the webview
+                        if url_str.starts_with("cafezin://auth/") || url_str.starts_with("cafezin://") {
+                            let _ = handle.emit("auth-callback", url_str);
+                        }
+                    }
+                });
+                // On desktop, also register the scheme so the OS knows to open this app
+                #[cfg(desktop)]
+                let _ = app.deep_link().register("cafezin");
+            }
             // ── Native macOS menu bar (desktop only) ───────────────
             #[cfg(desktop)]
             {
@@ -627,6 +605,7 @@ pub fn run() {
 
             Ok(())
         })
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
