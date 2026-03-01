@@ -5,7 +5,7 @@ import {
   DefaultColorStyle, DefaultSizeStyle, DefaultFontStyle,
   DefaultFillStyle, DefaultDashStyle,
 } from 'tldraw';
-import { readFile } from '@tauri-apps/plugin-fs';
+import { readFile } from '../services/fs';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import type { AIEditMark } from '../types';
 import { generateSlidePreviews } from '../utils/slidePreviews';

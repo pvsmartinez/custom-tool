@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { readFile } from '@tauri-apps/plugin-fs';
+import { readFile } from '../services/fs';
 import type { FileKind } from '../utils/fileType';
 import { getMimeType } from '../utils/mime';
 import './MediaViewer.css';

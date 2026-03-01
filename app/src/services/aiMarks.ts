@@ -3,7 +3,7 @@ import {
   writeTextFile,
   exists,
   mkdir,
-} from '@tauri-apps/plugin-fs';
+} from './fs';
 import type { Workspace, AIEditMark } from '../types';
 import { CONFIG_DIR } from './config';
 const MARKS_FILE = 'ai-marks.json';

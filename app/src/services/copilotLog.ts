@@ -1,4 +1,4 @@
-import { writeTextFile, exists, mkdir } from '@tauri-apps/plugin-fs';
+import { writeTextFile, exists, mkdir } from './fs';
 import { CONFIG_DIR } from './config';
 const LOG_FILE = 'copilot-log.jsonl';
 

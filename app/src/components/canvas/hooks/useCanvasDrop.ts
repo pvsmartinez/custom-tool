@@ -7,7 +7,7 @@
  */
 import { useState, useRef, useEffect } from 'react';
 import type { Editor } from 'tldraw';
-import { writeFile, mkdir, exists } from '@tauri-apps/plugin-fs';
+import { writeFile, mkdir, exists } from '../../../services/fs';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { getMimeType, IMAGE_EXTS } from '../../../utils/mime';
 import { walkFilesFlat } from '../../../services/workspace';

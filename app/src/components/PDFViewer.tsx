@@ -1,6 +1,6 @@
 import { useMemo, useEffect } from 'react';
 import { convertFileSrc } from '@tauri-apps/api/core';
-import { readFile } from '@tauri-apps/plugin-fs';
+import { readFile } from '../services/fs';
 import './PDFViewer.css';
 
 interface PDFViewerProps {

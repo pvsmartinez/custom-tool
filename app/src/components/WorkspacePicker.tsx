@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { FolderOpen, Plus, SignIn, SignOut, Cloud, CloudSlash, CloudArrowUp, GitBranch, ArrowSquareOut } from '@phosphor-icons/react';
 import { invoke } from '@tauri-apps/api/core';
 import { openUrl } from '@tauri-apps/plugin-opener';
-import { mkdir } from '@tauri-apps/plugin-fs';
+import { mkdir } from '../services/fs';
 import { pickWorkspaceFolder, loadWorkspace, getRecents, removeRecent } from '../services/workspace';
 import {
   getSession, getUser, signIn, signUp, signOut, signInWithGoogle, signInWithApple,

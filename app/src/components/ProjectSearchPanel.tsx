@@ -8,7 +8,7 @@
  */
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { readTextFile, writeTextFile } from '@tauri-apps/plugin-fs';
+import { readTextFile, writeTextFile } from '../services/fs';
 import type { Workspace, FileTreeNode } from '../types';
 import './ProjectSearchPanel.css';
 

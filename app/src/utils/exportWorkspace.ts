@@ -13,7 +13,7 @@
  * Canvas auto-open: pass onOpenFileForExport + onRestoreAfterExport to unlock.
  */
 
-import { readTextFile, writeFile, mkdir, exists, readDir, readFile as readBinaryFile } from '@tauri-apps/plugin-fs';
+import { readTextFile, writeFile, mkdir, exists, readDir, readFile as readBinaryFile } from '../services/fs';
 import { invoke } from '@tauri-apps/api/core';
 import jsPDF from 'jspdf';
 import JSZip from 'jszip';

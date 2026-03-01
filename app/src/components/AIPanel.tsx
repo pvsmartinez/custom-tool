@@ -4,7 +4,7 @@ import {
 } from '@phosphor-icons/react';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { open as openFileDialog } from '@tauri-apps/plugin-dialog';
-import { readFile } from '@tauri-apps/plugin-fs';
+import { readFile } from '../services/fs';
 
 import {
   fetchCopilotModels,

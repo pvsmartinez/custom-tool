@@ -11,7 +11,7 @@
  *  3. Return the deployment URL + id
  */
 
-import { readDir, readFile } from '@tauri-apps/plugin-fs';
+import { readDir, readFile } from './fs';
 
 const VERCEL_API = 'https://api.vercel.com';
 

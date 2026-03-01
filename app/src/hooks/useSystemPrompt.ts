@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect } from 'react';
-import { exists, readTextFile } from '@tauri-apps/plugin-fs';
+import { exists, readTextFile } from '../services/fs';
 import type { ChatMessage, FileTreeNode, WorkspaceConfig, WorkspaceExportConfig } from '../types';
 import type { Workspace } from '../types';
 

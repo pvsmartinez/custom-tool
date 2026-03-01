@@ -3,7 +3,7 @@
  * export execution, persistent memory (remember), and user interaction (ask_user).
  */
 
-import { readTextFile, writeTextFile, mkdir, exists } from '@tauri-apps/plugin-fs';
+import { readTextFile, writeTextFile, mkdir, exists } from '../../services/fs';
 import { runExportTarget } from '../exportWorkspace';
 import { safeResolvePath } from './shared';
 import { appendPendingTask } from '../../services/mobilePendingTasks';

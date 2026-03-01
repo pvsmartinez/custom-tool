@@ -10,7 +10,7 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { X, Check, ArrowDown } from '@phosphor-icons/react';
-import { writeFile, mkdir, exists } from '@tauri-apps/plugin-fs';
+import { writeFile, mkdir, exists } from '../services/fs';
 import { saveApiSecret } from '../services/apiSecrets';
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
 import type { Editor } from 'tldraw';

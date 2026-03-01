@@ -14,7 +14,7 @@
  * sidebar — from the user's perspective they are just "viewing the canvas file".
  */
 
-import { writeFile, mkdir, exists, readDir } from '@tauri-apps/plugin-fs';
+import { writeFile, mkdir, exists, readDir } from '../services/fs';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { getSvgAsImage } from '@tldraw/editor';
 import type { Editor, TLShapeId } from 'tldraw';

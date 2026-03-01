@@ -8,7 +8,7 @@ import {
   remove,
   copyFile,
   rename,
-} from '@tauri-apps/plugin-fs';
+} from './fs';
 import { invoke } from '@tauri-apps/api/core';
 import type { Workspace, WorkspaceConfig, RecentWorkspace, FileTreeNode } from '../types';
 import { CONFIG_DIR, WORKSPACE_SKIP } from './config';
@@ -96,14 +96,12 @@ export async function pickWorkspaceFolder(): Promise<string | null> {
 
 /** Load (or create) workspace config + agent context + file list. */
 export async function loadWorkspace(folderPath: string): Promise<Workspace> {
-  // 1. Ensure cafezin/ dir exists.
-  // Uses a direct Rust std::fs command to bypass tauri-plugin-fs scope checks,
-  // which fail for non-existent paths on iOS: the scope uses the canonical
-  // /private/var/... form but non-existent paths can't be canonicalized for
-  // comparison. We use the RAW path here (no canonicalize) — iOS sandbox
-  // allows writes via /var/mobile/... but rejects /private/var/... directly.
-  await invoke('ensure_config_dir', { workspacePath: folderPath });
+  // 1. Ensure cafezin/ config dir exists.
+  // We use our platform-aware ./fs wrapper which, on iOS, passes paths with
+  // { baseDir: BaseDirectory.Document } — avoiding the /private/var/...
+  // canonicalization bug in tauri-plugin-fs scope checks.
   const configDir = `${folderPath}/${CONFIG_DIR}`;
+  await mkdir(configDir, { recursive: true });
   const configPath = `${configDir}/${CONFIG_FILE}`;
 
   // 2. Read or create config

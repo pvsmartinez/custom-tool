@@ -7,7 +7,7 @@ import {
   readTextFile,
   writeFile,
   mkdir,
-} from '@tauri-apps/plugin-fs';
+} from '../../services/fs';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const GROQ_KEY_STORAGE = 'cafezin-groq-key';

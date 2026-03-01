@@ -11,7 +11,7 @@ import {
   rename,
   remove,
   stat,
-} from '@tauri-apps/plugin-fs';
+} from '../../services/fs';
 import { walkFilesFlat } from '../../services/workspace';
 import { lockFile, unlockFile } from '../../services/copilotLock';
 import type { ToolDefinition, DomainExecutor } from './shared';

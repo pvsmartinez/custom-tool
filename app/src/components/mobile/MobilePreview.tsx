@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { readTextFile, readFile } from '@tauri-apps/plugin-fs';
+import { readTextFile, readFile } from '../../services/fs';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { CaretLeft, SpeakerSimpleHigh } from '@phosphor-icons/react';
 import { getFileTypeInfo } from '../../utils/fileType';

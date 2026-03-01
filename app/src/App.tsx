@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef, useMemo, lazy, Suspense } fro
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { invoke } from '@tauri-apps/api/core';
-import { copyFile } from '@tauri-apps/plugin-fs';
+import { copyFile, writeFile as writeBinaryFile, mkdir, exists } from './services/fs';
 import Editor from './components/Editor';
 import type { EditorHandle } from './components/Editor';
 import AIPanel from './components/AIPanel';
@@ -39,7 +39,6 @@ import type { TLShapeId } from 'tldraw';
 const CanvasEditor = lazy(() => import('./components/CanvasEditor'));
 import { canvasAIContext, executeCanvasCommands } from './utils/canvasAI';
 import { exportMarkdownToPDF } from './utils/exportPDF';
-import { writeFile as writeBinaryFile, mkdir, exists } from '@tauri-apps/plugin-fs';
 import {
   readFile,
   writeFile,

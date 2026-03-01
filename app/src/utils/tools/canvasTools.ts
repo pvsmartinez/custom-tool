@@ -3,7 +3,7 @@
  * canvas/preview screenshots, and place images on the canvas.
  */
 
-import { readTextFile } from '@tauri-apps/plugin-fs';
+import { readTextFile } from '../../services/fs';
 import {
   executeCanvasCommands,
   canvasToDataUrl,

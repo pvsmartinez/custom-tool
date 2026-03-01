@@ -13,7 +13,7 @@
  *   [[dir/filename]]
  */
 import { useEffect, useRef, useState } from 'react';
-import { readTextFile, exists } from '@tauri-apps/plugin-fs';
+import { readTextFile, exists } from '../services/fs';
 import type { Workspace } from '../types';
 
 export interface LinkRef {

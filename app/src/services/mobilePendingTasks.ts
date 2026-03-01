@@ -8,7 +8,7 @@
  * Never committed to git — should be in .gitignore (cafezin/ already is).
  */
 
-import { readTextFile, writeTextFile, exists, mkdir } from '@tauri-apps/plugin-fs';
+import { readTextFile, writeTextFile, exists, mkdir } from './fs';
 import { CONFIG_DIR } from './config';
 
 export interface MobilePendingTask {

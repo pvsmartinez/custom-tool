@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Coffee, Folders, Eye, Robot, Microphone, ArrowDown, ArrowClockwise, SignOut, ArrowRight } from '@phosphor-icons/react';
-import { readTextFile } from '@tauri-apps/plugin-fs';
+import { readTextFile } from './services/fs';
 import { loadWorkspace } from './services/workspace';
 import { useAuthSession } from './hooks/useAuthSession';
 import { gitClone, gitPull, gitSync, getGitAccountToken } from './services/syncConfig';

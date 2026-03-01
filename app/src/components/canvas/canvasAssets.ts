@@ -7,7 +7,7 @@
  * asset:// paths fail to render in OffscreenCanvas-based exports because the
  * custom URL scheme is not accessible from that rendering context.
  */
-import { readFile } from '@tauri-apps/plugin-fs';
+import { readFile } from '../../services/fs';
 
 // Cache persists for the app lifetime (same path → same bytes → same blob URL).
 const _assetBlobCache = new Map<string, string>();

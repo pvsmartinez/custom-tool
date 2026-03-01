@@ -11,7 +11,7 @@
 
 import React from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { writeFile as tauriWriteFile } from '@tauri-apps/plugin-fs';
+import { writeFile as tauriWriteFile } from '../services/fs';
 
 interface Props {
   /** Absolute workspace path — used as cwd for git commands. */

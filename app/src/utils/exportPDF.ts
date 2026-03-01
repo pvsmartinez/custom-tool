@@ -15,7 +15,7 @@
 import { marked } from 'marked';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
-import { writeFile } from '@tauri-apps/plugin-fs';
+import { writeFile } from '../services/fs';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import 'katex/dist/katex.min.css';
 import { preprocessMath } from './mathPreprocess';
