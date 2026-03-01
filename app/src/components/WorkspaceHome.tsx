@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Play } from '@phosphor-icons/react';
+import { Play, CloudSlash } from '@phosphor-icons/react';
 import { invoke } from '@tauri-apps/api/core';
 import type { Workspace, AIEditMark, FileTreeNode } from '../types';
 import './WorkspaceHome.css';
@@ -83,6 +83,17 @@ export default function WorkspaceHome({ workspace, onOpenFile, aiMarks = [] }: W
         <h1 className="wh-project-name">{workspace.name}</h1>
         <div className="wh-path">{workspace.path}</div>
 
+        {/* Local-only warning — shown when workspace has no git remote */}
+        {!workspace.hasGit && (
+          <div className="wh-local-banner">
+            <CloudSlash weight="thin" size={14} className="wh-local-banner-icon" />
+            <div>
+              <strong>Workspace local</strong>
+              <span> — sem git remoto. Arquivos não estão protegidos por controle de versão e não são sincronizados com a nuvem.</span>
+            </div>
+          </div>
+        )}
+
         {/* Stats row */}
         <div className="wh-stats">
           {/* Last edited */}
@@ -96,22 +107,26 @@ export default function WorkspaceHome({ workspace, onOpenFile, aiMarks = [] }: W
           {/* Sync status */}
           <div className="wh-stat">
             <span className="wh-stat-label">Sync status</span>
-            <span
-              className={`wh-stat-value wh-sync${
-                sync.loading ? ' loading' :
-                sync.error   ? ' error' :
-                sync.changedCount > 0 ? ' dirty' :
-                ' clean'
-              }`}
-            >
-              {sync.loading
-                ? '…'
-                : sync.error
-                ? 'unavailable'
-                : sync.changedCount > 0
-                ? `${sync.changedCount} unsync'd file${sync.changedCount !== 1 ? 's' : ''}`
-                : 'up to date'}
-            </span>
+            {!workspace.hasGit ? (
+              <span className="wh-stat-value wh-sync error">local only</span>
+            ) : (
+              <span
+                className={`wh-stat-value wh-sync${
+                  sync.loading ? ' loading' :
+                  sync.error   ? ' error' :
+                  sync.changedCount > 0 ? ' dirty' :
+                  ' clean'
+                }`}
+              >
+                {sync.loading
+                  ? '…'
+                  : sync.error
+                  ? 'unavailable'
+                  : sync.changedCount > 0
+                  ? `${sync.changedCount} unsync'd file${sync.changedCount !== 1 ? 's' : ''}`
+                  : 'up to date'}
+              </span>
+            )}
           </div>
 
           {/* File count */}

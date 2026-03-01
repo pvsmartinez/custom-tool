@@ -11,6 +11,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { X, Check, ArrowDown } from '@phosphor-icons/react';
 import { writeFile, mkdir, exists } from '@tauri-apps/plugin-fs';
+import { saveApiSecret } from '../services/apiSecrets';
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
 import type { Editor } from 'tldraw';
 import type { Workspace } from '../types';
@@ -95,7 +96,7 @@ export default function ImageSearchPanel({ workspace, canvasEditorRef, onClose }
 
   function saveKey() {
     const k = keyInput.trim();
-    localStorage.setItem(LS_KEY, k);
+    void saveApiSecret(LS_KEY, k);
     setApiKey(k);
     setKeyOpen(false);
   }

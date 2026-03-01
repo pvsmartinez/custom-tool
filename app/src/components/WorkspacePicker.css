@@ -184,3 +184,227 @@
   color: var(--text-dim);
   white-space: nowrap;
 }
+
+/* ── Local-only badge ──────────────────────────────────────────────────────── */
+
+.wp-local-badge {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: var(--font-size-2xs);
+  font-weight: 600;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: var(--radius-lg);
+  background: rgba(var(--yellow-rgb, 210,153,77), 0.12);
+  color: var(--yellow);
+  letter-spacing: 0.02em;
+}
+
+/* ── Git badge (cloud workspace) ───────────────────────────────────────────── */
+
+.wp-git-badge {
+  flex-shrink: 0;
+  font-size: var(--font-size-2xs);
+  font-weight: 600;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: var(--radius-lg);
+  background: rgba(var(--green-rgb, 87,166,120), 0.12);
+  color: var(--green, #57a678);
+  letter-spacing: 0.02em;
+}
+
+/* Cloud workspace row (non-interactive, just a display) */
+.wp-recent-item--cloud {
+  cursor: default;
+  opacity: 0.85;
+}
+.wp-recent-item--cloud:hover {
+  border-color: var(--border2);
+  background: var(--surface-code);
+}
+
+.wp-cloud-empty {
+  font-size: var(--font-size-xs);
+  color: var(--text-dim);
+  padding: 6px 4px;
+  text-align: center;
+}
+
+/* ── Account section ───────────────────────────────────────────────────────── */
+
+.wp-account-section {
+  width: 100%;
+  border-top: 1px solid var(--border);
+  padding-top: var(--space-4);
+  margin-top: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.wp-account-signed-in {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  width: 100%;
+  justify-content: space-between;
+}
+
+.wp-account-email {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wp-account-signout {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  background: none;
+  border: 1px solid var(--border2);
+  border-radius: var(--radius-md);
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: background var(--transition-base), color var(--transition-base);
+  white-space: nowrap;
+}
+.wp-account-signout:hover {
+  background: var(--surface2);
+  color: var(--text);
+}
+
+.wp-account-signin-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  background: none;
+  border: 1px solid var(--border2);
+  border-radius: var(--radius-md);
+  padding: 5px 14px;
+  cursor: pointer;
+  transition: background var(--transition-base), color var(--transition-base);
+}
+.wp-account-signin-btn:hover {
+  background: var(--surface2);
+  color: var(--text);
+}
+
+/* ── Auth form (collapsible) ───────────────────────────────────────────────── */
+
+.wp-auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  width: 100%;
+}
+
+.wp-auth-tabs {
+  display: flex;
+  gap: 0;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  border: 1px solid var(--border2);
+}
+
+.wp-auth-tab {
+  flex: 1;
+  background: none;
+  border: none;
+  padding: 7px 0;
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background var(--transition-base), color var(--transition-base);
+}
+.wp-auth-tab:hover {
+  background: var(--surface2);
+}
+.wp-auth-tab--active {
+  background: var(--accent);
+  color: var(--bg);
+  font-weight: 600;
+}
+
+.wp-auth-input {
+  width: 100%;
+  padding: 9px 12px;
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius-md);
+  color: var(--text);
+  font-size: var(--font-size-md);
+  outline: none;
+  transition: border-color var(--transition-base);
+  box-sizing: border-box;
+}
+.wp-auth-input:focus {
+  border-color: var(--accent);
+}
+
+.wp-auth-error {
+  font-size: var(--font-size-xs);
+  color: var(--red);
+  background: rgba(var(--red-rgb, 201,117,112), 0.08);
+  border-radius: var(--radius-md);
+  padding: 6px 10px;
+  text-align: center;
+}
+
+/* ── OAuth buttons ─────────────────────────────────────────────────────────── */
+
+.wp-oauth-row {
+  display: flex;
+  gap: var(--space-3);
+}
+
+.wp-oauth-btn {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 9px 0;
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  color: var(--text);
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background var(--transition-base), border-color var(--transition-base);
+}
+.wp-oauth-btn:hover:not(:disabled) {
+  background: var(--surface-code);
+  border-color: var(--accent);
+}
+.wp-oauth-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Auth divider "ou" ──────────────────────────────────────────────────────── */
+
+.wp-auth-divider {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  color: var(--text-dim);
+  font-size: var(--font-size-xs);
+}
+.wp-auth-divider::before,
+.wp-auth-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border2);
+}

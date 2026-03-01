@@ -81,6 +81,34 @@ fi
 export APPLE_DEVELOPMENT_TEAM
 export VITE_TAURI_MOBILE=true
 
+# ── Renew Apple Sign In client secret ────────────────────────────────────────
+# The Apple JWT expires in ~6 months. We regenerate on every submission so it
+# never expires in production. Generating a new token does NOT invalidate the
+# previous one — both are valid until their own expiry.
+echo "→ Renovando Apple Sign In client secret…"
+APPLE_SIWA_PY="$(dirname "$SCRIPT_DIR")/../pedrin/secrets/apple-signin/gen_apple_secret.py"
+SUPABASE_PAT="$(grep '^SUPABASE_PAT=' "$(dirname "$SCRIPT_DIR")/../pedrin/.env" | cut -d'=' -f2- | tr -d '[:space:]')"
+
+if [[ -f "$APPLE_SIWA_PY" && -n "$SUPABASE_PAT" ]]; then
+  APPLE_JWT="$(python3.11 "$APPLE_SIWA_PY" --token-only 2>/dev/null)"
+  if [[ -n "$APPLE_JWT" ]]; then
+    PATCH_RESULT="$(curl -s -o /dev/null -w "%{http_code}" -X PATCH \
+      "https://api.supabase.com/v1/projects/dxxwlnvemqgpdrnkzrcr/config/auth" \
+      -H "Authorization: Bearer $SUPABASE_PAT" \
+      -H "Content-Type: application/json" \
+      -d "{\"external_apple_secret\": \"$APPLE_JWT\"}")"
+    if [[ "$PATCH_RESULT" == "200" ]]; then
+      echo "✓ Apple Sign In secret renovado no Supabase"
+    else
+      echo "  ⚠ Falha ao renovar Apple secret (HTTP $PATCH_RESULT) — continuando mesmo assim"
+    fi
+  else
+    echo "  ⚠ Não foi possível gerar Apple JWT — continuando mesmo assim"
+  fi
+else
+  echo "  ⚠ gen_apple_secret.py ou SUPABASE_PAT não encontrado — pulando renovação"
+fi
+
 # ── Patch ExportOptions with real team ID ────────────────────────────────────
 # Our source plist lives in app/src-tauri/ios/ (committed).
 # Tauri reads from gen/apple/ExportOptions.plist — copy ours there.
@@ -96,8 +124,15 @@ fi
 cp "$EXPORT_OPTS" "$APPLE_DIR/ExportOptions.plist"
 echo "✓ ExportOptions patched (method: app-store-connect)"
 
-# ── Auto-increment build number (YYMMDDHHMM — always unique per upload) ──────
-BUILD_NUM="$(date '+%y%m%d%H%M')"
+# ── Auto-increment build number (sequential, stored in ios/build-number.txt) ──────
+BUILD_NUM_FILE="$APP_DIR/src-tauri/ios/build-number.txt"
+if [[ -f "$BUILD_NUM_FILE" ]]; then
+  BUILD_NUM="$(( $(cat "$BUILD_NUM_FILE" | tr -d '[:space:]') + 1 ))"
+else
+  BUILD_NUM=1
+fi
+echo "$BUILD_NUM" > "$BUILD_NUM_FILE"
+BUILD_NUM="$BUILD_NUM"
 INFO_PLIST="$APPLE_DIR/app_iOS/Info.plist"
 
 # Read marketing version from tauri.conf.json
@@ -114,20 +149,29 @@ fi
 echo "═══════════════════════════════════════════════════════"
 echo ""
 
-# Patch Info.plist build number
+# Patch Info.plist — build number + export compliance
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUM" "$INFO_PLIST" 2>/dev/null || \
   /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string $BUILD_NUM" "$INFO_PLIST"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $MARKETING_VER" "$INFO_PLIST" 2>/dev/null || true
 echo "✓ Build number set to $BUILD_NUM"
+
+# Declare standard-only encryption so TestFlight auto-approves compliance.
+# The app uses HTTPS/TLS exclusively (Apple's built-in networking stack).
+# This satisfies US EAR §740.17 exemption + French ANSSI standard-crypto exemption.
+/usr/libexec/PlistBuddy -c "Set :ITSAppUsesNonExemptEncryption false" "$INFO_PLIST" 2>/dev/null || \
+  /usr/libexec/PlistBuddy -c "Add :ITSAppUsesNonExemptEncryption bool false" "$INFO_PLIST"
+echo "✓ Export compliance set (standard encryption only)"
 
 # ── Build the release IPA ──────────────────────────────────────────────────
 echo ""
 echo "▶ Building release IPA…"
 cd "$APP_DIR"
 
-# Tauri produces the IPA via xcodebuild archive + exportArchive.
-# It reads ExportOptions.plist from gen/apple/ — we patched that above.
-npx tauri ios build --release
+# Remove stale debug libapp.a artifacts that cause "Multiple commands produce" error
+# when both debug and release versions exist in Externals simultaneously
+find "$APPLE_DIR/Externals" -name "libapp.a" -delete 2>/dev/null || true
+
+npx tauri ios build --ci
 
 echo ""
 echo "▶ Locating IPA…"
@@ -163,6 +207,25 @@ echo "✓ IPA: $IPA_PATH"
 IPA_SIZE="$(du -sh "$IPA_PATH" | cut -f1)"
 echo "  Size: $IPA_SIZE"
 
+# ── Strip static libraries from IPA (Apple rejects bundles with .a files) ────
+echo ""
+echo "▶ Stripping .a files from IPA…"
+WORK_DIR="$(mktemp -d)"
+cp "$IPA_PATH" "$WORK_DIR/app.ipa"
+pushd "$WORK_DIR" > /dev/null
+unzip -q app.ipa
+A_FILES="$(find . -name "*.a" 2>/dev/null)"
+if [[ -n "$A_FILES" ]]; then
+  echo "$A_FILES" | while read -r f; do echo "  removing: $f"; done
+  find . -name "*.a" -delete
+  zip -qr cleaned.ipa Payload/
+  IPA_PATH="$WORK_DIR/cleaned.ipa"
+  echo "✓ Cleaned IPA"
+else
+  echo "  (no .a files found)"
+fi
+popd > /dev/null
+
 if [[ "$SKIP_UPLOAD" == "true" ]]; then
   echo ""
   echo "═══════════════════════════════════════════════════════"
@@ -176,21 +239,25 @@ fi
 echo ""
 echo "▶ Uploading to App Store Connect (TestFlight)…"
 
-xcrun altool \
+if xcrun altool \
   --upload-app \
   -f "$IPA_PATH" \
   -t ios \
   --apiKey  "$APPLE_API_KEY_ID" \
   --apiIssuer "$APPLE_API_ISSUER_ID" \
-  --verbose
-
-echo ""
-echo "═══════════════════════════════════════════════════════"
-echo "  ✓ Upload complete!"
-echo "  Version $MARKETING_VER ($BUILD_NUM) is now processing."
-echo "  Check TestFlight status at:"
-echo "  https://appstoreconnect.apple.com/apps"
-echo ""
-echo "  TestFlight usually takes 5–15 minutes before testers"
-echo "  can install. You'll get an email when it's ready."
-echo "═══════════════════════════════════════════════════════"
+  --verbose; then
+  echo ""
+  echo "═══════════════════════════════════════════════════════"
+  echo "  ✓ Upload complete!"
+  echo "  Version $MARKETING_VER ($BUILD_NUM) is now processing."
+  echo "  Check TestFlight status at:"
+  echo "  https://appstoreconnect.apple.com/apps"
+  echo ""
+  echo "  TestFlight usually takes 5–15 minutes before testers"
+  echo "  can install. You'll get an email when it's ready."
+  echo "═══════════════════════════════════════════════════════"
+else
+  echo ""
+  echo "  ERROR: Upload failed. Check altool output above."
+  exit 1
+fi

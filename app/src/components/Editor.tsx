@@ -498,19 +498,7 @@ const Editor = forwardRef<EditorHandle, EditorProps>(
             ))}
           </div>
         )}
-        {/* Format button is in the app header — no in-editor toolbar */}
-        {/* In code mode, also show an inline Format button when onFormat is provided */}
-        {codeMode && onFormat && (
-          <div className="editor-code-toolbar" aria-label="Code actions">
-            <button
-              className="editor-code-toolbar-btn"
-              title="Format file (Prettier)"
-              onClick={() => onFormat()}
-            >
-              ⌥F
-            </button>
-          </div>
-        )}
+        {/* Format button lives in the app header (⌥F) — no in-editor toolbar */}
         <CodeMirror
           value={content}
           onChange={onChange}

@@ -11,12 +11,21 @@ import {
 } from '../../services/copilot';
 import type { DeviceFlowState } from '../../services/copilot';
 import { DEFAULT_MODEL, FALLBACK_MODELS } from '../../types';
-import type { ChatMessage, CopilotModelInfo, ToolActivity } from '../../types';
+import type { ChatMessage, CopilotModelInfo, ToolActivity, ContentPart } from '../../types';
 import { WORKSPACE_TOOLS, buildToolExecutor } from '../../utils/workspaceTools';
+import { saveApiSecret } from '../../services/apiSecrets';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import type { Workspace } from '../../types';
 
 marked.setOptions({ gfm: true, breaks: false });
+
+const contentToString = (content: string | ContentPart[]): string =>
+  typeof content === 'string'
+    ? content
+    : content
+        .filter((p): p is Extract<ContentPart, { type: 'text' }> => p.type === 'text')
+        .map((p) => p.text)
+        .join('');
 
 // Strip canvas + shell tools — neither is available on mobile
 const CANVAS_TOOLS = new Set([
@@ -87,7 +96,7 @@ function ToolChip({ activity }: { activity: ToolActivity }) {
 
 const GROQ_KEY = 'cafezin-groq-key';
 function getGroqKey(): string { return localStorage.getItem(GROQ_KEY) ?? ''; }
-function saveGroqKey(k: string) { localStorage.setItem(GROQ_KEY, k.trim()); }
+function saveGroqKey(k: string) { void saveApiSecret(GROQ_KEY, k.trim()); }
 
 interface MobileCopilotProps {
   workspace: Workspace | null;
@@ -453,11 +462,11 @@ export default function MobileCopilot({
         {messages.map((msg, i) => (
           msg.role === 'user' ? (
             <div key={i} className="mb-msg mb-msg-user">
-              {msg.content}
+              {contentToString(msg.content)}
             </div>
           ) : (
             <div key={i} className="mb-msg mb-msg-assistant">
-              <MobileMdMessage content={msg.content} />
+              <MobileMdMessage content={contentToString(msg.content)} />
             </div>
           )
         ))}

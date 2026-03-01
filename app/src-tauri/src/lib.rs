@@ -124,6 +124,25 @@ mod git_cli {
         } else { Err("no remote".into()) }
     }
 
+    pub fn git_clone(url: String, path: String, _token: Option<String>) -> Result<String, String> {
+        let out = Command::new("git")
+            .args(["clone", &url, &path])
+            .output()
+            .map_err(|e| e.to_string())?;
+        if out.status.success() { Ok("cloned".into()) }
+        else { Err(String::from_utf8_lossy(&out.stderr).to_string()) }
+    }
+
+    pub fn git_pull(path: String, _token: Option<String>) -> Result<String, String> {
+        let out = Command::new("git")
+            .args(["pull", "--ff-only"])
+            .current_dir(&path)
+            .output()
+            .map_err(|e| e.to_string())?;
+        if out.status.success() { Ok("pulled".into()) }
+        else { Err(String::from_utf8_lossy(&out.stderr).to_string()) }
+    }
+
     pub fn git_checkout_file(path: String, file: String) -> Result<String, String> {
         let out = Command::new("git")
             .args(["checkout", "--", &file])
@@ -264,6 +283,85 @@ mod git_native {
         Ok(remote.url().unwrap_or("").to_string())
     }
 
+    pub fn git_clone(url: String, path: String, token: Option<String>) -> Result<String, String> {
+        let mut callbacks = RemoteCallbacks::new();
+        if let Some(tok) = token {
+            callbacks.credentials(move |_url, _username, allowed| {
+                if allowed.contains(git2::CredentialType::USER_PASS_PLAINTEXT) {
+                    git2::Cred::userpass_plaintext("oauth2", &tok)
+                } else {
+                    git2::Cred::default()
+                }
+            });
+        } else {
+            callbacks.credentials(|_url, username, allowed| {
+                if allowed.contains(git2::CredentialType::SSH_KEY) {
+                    git2::Cred::ssh_key_from_agent(username.unwrap_or("git"))
+                } else {
+                    git2::Cred::default()
+                }
+            });
+        }
+        let mut fetch_opts = git2::FetchOptions::new();
+        fetch_opts.remote_callbacks(callbacks);
+        let mut builder = git2::build::RepoBuilder::new();
+        builder.fetch_options(fetch_opts);
+        builder.clone(&url, std::path::Path::new(&path)).map_err(|e| e.to_string())?;
+        Ok("cloned".into())
+    }
+
+    pub fn git_pull(path: String, token: Option<String>) -> Result<String, String> {
+        let repo = Repository::open(&path).map_err(|e| e.to_string())?;
+        let head = repo.head().map_err(|e| e.to_string())?;
+        let branch_name = head.shorthand().unwrap_or("main").to_string();
+
+        let mut remote = repo.find_remote("origin").map_err(|e| e.to_string())?;
+        let mut callbacks = RemoteCallbacks::new();
+        if let Some(tok) = token {
+            callbacks.credentials(move |_url, _username, allowed| {
+                if allowed.contains(git2::CredentialType::USER_PASS_PLAINTEXT) {
+                    git2::Cred::userpass_plaintext("oauth2", &tok)
+                } else {
+                    git2::Cred::default()
+                }
+            });
+        } else {
+            callbacks.credentials(|_url, username, allowed| {
+                if allowed.contains(git2::CredentialType::SSH_KEY) {
+                    git2::Cred::ssh_key_from_agent(username.unwrap_or("git"))
+                } else {
+                    git2::Cred::default()
+                }
+            });
+        }
+        let mut fetch_opts = git2::FetchOptions::new();
+        fetch_opts.remote_callbacks(callbacks);
+        remote.fetch(&[branch_name.as_str()], Some(&mut fetch_opts), None)
+            .map_err(|e| e.to_string())?;
+
+        let remote_ref = format!("refs/remotes/origin/{branch_name}");
+        let remote_oid = repo.find_reference(&remote_ref)
+            .map_err(|e| e.to_string())?
+            .target()
+            .ok_or_else(|| "remote ref has no target".to_string())?;
+        let fetch_commit = repo.find_annotated_commit(remote_oid).map_err(|e| e.to_string())?;
+
+        let (analysis, _) = repo.merge_analysis(&[&fetch_commit]).map_err(|e| e.to_string())?;
+        if analysis.is_up_to_date() {
+            return Ok("up_to_date".into());
+        }
+        if analysis.is_fast_forward() {
+            let refname = format!("refs/heads/{branch_name}");
+            let mut reference = repo.find_reference(&refname).map_err(|e| e.to_string())?;
+            reference.set_target(fetch_commit.id(), "Fast-forward pull").map_err(|e| e.to_string())?;
+            repo.set_head(&refname).map_err(|e| e.to_string())?;
+            repo.checkout_head(Some(git2::build::CheckoutBuilder::default().force()))
+                .map_err(|e| e.to_string())?;
+            return Ok("pulled".into());
+        }
+        Err("Cannot fast-forward — resolve conflicts no desktop".into())
+    }
+
     pub fn git_checkout_file(path: String, file: String) -> Result<String, String> {
         let repo = Repository::open(&path).map_err(|e| e.to_string())?;
         let mut checkout = CheckoutBuilder::new();
@@ -293,6 +391,10 @@ fn git_sync(path: String, message: String) -> Result<String, String> { git::git_
 fn git_get_remote(path: String) -> Result<String, String> { git::git_get_remote(path) }
 #[tauri::command]
 fn git_checkout_file(path: String, file: String) -> Result<String, String> { git::git_checkout_file(path, file) }
+#[tauri::command]
+fn git_clone(url: String, path: String, token: Option<String>) -> Result<String, String> { git::git_clone(url, path, token) }
+#[tauri::command]
+fn git_pull(path: String, token: Option<String>) -> Result<String, String> { git::git_pull(path, token) }
 
 
 // ── GitHub Device Flow (credentials stay in Rust, never exposed to the renderer) ──────────────
@@ -610,7 +712,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_http::init())
-        .invoke_handler(tauri::generate_handler![git_init, git_diff, git_sync, git_checkout_file, git_get_remote, shell_run, update_app, transcribe_audio, open_devtools, build_channel, github_device_flow_init, github_device_flow_poll])
+        .invoke_handler(tauri::generate_handler![git_init, git_diff, git_sync, git_checkout_file, git_get_remote, git_clone, git_pull, shell_run, update_app, transcribe_audio, open_devtools, build_channel, github_device_flow_init, github_device_flow_poll])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

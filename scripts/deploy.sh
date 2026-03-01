@@ -13,7 +13,7 @@
 #
 # Configuração (opcional, em .env.local):
 #   DEPLOY_CHANGELOG="O que há de novo nesta versão"
-#   PERSONAL_ADMIN_DIR=/caminho/absoluto/para/pedrin
+#   PEDRIN_DIR=/caminho/absoluto/para/pedrin
 #     (padrão: ../../pedrin relativo a este script)
 #
 # Exemplo customizando changelog:
@@ -39,13 +39,13 @@ if [[ -f "$ROOT/.env.local" ]]; then
 fi
 
 # ── Resolver caminho do pedrin ───────────────────────────────────────
-PERSONAL_ADMIN="${PERSONAL_ADMIN_DIR:-$(cd "$SCRIPT_DIR/../../pedrin" 2>/dev/null && pwd || echo "")}"
+PEDRIN="${PEDRIN_DIR:-$(cd "$SCRIPT_DIR/../../pedrin" 2>/dev/null && pwd || echo "")}"
 
-if [[ -z "$PERSONAL_ADMIN" || ! -d "$PERSONAL_ADMIN" ]]; then
+if [[ -z "$PEDRIN" || ! -d "$PEDRIN" ]]; then
   echo ""
   echo "  ERROR: pedrin não encontrado."
-  echo "  Defina PERSONAL_ADMIN_DIR em .env.local:"
-  echo "    PERSONAL_ADMIN_DIR=/caminho/para/pedrin"
+  echo "  Defina PEDRIN_DIR em .env.local:"
+  echo "    PEDRIN_DIR=/caminho/para/pedrin"
   echo ""
   exit 1
 fi
@@ -104,7 +104,7 @@ echo "  IPA: $IPA_PATH"
 echo "──────────────────────────────────────────────────────"
 echo ""
 
-cd "$PERSONAL_ADMIN"
+cd "$PEDRIN"
 
 # DEPLOY_CHANGELOG pode ser definido em .env.local ou na chamada do script
 CHANGELOG_ARGS=""
@@ -121,6 +121,6 @@ echo ""
 echo "  Próximos passos:"
 echo "    • Aguarde o processamento no TestFlight (5–15 min)"
 echo "    • Quando pronto para App Store:"
-echo "        cd $PERSONAL_ADMIN"
+echo "        cd $PEDRIN"
 echo "        bundle exec fastlane cafezin_send_review"
 echo "═══════════════════════════════════════════════════════"

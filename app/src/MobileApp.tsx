@@ -1,24 +1,18 @@
 import { useState, useEffect, useCallback } from 'react';
 import { readTextFile } from '@tauri-apps/plugin-fs';
-import { openUrl } from '@tauri-apps/plugin-opener';
 import { loadWorkspace } from './services/workspace';
-import {
-  listSyncedWorkspaces,
-  getSyncAccountToken,
-  startSyncAccountFlow,
-  clearSyncAccountToken,
-  getPendingDeviceFlow,
-  resumeDeviceFlow,
-} from './services/syncConfig';
-import type { SyncedWorkspace, SyncDeviceFlowState } from './services/syncConfig';
+import { useAuthSession } from './hooks/useAuthSession';
+import { gitClone, gitPull, getGitAccountToken } from './services/syncConfig';
 import type { Workspace } from './types';
 import MobileFileBrowser from './components/mobile/MobileFileBrowser';
 import MobilePreview from './components/mobile/MobilePreview';
 import MobileCopilot from './components/mobile/MobileCopilot';
+import MobileVoiceMemo from './components/mobile/MobileVoiceMemo';
+import ToastList from './components/mobile/ToastList';
+import { useToast } from './hooks/useToast';
 import './mobile.css';
 
-type Tab = 'files' | 'preview' | 'copilot';
-type AuthStep = 'idle' | 'waiting_code' | 'polling' | 'done' | 'error';
+type Tab = 'files' | 'preview' | 'copilot' | 'voice'
 
 const LAST_WS_KEY = 'mobile-last-workspace-path';
 
@@ -27,53 +21,72 @@ export default function MobileApp() {
   const [loadingWs, setLoadingWs] = useState(true);
   const [wsError, setWsError] = useState<string | null>(null);
 
+  // gitUrl → 'clone' | 'pull'
+  const [gitBusy, setGitBusy] = useState<Record<string, 'clone' | 'pull'>>({});
+
   const [activeTab, setActiveTab] = useState<Tab>('files');
   const [openFile, setOpenFile] = useState<string | null>(null);
   const [fileContent, setFileContent] = useState<string | null>(null);
 
-  // Sync workspace list (optional, shown when no workspace loaded)
-  const [syncedWorkspaces, setSyncedWorkspaces] = useState<SyncedWorkspace[]>([]);
-  const [loadingSynced, setLoadingSynced] = useState(false);
+  // Form state — local only, not part of auth business logic
+  const [emailInput, setEmailInput] = useState('');
+  const [passwordInput, setPasswordInput] = useState('');
 
-  // GitHub device-flow auth state
-  const [authStep, setAuthStep] = useState<AuthStep>('idle');
-  const [deviceFlow, setDeviceFlow] = useState<SyncDeviceFlowState | null>(null);
-  const [authError, setAuthError] = useState<string | null>(null);
-  const [isLoggedIn, setIsLoggedIn] = useState(() => !!getSyncAccountToken());
+  const { toasts, toast, dismiss } = useToast();
+
+  const {
+    isLoggedIn,
+    oauthBusy,
+    authBusy,
+    authMode,
+    setAuthMode,
+    syncedWorkspaces,
+    loadingSynced,
+    syncError,
+    loadSyncedList,
+    handleAuth: _handleAuth,
+    handleSignOut,
+    handleOAuth: _handleOAuth,
+  } = useAuthSession({
+    onAuthSuccess: () => {
+      toast({ message: 'Login realizado com sucesso!', type: 'success' });
+    },
+  });
+
+  // Reload synced workspace list whenever auth state becomes active
+  useEffect(() => {
+    if (isLoggedIn) void loadSyncedList();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoggedIn]);
 
   // ── Bootstrap: load last workspace from localStorage ─────────────────────
   useEffect(() => {
     const lastPath = localStorage.getItem(LAST_WS_KEY);
     if (lastPath) {
-      openWorkspacePath(lastPath);
+      void openWorkspacePath(lastPath);
       return;
     }
     setLoadingWs(false);
-    if (getSyncAccountToken()) {
-      setIsLoggedIn(true);
-      loadSyncedList();
-      return;
-    }
-    // Check for a device-flow that was in progress before a page reload
-    // (common in Tauri iOS dev mode: WKWebView reconnects to Vite on resume).
-    const pending = getPendingDeviceFlow();
-    if (pending) {
-      setDeviceFlow(pending);
-      setAuthStep('polling');
-      resumeDeviceFlow((state) => setDeviceFlow(state))
-        .then((token) => {
-          localStorage.setItem('cafezin-sync-account-token', token);
-          setIsLoggedIn(true);
-          setAuthStep('done');
-          loadSyncedList();
-        })
-        .catch((err: unknown) => {
-          setAuthError(err instanceof Error ? err.message : String(err));
-          setAuthStep('error');
-        });
-    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /** Wraps hook handleAuth with toast feedback for the mobile UI. */
+  async function handleAuth() {
+    const err = await _handleAuth(emailInput.trim(), passwordInput.trim());
+    if (err) {
+      toast({ message: err, type: 'error', duration: 6000 });
+    } else {
+      setEmailInput('');
+      setPasswordInput('');
+      void loadSyncedList();
+    }
+  }
+
+  /** Wraps hook handleOAuth with toast feedback for the mobile UI. */
+  async function handleOAuth(provider: 'google' | 'apple') {
+    const err = await _handleOAuth(provider);
+    if (err) toast({ message: err, type: 'error', duration: 6000 });
+  }
 
   async function openWorkspacePath(path: string) {
     setLoadingWs(true);
@@ -89,60 +102,38 @@ export default function MobileApp() {
     }
   }
 
-  async function loadSyncedList() {
-    const token = getSyncAccountToken();
-    if (!token) return;
-    setLoadingSynced(true);
+  async function handleClone(gitUrl: string, accountLabel: string) {
+    setGitBusy(b => ({ ...b, [gitUrl]: 'clone' }));
     try {
-      const list = await listSyncedWorkspaces();
-      setSyncedWorkspaces(list);
-    } catch { /* not fatal */ }
-    finally { setLoadingSynced(false); }
-  }
-
-  // ── GitHub device-flow login ───────────────────────────────────────────────
-  async function startLogin() {
-    setAuthError(null);
-    setAuthStep('waiting_code');
-    try {
-      await startSyncAccountFlow((state: SyncDeviceFlowState) => {
-        setDeviceFlow(state);
-        setAuthStep('polling');
-      });
-      // Token is now stored by startSyncAccountFlow
-      setIsLoggedIn(true);
-      setAuthStep('done');
-      loadSyncedList();
+      const token = getGitAccountToken(accountLabel) ?? undefined;
+      const localPath = await gitClone(gitUrl, token);
+      toast({ message: 'Repositório clonado!', type: 'success' });
+      // Reload list so localPath shows up, then open
+      await loadSyncedList();
+      void openWorkspacePath(localPath);
     } catch (err) {
-      setAuthError(err instanceof Error ? err.message : String(err));
-      setAuthStep('error');
+      toast({ message: `Erro ao clonar: ${err}`, type: 'error', duration: 8000 });
+    } finally {
+      setGitBusy(b => { const n = { ...b }; delete n[gitUrl]; return n; });
     }
   }
 
-  // Manually re-check token after user returns from Safari (belt-and-suspenders
-  // in case the visibilitychange poll didn't fire on this iOS version).
-  function checkAuthNow() {
-    const token = getSyncAccountToken();
-    if (token) {
-      setIsLoggedIn(true);
-      setAuthStep('done');
-      loadSyncedList();
+  async function handlePull(gitUrl: string, localPath: string, accountLabel: string) {
+    setGitBusy(b => ({ ...b, [gitUrl]: 'pull' }));
+    try {
+      const token = getGitAccountToken(accountLabel) ?? undefined;
+      const result = await gitPull(localPath, token);
+      const msg = result === 'up_to_date' ? 'Já está atualizado.' : 'Pull realizado com sucesso!';
+      toast({ message: msg, type: 'success' });
+      void refreshWorkspace();
+    } catch (err) {
+      toast({ message: `Erro no pull: ${err}`, type: 'error', duration: 8000 });
+    } finally {
+      setGitBusy(b => { const n = { ...b }; delete n[gitUrl]; return n; });
     }
   }
 
-  function cancelLogin() {
-    setAuthStep('idle');
-    setDeviceFlow(null);
-    setAuthError(null);
-  }
 
-  function signOut() {
-    clearSyncAccountToken();
-    setIsLoggedIn(false);
-    setSyncedWorkspaces([]);
-    setAuthStep('idle');
-    setDeviceFlow(null);
-  }
 
   // ── Refresh workspace file tree ──────────────────────────────────────────
   const refreshWorkspace = useCallback(async () => {
@@ -183,163 +174,220 @@ export default function MobileApp() {
 
   // ── No workspace: show connect screen ────────────────────────────────────
   if (!workspace) {
-    // ── Device flow in progress ──────────────────────────────────────────
-    if (authStep === 'polling' && deviceFlow) {
-      return (
-        <div className="mb-shell">
-          <div className="mb-screen">
-            <div className="mb-empty" style={{ flex: 1, gap: 20 }}>
-              <div className="mb-empty-icon">🔑</div>
-              <div className="mb-empty-title">Authorize on GitHub</div>
-              <div className="mb-empty-desc">Copy the code below, then tap Open GitHub. Enter the code on the page that opens.</div>
-
-              {/* Code display */}
-              <div style={{
-                background: 'rgba(255,255,255,0.06)',
-                border: '1px solid rgba(255,255,255,0.12)',
-                borderRadius: 12,
-                padding: '14px 28px',
-                fontFamily: 'monospace',
-                fontSize: 28,
-                fontWeight: 700,
-                letterSpacing: 6,
-                color: '#fff',
-              }}>
-                {deviceFlow.userCode}
-              </div>
-
-              <button
-                className="mb-btn mb-btn-primary"
-                style={{ width: '100%', maxWidth: 300 }}
-                onClick={() => openUrl(deviceFlow.verificationUri)}
-              >
-                Open GitHub →
-              </button>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'var(--mb-muted)', fontSize: 13 }}>
-                <div className="mb-spinner" style={{ width: 16, height: 16 }} />
-                Waiting for authorization…
-              </div>
-
-              <button
-                className="mb-btn mb-btn-ghost"
-                style={{ width: '100%', maxWidth: 300, fontSize: 14 }}
-                onClick={checkAuthNow}
-              >
-                I've authorized it ✓
-              </button>
-
-              <button className="mb-btn mb-btn-ghost" style={{ fontSize: 13 }} onClick={cancelLogin}>
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      );
-    }
-
-    // ── Auth error ────────────────────────────────────────────────────────
-    if (authStep === 'error') {
-      return (
-        <div className="mb-shell">
-          <div className="mb-screen">
-            <div className="mb-empty" style={{ flex: 1 }}>
-              <div className="mb-empty-icon">⚠️</div>
-              <div className="mb-empty-title">Sign in failed</div>
-              <div style={{
-                background: 'rgba(224,108,117,0.15)',
-                border: '1px solid rgba(224,108,117,0.3)',
-                color: 'var(--mb-danger)',
-                borderRadius: 8,
-                padding: '10px 14px',
-                fontSize: 13,
-                maxWidth: 300,
-                textAlign: 'center',
-              }}>
-                {authError}
-              </div>
-              <button className="mb-btn mb-btn-primary" style={{ width: '100%', maxWidth: 300 }} onClick={startLogin}>
-                Try Again
-              </button>
-              <button className="mb-btn mb-btn-ghost" style={{ fontSize: 13 }} onClick={cancelLogin}>
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      );
-    }
-
-    // ── Not signed in ─────────────────────────────────────────────────────
+    // ── Not signed in — email + password form ────────────────────────────
     if (!isLoggedIn) {
       return (
         <div className="mb-shell">
+          <ToastList toasts={toasts} onDismiss={dismiss} />
           <div className="mb-screen">
             <div className="mb-empty" style={{ flex: 1, gap: 20 }}>
               <div className="mb-empty-icon">☕</div>
-              <div className="mb-empty-title">Welcome to Cafezin</div>
-              <div className="mb-empty-desc">Sign in with your GitHub account to access workspaces you've registered on your desktop.</div>
+              <div className="mb-empty-title">Bem-vindo ao Cafezin</div>
+              <div className="mb-empty-desc">Entre com sua conta para acessar seus workspaces.</div>
+
+              {/* ── OAuth providers ── */}
+              <div style={{ display: 'flex', gap: 10, width: '100%', maxWidth: 300 }}>
+                <button
+                  className="mb-btn mb-btn-secondary"
+                  style={{ flex: 1, gap: 8, fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                  onClick={() => void handleOAuth('google')}
+                  disabled={oauthBusy !== null}
+                >
+                  {oauthBusy === 'google'
+                    ? <><div className="mb-spinner" style={{ width: 16, height: 16, borderWidth: 2 }} /> Aguarde</>  
+                    : 'Google'
+                  }
+                </button>
+                <button
+                  className="mb-btn mb-btn-secondary"
+                  style={{ flex: 1, gap: 8, fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                  onClick={() => void handleOAuth('apple')}
+                  disabled={oauthBusy !== null}
+                >
+                  {oauthBusy === 'apple'
+                    ? <><div className="mb-spinner" style={{ width: 16, height: 16, borderWidth: 2 }} /> Aguarde</>
+                    : '\u{F8FF} Apple'
+                  }
+                </button>
+              </div>
+
+              {oauthBusy !== null && (
+                <div style={{ fontSize: 12, color: 'var(--mb-muted)', textAlign: 'center', maxWidth: 300 }}>
+                  Aguardando autorização no navegador…
+                </div>
+              )}
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'rgba(255,255,255,0.3)', fontSize: 12, width: '100%', maxWidth: 300 }}>
+                <div style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.1)' }} />
+                ou
+                <div style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.1)' }} />
+              </div>
+
+              <div style={{ display: 'flex', gap: 0, borderRadius: 8, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.12)', width: '100%', maxWidth: 300 }}>
+                <button
+                  className={`mb-btn ${authMode === 'login' ? 'mb-btn-primary' : 'mb-btn-ghost'}`}
+                  style={{ flex: 1, borderRadius: 0, fontSize: 14 }}
+                  onClick={() => { setAuthMode('login') }}
+                >Entrar</button>
+                <button
+                  className={`mb-btn ${authMode === 'signup' ? 'mb-btn-primary' : 'mb-btn-ghost'}`}
+                  style={{ flex: 1, borderRadius: 0, fontSize: 14 }}
+                  onClick={() => { setAuthMode('signup') }}
+                >Criar conta</button>
+              </div>
+
+              <input
+                type="email"
+                placeholder="seu@email.com"
+                value={emailInput}
+                onChange={(e) => setEmailInput(e.target.value)}
+                style={{
+                  width: '100%', maxWidth: 300, padding: '10px 14px',
+                  background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)',
+                  borderRadius: 8, color: '#fff', fontSize: 15, outline: 'none',
+                }}
+              />
+              <input
+                type="password"
+                placeholder="Senha"
+                value={passwordInput}
+                onChange={(e) => setPasswordInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') void handleAuth() }}
+                style={{
+                  width: '100%', maxWidth: 300, padding: '10px 14px',
+                  background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)',
+                  borderRadius: 8, color: '#fff', fontSize: 15, outline: 'none',
+                }}
+              />
+
+              {authBusy && (
+                <div style={{ fontSize: 12, color: 'var(--mb-muted)', textAlign: 'center', maxWidth: 300 }}>
+                  Conectando…
+                </div>
+              )}
+
               <button
                 className="mb-btn mb-btn-primary"
                 style={{ width: '100%', maxWidth: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
-                onClick={startLogin}
+                onClick={() => void handleAuth()}
+                disabled={authBusy || !emailInput.trim() || !passwordInput.trim()}
               >
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                  <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
-                </svg>
-                Sign in with GitHub
+                {authBusy
+                  ? <><div className="mb-spinner" style={{ width: 16, height: 16, borderWidth: 2 }} /> Aguarde…</>
+                  : authMode === 'login' ? 'Entrar com e-mail' : 'Criar conta'
+                }
               </button>
             </div>
           </div>
         </div>
-      );
+      )
     }
 
     // ── Signed in — show workspace list ───────────────────────────────────
     return (
-      <div className="mb-shell">
-        <div className="mb-screen">
+      <div className="mb-shell">        <ToastList toasts={toasts} onDismiss={dismiss} />        <div className="mb-screen">
           <div className="mb-empty" style={{ flex: 1 }}>
             <div className="mb-empty-icon">🗂</div>
-            <div className="mb-empty-title">No workspace open</div>
+            <div className="mb-empty-title">Workspaces</div>
+
             {wsError && (
               <div style={{ background: 'rgba(224,108,117,0.15)', border: '1px solid rgba(224,108,117,0.3)', color: 'var(--mb-danger)', borderRadius: 8, padding: '10px 14px', fontSize: 13, maxWidth: 300 }}>
                 {wsError}
               </div>
             )}
 
-            {loadingSynced && <div className="mb-spinner" />}
+            {syncError && (
+              <div style={{ background: 'rgba(224,108,117,0.15)', border: '1px solid rgba(224,108,117,0.3)', color: 'var(--mb-danger)', borderRadius: 8, padding: '10px 14px', fontSize: 13, maxWidth: 300 }}>
+                Could not load workspaces: {syncError}
+              </div>
+            )}
 
-            {syncedWorkspaces.length > 0 ? (
-              <>
-                <div className="mb-empty-desc">Open a synced workspace:</div>
-                {syncedWorkspaces.map(ws => (
-                  <button
-                    key={ws.gitUrl}
-                    className="mb-btn mb-btn-ghost"
-                    style={{ width: '100%', maxWidth: 320, textAlign: 'left', display: 'flex', flexDirection: 'column', gap: 2 }}
-                    onClick={() => openWorkspacePath(ws.localPath ?? ws.name)}
-                  >
-                    <span style={{ fontWeight: 600 }}>{ws.name}</span>
-                    <span style={{ fontSize: 12, color: 'var(--mb-muted)' }}>{ws.gitUrl}</span>
-                  </button>
-                ))}
-              </>
-            ) : !loadingSynced ? (
-              <>
-                <div className="mb-empty-desc">No workspaces found. Open the Settings → Sync tab on your desktop to register your workspace.</div>
-                <button className="mb-btn mb-btn-ghost" onClick={loadSyncedList}>
-                  Check again
-                </button>
-              </>
-            ) : null}
+            {loadingSynced && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'var(--mb-muted)', fontSize: 13 }}>
+                <div className="mb-spinner" style={{ width: 16, height: 16 }} />
+                Loading workspaces…
+              </div>
+            )}
+
+            {!loadingSynced && syncedWorkspaces.length > 0 && (
+              <div style={{ width: '100%', maxWidth: 360, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {syncedWorkspaces.map(ws => {
+                  const canOpen = !!ws.localPath;
+                  const busy = gitBusy[ws.gitUrl];
+                  return (
+                    <div
+                      key={ws.gitUrl}
+                      style={{
+                        background: 'rgba(255,255,255,0.05)',
+                        border: '1px solid rgba(255,255,255,0.1)',
+                        borderRadius: 12,
+                        padding: '12px 14px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 4,
+                      }}
+                    >
+                      <div style={{ fontWeight: 600, fontSize: 15 }}>{ws.name}</div>
+                      <div style={{ fontSize: 11, color: 'var(--mb-muted)', wordBreak: 'break-all' }}>{ws.gitUrl}</div>
+                      {canOpen ? (
+                        <div style={{ marginTop: 6, display: 'flex', gap: 8 }}>
+                          <button
+                            className="mb-btn mb-btn-primary"
+                            style={{ flex: 1, fontSize: 13, padding: '6px 14px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+                            onClick={() => openWorkspacePath(ws.localPath!)}
+                            disabled={!!busy}
+                          >
+                            Abrir →
+                          </button>
+                          <button
+                            className="mb-btn mb-btn-secondary"
+                            style={{ fontSize: 13, padding: '6px 14px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+                            onClick={() => void handlePull(ws.gitUrl, ws.localPath!, ws.gitAccountLabel)}
+                            disabled={!!busy}
+                          >
+                            {busy === 'pull'
+                              ? <><div className="mb-spinner" style={{ width: 12, height: 12, borderWidth: 2 }} /> Pull…</>
+                              : '↓ Pull'
+                            }
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          className="mb-btn mb-btn-secondary"
+                          style={{ marginTop: 6, fontSize: 13, padding: '6px 14px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+                          onClick={() => void handleClone(ws.gitUrl, ws.gitAccountLabel)}
+                          disabled={!!busy}
+                        >
+                          {busy === 'clone'
+                            ? <><div className="mb-spinner" style={{ width: 12, height: 12, borderWidth: 2 }} /> Clonando…</>
+                            : '↓ Clonar'
+                          }
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {!loadingSynced && syncedWorkspaces.length === 0 && !syncError && (
+              <div className="mb-empty-desc">No workspaces registered yet. Open Settings → Sync on your desktop to register one.</div>
+            )}
 
             <button
               className="mb-btn mb-btn-ghost"
-              style={{ fontSize: 12, color: 'var(--mb-muted)', marginTop: 8 }}
-              onClick={signOut}
+              style={{ marginTop: 4, fontSize: 14 }}
+              onClick={loadSyncedList}
             >
-              Sign out
+              ↻ Refresh
+            </button>
+
+            <button
+              className="mb-btn mb-btn-ghost"
+              style={{ fontSize: 12, color: 'var(--mb-muted)' }}
+              onClick={() => void handleSignOut()}
+            >
+              Sair da conta
             </button>
           </div>
         </div>
@@ -389,11 +437,15 @@ export default function MobileApp() {
             onFileWritten={refreshWorkspace}
           />
         );
+
+      case 'voice':
+        return <MobileVoiceMemo workspacePath={workspace!.path} />;
     }
   }
 
   return (
     <div className="mb-shell">
+      <ToastList toasts={toasts} onDismiss={dismiss} />
       <div className="mb-screen">
         {renderTab()}
       </div>
@@ -419,6 +471,13 @@ export default function MobileApp() {
         >
           <span className="mb-tab-icon">🤖</span>
           <span className="mb-tab-label">Copilot</span>
+        </button>
+        <button
+          className={`mb-tab ${activeTab === 'voice' ? 'active' : ''}`}
+          onClick={() => setActiveTab('voice')}
+        >
+          <span className="mb-tab-icon">🎙</span>
+          <span className="mb-tab-label">Voice</span>
         </button>
       </nav>
     </div>

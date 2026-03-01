@@ -408,6 +408,51 @@
 }
 .em-inline-input:focus { border-color: var(--accent); }
 
+/* Indented group of inputs (title page fields) */
+.em-field--indented {
+  border-left: 2px solid var(--border2);
+  padding-left: 12px;
+  margin-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.em-field--indented input {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: var(--font-size-sm);
+  padding: 5px 9px;
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+.em-field--indented input:focus { border-color: var(--accent); }
+.em-field--indented input::placeholder { color: var(--text-muted); }
+
+/* Check-group: stacked checkboxes */
+.em-field--checkgroup {
+  flex-direction: column;
+  gap: 5px;
+}
+.em-field--checkgroup label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: var(--font-size-sm);
+  color: var(--text);
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  cursor: pointer;
+}
+.em-field--checkgroup label input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  accent-color: var(--accent);
+}
+
 /* ── Footer ──────────────────────────────────────────────────────────────── */
 .em-footer {
   display: flex;

@@ -50,61 +50,26 @@ Run `cd app && npx tsc --noEmit` after every non-trivial change. The only accept
 
 ---
 
-## File Map (what lives where)
+## File Map & Architecture
 
-```
-app/src/
-├── components/
-│   ├── CanvasEditor.tsx    # tldraw wrapper: slides, strip, format panel, theme, present mode
-│   ├── AIPanel.tsx         # Copilot chat: streaming, agent loop, voice, model picker
-│   ├── Editor.tsx          # CodeMirror 6 markdown editor + AI mark highlights
-│   ├── Sidebar.tsx         # File tree, context menus, inline file/folder creator
-│   ├── AIMarkOverlay.tsx   # Floating chips over AI-written regions
-│   ├── AIReviewPanel.tsx   # Modal: list + accept/reject AI marks per file
-│   ├── MarkdownPreview.tsx # marked.js rendered HTML view
-│   ├── PDFViewer.tsx       # Tauri convertFileSrc + WebKit embed
-│   ├── MediaViewer.tsx     # binary readFile → object URL for images/video
-│   ├── ImageSearchPanel.tsx# Pexels search → workspace/images/
-│   ├── SettingsModal.tsx   # App settings + shortcuts table
-│   └── SyncModal.tsx       # git commit + push modal
-├── services/
-│   ├── copilot.ts          # API layer: streamCopilotChat, runCopilotAgent, fetchCopilotModels,
-│   │                       #   modelSupportsVision, startDeviceFlow, getStoredOAuthToken
-│   ├── aiMarks.ts          # AI edit marks: load/add/markReviewed → .cafezin/ai-marks.json
-│   ├── copilotLog.ts       # Session log: appendLogEntry, appendArchiveEntry → copilot-log.jsonl
-│   └── workspace.ts        # loadWorkspace, readFile, writeFile, buildFileTree, createCanvasFile
-├── utils/
-│   ├── canvasAI.ts         # summarizeCanvas (hierarchical), canvasToDataUrl, executeCanvasCommands
-│   ├── workspaceTools.ts   # WORKSPACE_TOOLS (OpenAI schema) + buildToolExecutor
-│   └── fileType.ts         # getFileTypeInfo — extension → kind/mode
-├── types/index.ts          # All shared interfaces (CopilotModelInfo, AIEditMark, ChatMessage…)
-└── App.tsx                 # Root: tab management, file open/save, modal orchestration
-```
+> Full file map, data flows, canvas details, agent loop, keyboard shortcuts, and session history
+> are documented in **AGENT.md** at the project root. Read that file for deep context.
 
----
+**Key files at a glance:**
+- `app/src/components/CanvasEditor.tsx` — tldraw v4 canvas (slides, strip, format panel)
+- `app/src/components/AIPanel.tsx` — Copilot chat, agent loop, voice, model picker
+- `app/src/services/copilot.ts` — `streamCopilotChat`, `runCopilotAgent`, `fetchCopilotModels`
+- `app/src/utils/workspaceTools.ts` — `WORKSPACE_TOOLS` + `buildToolExecutor`
+- `app/src/utils/canvasAI.ts` — `summarizeCanvas`, `canvasToDataUrl`, `executeCanvasCommands`
 
-## Format Panel (`CanvasFormatPanel` in CanvasEditor.tsx)
+**Format Panel (`CanvasFormatPanel`)** — do not re-add already-implemented controls.
+Currently implemented: font, size, text align, color, fill, stroke/dash, rotation, opacity,
+align/distribute, lock, corner radius, shadow, geo type picker, W×H inputs, layer order,
+group/ungroup, flip H/V, slide export. See AGENT.md for the full list.
 
-Implemented controls (do not re-add):
-- Slide export, Make Slide, Arrow controls, Font family (+ system font picker)
-- Size (S/M/L/XL), Text align, Color swatches, Fill style, Stroke/Dash
-- Rotation (±15° + input), Opacity slider, Align & Distribute, Lock/Unlock
-- Corner Radius (meta.cornerRadius), Shadow (meta.shadow — ShadowMeta type)
-- **Geo shape type picker** (10 common + 10 expandable)
-- **W×H dimension inputs** (single shape)
-- **Layer order** (front/forward/backward/back)
-- **Group/Ungroup**
-- **Flip H/V**
-
----
-
-## Agent Loop (`runCopilotAgent` in copilot.ts)
-
-- `MAX_ROUNDS = 50`; exhaustion shows user-facing "continue" CTA
-- Token estimate: `chars / 4`; threshold `CONTEXT_TOKEN_LIMIT = 90_000`
-- On overflow: non-streaming summarization call → writes `archive` entry to log → rebuilds context to `[system, original task, SESSION SUMMARY, last 8 messages]`
-- Tool executor built by `buildToolExecutor()` in `workspaceTools.ts`
-- Available tools: `read_workspace_file`, `write_workspace_file`, `list_workspace_files`, `list_canvas_shapes`, `canvas_op`, `canvas_screenshot`, `mark_for_review`
+**Agent loop** — `MAX_ROUNDS=50`, `CONTEXT_TOKEN_LIMIT=90_000`, auto-summarization on overflow.
+Available tools: `read_workspace_file`, `write_workspace_file`, `list_workspace_files`,
+`list_canvas_shapes`, `canvas_op`, `canvas_screenshot`, `mark_for_review`.
 
 ---
 

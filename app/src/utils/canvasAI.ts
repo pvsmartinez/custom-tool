@@ -220,6 +220,46 @@ export async function canvasToDataUrl(editor: Editor, pixelRatio = 1): Promise<s
   }
 }
 
+/**
+ * Compress an image data URL: scale down to `maxWidth` pixels and convert to
+ * JPEG at `quality` (0–1). Helps keep vision payloads within API limits.
+ *
+ * Returns the original URL unchanged if it is already small (< 100 KB) or
+ * if the conversion fails for any reason.
+ */
+export function compressDataUrl(
+  dataUrl: string,
+  maxWidth = 1024,
+  quality = 0.7,
+): Promise<string> {
+  return new Promise((resolve) => {
+    // Already small — no need to compress.
+    if (dataUrl.length < 100_000) {
+      resolve(dataUrl);
+      return;
+    }
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const scale = img.width > maxWidth ? maxWidth / img.width : 1;
+        const w = Math.round(img.width * scale);
+        const h = Math.round(img.height * scale);
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) { resolve(dataUrl); return; }
+        ctx.drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      } catch {
+        resolve(dataUrl); // fallback: send original rather than nothing
+      }
+    };
+    img.onerror = () => resolve(dataUrl);
+    img.src = dataUrl;
+  });
+}
+
 // ── Write: parse AI response and execute commands ────────────────────────────
 
 /**

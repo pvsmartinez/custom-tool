@@ -39,6 +39,17 @@
   margin: 0.9em 0;
 }
 
+/* Remove top margin from the very first element so it doesn't double up with body padding */
+.md-preview-body > *:first-child {
+  margin-top: 0;
+}
+
+/* Hide empty paragraphs that marked.js emits for blank lines */
+.md-preview-body p:empty,
+.md-preview-body p:has(> br:only-child) {
+  display: none;
+}
+
 /* Links */
 .md-preview-body a {
   color: var(--accent);

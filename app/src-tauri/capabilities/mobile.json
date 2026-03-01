@@ -8,6 +8,7 @@
     "core:default",
     "fs:default",
     "http:default",
+    "deep-link:default",
     { "identifier": "http:allow-fetch", "allow": [
         { "url": "https://api.githubcopilot.com/**" },
         { "url": "https://api.github.com/**" },

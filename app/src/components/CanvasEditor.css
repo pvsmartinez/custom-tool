@@ -299,11 +299,11 @@
 
 
 .canvas-present-overlay {
-  position: absolute;
+  position: fixed;
   bottom: 20px;
   left: 50%;
   transform: translateX(-50%);
-  z-index: calc(var(--z-canvas) + 100);
+  z-index: 9001;
   display: flex;
   align-items: center;
   gap: var(--space-5);
@@ -315,11 +315,12 @@
   pointer-events: all;
 }
 
-/* Fullscreen PNG slide stage — sits behind the nav overlay (z-index 550 < 600) */
+/* Fullscreen PNG slide stage — uses position:fixed to cover the ENTIRE
+   window, including sidebar, tab bar, AI panel and bottom chrome.         */
 .canvas-present-stage {
-  position: absolute;
+  position: fixed;
   inset: 0;
-  z-index: calc(var(--z-canvas) + 50);
+  z-index: 9000;
   background: #000;
   display: flex;
   align-items: center;

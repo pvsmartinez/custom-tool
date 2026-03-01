@@ -448,6 +448,133 @@ export default function ExportModal({
                         </span>
                       </div>
                     )}
+
+                    {/* PDF-only options ─────────────────────────────────── */}
+                    {target.format === 'pdf' && (
+                      <>
+                        <div className="em-section-label">PDF Options</div>
+
+                        {/* Versioning */}
+                        <div className="em-field">
+                          <label>Output versioning</label>
+                          <select
+                            value={target.versionOutput ?? ''}
+                            onChange={(e) => updateTarget(target.id, {
+                              versionOutput: (e.target.value || undefined) as ExportTarget['versionOutput'],
+                            })}
+                          >
+                            <option value="">Overwrite (no versioning)</option>
+                            <option value="timestamp">Append date  (manuscript_2026-02-28.pdf)</option>
+                            <option value="counter">Increment counter  (manuscript_v3.pdf)</option>
+                          </select>
+                        </div>
+
+                        {/* Custom CSS */}
+                        <div className="em-field">
+                          <label>Custom CSS file <span className="em-hint">(workspace-relative path)</span></label>
+                          <input
+                            className="em-mono"
+                            placeholder="styles/book.css"
+                            value={target.pdfCssFile ?? ''}
+                            onChange={(e) => updateTarget(target.id, { pdfCssFile: e.target.value || undefined })}
+                          />
+                          <span className="em-hint">
+                            Appended after the default styles — use it to set fonts, page size, colours, etc.
+                          </span>
+                        </div>
+
+                        {/* Title page */}
+                        <div className="em-field">
+                          <label>
+                            <input
+                              type="checkbox"
+                              checked={!!target.titlePage}
+                              onChange={(e) => updateTarget(target.id, {
+                                titlePage: e.target.checked ? {} : undefined,
+                              })}
+                            />
+                            {' '}Include title page
+                          </label>
+                        </div>
+                        {target.titlePage !== undefined && (
+                          <div className="em-field em-field--indented">
+                            <input
+                              placeholder="Title"
+                              value={target.titlePage?.title ?? ''}
+                              onChange={(e) => updateTarget(target.id, { titlePage: { ...target.titlePage, title: e.target.value || undefined } })}
+                            />
+                            <input
+                              placeholder="Subtitle"
+                              value={target.titlePage?.subtitle ?? ''}
+                              onChange={(e) => updateTarget(target.id, { titlePage: { ...target.titlePage, subtitle: e.target.value || undefined } })}
+                            />
+                            <input
+                              placeholder="Author"
+                              value={target.titlePage?.author ?? ''}
+                              onChange={(e) => updateTarget(target.id, { titlePage: { ...target.titlePage, author: e.target.value || undefined } })}
+                            />
+                            <input
+                              placeholder="Version (e.g. v94)"
+                              value={target.titlePage?.version ?? ''}
+                              onChange={(e) => updateTarget(target.id, { titlePage: { ...target.titlePage, version: e.target.value || undefined } })}
+                            />
+                          </div>
+                        )}
+
+                        {/* TOC */}
+                        <div className="em-field">
+                          <label>
+                            <input
+                              type="checkbox"
+                              checked={target.toc ?? false}
+                              onChange={(e) => updateTarget(target.id, { toc: e.target.checked || undefined })}
+                            />
+                            {' '}Generate Table of Contents
+                          </label>
+                          <span className="em-hint">
+                            {target.merge
+                              ? 'Inserts a TOC page (H1/H2 headings) after the title page.'
+                              : 'Inserts a TOC page at the beginning of each exported PDF.'}
+                          </span>
+                        </div>
+
+                        {/* Pre-processing */}
+                        <div className="em-section-label">Pre-export transformations</div>
+                        <div className="em-field em-field--checkgroup">
+                          <label>
+                            <input
+                              type="checkbox"
+                              checked={target.preProcess?.stripFrontmatter ?? false}
+                              onChange={(e) => updateTarget(target.id, {
+                                preProcess: { ...target.preProcess, stripFrontmatter: e.target.checked || undefined },
+                              })}
+                            />
+                            {' '}Strip YAML front-matter
+                          </label>
+                          <label>
+                            <input
+                              type="checkbox"
+                              checked={target.preProcess?.stripDraftSections ?? false}
+                              onChange={(e) => updateTarget(target.id, {
+                                preProcess: { ...target.preProcess, stripDraftSections: e.target.checked || undefined },
+                              })}
+                            />
+                            {' '}Remove ### Draft sections
+                          </label>
+                          <label>
+                            <input
+                              type="checkbox"
+                              checked={target.preProcess?.stripDetails ?? false}
+                              onChange={(e) => updateTarget(target.id, {
+                                preProcess: { ...target.preProcess, stripDetails: e.target.checked || undefined },
+                              })}
+                            />
+                            {' '}Remove &lt;details&gt; blocks
+                          </label>
+                        </div>
+                      </>
+                    )}
+
                     {(target.format === 'canvas-png' || target.format === 'canvas-pdf') && (
                       <div className="em-hint em-hint--block em-hint--info">
                         Canvas files are opened headlessly during export. A full-screen overlay covers the UI — no visible tab switching.

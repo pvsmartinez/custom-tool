@@ -981,16 +981,17 @@ export default function Sidebar({
           </div>
         )}
         <button
-          className={`sidebar-btn sidebar-btn-sync${syncStatus !== 'idle' ? ` ${syncStatus}` : ''}${syncStatus === 'idle' && gitChangedCount > 0 ? ' has-changes' : ''}`}
-          onClick={() => { setShowSyncModal(true); fetchGitCount(); }}
-          disabled={syncStatus === 'syncing'}
-          title="Review git diff and commit + push"
+          className={`sidebar-btn sidebar-btn-sync${syncStatus !== 'idle' ? ` ${syncStatus}` : ''}${syncStatus === 'idle' && gitChangedCount > 0 ? ' has-changes' : ''}${!workspace.hasGit ? ' disabled-no-git' : ''}`}
+          onClick={() => { if (workspace.hasGit) { setShowSyncModal(true); fetchGitCount(); } }}
+          disabled={syncStatus === 'syncing' || !workspace.hasGit}
+          title={workspace.hasGit ? 'Review git diff and commit + push' : 'Workspace local — sem git remoto'}
         >
           <span className="sidebar-sync-label">
-            {syncStatus === 'idle'    && '⇅ Sync'}
-            {syncStatus === 'syncing' && '⇅ Syncing…'}
-            {syncStatus === 'done'    && <><Check weight="thin" size={13} />{' Synced'}</>}
-            {syncStatus === 'error'   && <><Warning weight="thin" size={13} />{' Sync failed'}</>}
+            {!workspace.hasGit     && '⊘ Local'}
+            {workspace.hasGit && syncStatus === 'idle'    && '⇅ Sync'}
+            {workspace.hasGit && syncStatus === 'syncing' && '⇅ Syncing…'}
+            {workspace.hasGit && syncStatus === 'done'    && <><Check weight="thin" size={13} />{' Synced'}</>}
+            {workspace.hasGit && syncStatus === 'error'   && <><Warning weight="thin" size={13} />{' Sync failed'}</>}
           </span>
           {syncStatus === 'idle' && gitChangedCount > 0 && (
             <span className="sidebar-sync-badge">{gitChangedCount}</span>
@@ -1026,15 +1027,6 @@ export default function Sidebar({
             </div>
           </div>
         )}
-        {/* ⊡ Google — deprecated; button hidden but panel code kept for future re-enable
-        <button
-          className="sidebar-btn sidebar-btn-google"
-          onClick={onGoogleOpen}
-          title="Google Drive backup & Slides"
-        >
-          ⊡ Google
-        </button>
-        */}
         {/* Custom workspace buttons */}
         {(workspace.config.sidebarButtons ?? []).map((btn: SidebarButton) => (
           <button

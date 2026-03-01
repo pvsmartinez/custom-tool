@@ -34,6 +34,20 @@ export interface ExportResult {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+/**
+ * Decode a data URL directly to bytes without using `fetch()`.
+ * More reliable than fetch(dataUrl).arrayBuffer() in WebKit sandboxes.
+ */
+function dataUrlToBytes(dataUrl: string): Uint8Array {
+  const comma = dataUrl.indexOf(',');
+  if (comma === -1) throw new Error('Invalid data URL — missing comma separator');
+  const base64 = dataUrl.slice(comma + 1);
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
 type AnyFrame = TLShape & {
   x: number; y: number;
   props: { w: number; h: number; name: string };
@@ -100,7 +114,116 @@ async function ensureDir(absDir: string) {
   if (!(await exists(absDir))) await mkdir(absDir, { recursive: true });
 }
 
-// ── Format handlers ───────────────────────────────────────────────────────────
+// ── Pre-processing helpers ────────────────────────────────────────────────────
+
+/** Apply markdown transformations before rendering to PDF. */
+function preProcessMarkdown(
+  content: string,
+  opts: ExportTarget['preProcess'],
+): string {
+  if (!opts) return content;
+  let out = content;
+
+  if (opts.stripFrontmatter) {
+    // Must be at the very start of the file (no `m` flag so ^ = start of string).
+    // Handles \r\n and plain \n line endings.
+    out = out.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '');
+  }
+
+  if (opts.stripDetails) {
+    // Remove <details>…</details> HTML blocks (greedy across newlines)
+    out = out.replace(/<details[\s\S]*?<\/details>/gi, '');
+  }
+
+  if (opts.stripDraftSections) {
+    // Line-by-line approach — reliable, avoids \Z (not valid in JS)
+    const lines = out.split('\n');
+    const kept: string[] = [];
+    let inDraft = false;
+    for (const line of lines) {
+      if (/^### Draft\b/.test(line)) { inDraft = true; continue; }
+      // Any heading at the same or higher level ends the draft section
+      if (inDraft && /^#{1,3}\s/.test(line)) inDraft = false;
+      if (!inDraft) kept.push(line);
+    }
+    out = kept.join('\n');
+  }
+
+  return out.trim();
+}
+
+/** Build a styled HTML title page string. */
+function buildTitlePageHtml(tp: NonNullable<ExportTarget['titlePage']>): string {
+  const escape = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const parts: string[] = ['<div class="title-page">'];
+  if (tp.title)    parts.push(`<div class="tp-title">${escape(tp.title)}</div>`);
+  if (tp.subtitle) parts.push(`<div class="tp-subtitle">${escape(tp.subtitle)}</div>`);
+  if (tp.author)   parts.push(`<div class="tp-author">${escape(tp.author)}</div>`);
+  if (tp.version)  parts.push(`<div class="tp-version">${escape(tp.version)}</div>`);
+  parts.push('</div>');
+  return parts.join('\n');
+}
+
+/** Extract headings from markdown and build an HTML TOC.
+ *  Skips headings that appear inside fenced code blocks (``` or ~~~). */
+function buildTocHtml(content: string): string {
+  const lines = content.split('\n');
+  const items: string[] = [];
+  let inFence = false;
+  for (const line of lines) {
+    // Toggle fence state on opening/closing ``` or ~~~
+    if (/^\s*(`{3,}|~{3,})/.test(line)) { inFence = !inFence; continue; }
+    if (inFence) continue;
+    const h1 = line.match(/^# (.+)/);
+    const h2 = line.match(/^## (.+)/);
+    const heading = h1 ?? h2;
+    if (!heading) continue;
+    const level = h1 ? 'h1' : 'h2';
+    // Strip inline markdown (bold, italic, code, links) from heading text
+    const raw = heading[1]
+      .replace(/\*\*(.+?)\*\*/g, '$1')
+      .replace(/\*(.+?)\*/g, '$1')
+      .replace(/`(.+?)`/g, '$1')
+      .replace(/\[(.+?)\]\(.+?\)/g, '$1')
+      .trim();
+    const text = raw.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    items.push(`<li class="toc-${level}">${text}</li>`);
+  }
+  if (items.length === 0) return '';
+  return [
+    '<div class="toc-page">',
+    '<h2 class="toc-heading">Table of Contents</h2>',
+    '<ul class="toc-list">',
+    ...items,
+    '</ul>',
+    '</div>',
+  ].join('\n');
+}
+
+/**
+ * Return the output path, applying versioning when requested.
+ * - 'timestamp' → appends _YYYY-MM-DD before the extension
+ * - 'counter'   → appends _v1, _v2 … scanning existing files
+ */
+async function versionedPath(
+  wsPath: string,
+  outputDir: string,
+  baseName: string,
+  ext: string,
+  mode: ExportTarget['versionOutput'],
+): Promise<string> {
+  if (!mode) return `${outputDir}/${baseName}.${ext}`;
+
+  if (mode === 'timestamp') {
+    const today = new Date().toISOString().slice(0, 10);
+    return `${outputDir}/${baseName}_${today}.${ext}`;
+  }
+
+  // counter mode: find the first unused _vN
+  let n = 1;
+  while (await exists(`${wsPath}/${outputDir}/${baseName}_v${n}.${ext}`)) n++;
+  return `${outputDir}/${baseName}_v${n}.${ext}`;
+}
 
 async function exportPDF(
   wsPath: string,
@@ -117,27 +240,62 @@ async function exportPDF(
     return { targetId: target.id, outputs: [], errors: ['No files matched this target. Check the include extensions or pinned file list.'], elapsed: Date.now() - t0 };
   }
 
+  // ── Load optional custom CSS ──────────────────────────────────────────────
+  let customCss: string | undefined;
+  if (target.pdfCssFile?.trim()) {
+    try { customCss = await readTextFile(`${wsPath}/${target.pdfCssFile.trim()}`); }
+    catch (e) { errors.push(`CSS file "${target.pdfCssFile}" not found — using default styles. (${e})`); }
+  }
+
+  // ── Build optional prepend HTML (title page + TOC) ───────────────────────
+  // toc is supported for both merged and single-file exports.
+  function buildPrependHtml(markdown: string): string {
+    let html = '';
+    if (target.titlePage && Object.values(target.titlePage).some(Boolean)) {
+      html += buildTitlePageHtml(target.titlePage);
+    }
+    if (target.toc) {
+      const tocHtml = buildTocHtml(markdown);
+      if (tocHtml) html += '\n' + tocHtml;
+    }
+    return html;
+  }
+
   if (target.merge && files.length >= 1) {
-    // Merge: concatenate all markdown into one PDF with HR separators
+    // ── Merge: concatenate all markdown into one PDF ──────────────────────
     const parts: string[] = [];
     for (const rel of files) {
-      try { parts.push(await readTextFile(`${wsPath}/${rel}`)); }
-      catch (e) { errors.push(`${rel}: ${e}`); }
+      try {
+        const raw = await readTextFile(`${wsPath}/${rel}`);
+        parts.push(preProcessMarkdown(raw, target.preProcess));
+      } catch (e) { errors.push(`${rel}: ${e}`); }
     }
     if (parts.length > 0) {
+      // Join chapters with double newlines. Chapter-level headings (# H1)
+      // provide natural visual separation in the rendered PDF.
+      const merged = parts.join('\n\n');
       const name = target.mergeName?.trim() || 'merged';
-      const outRel = `${target.outputDir}/${name}.pdf`;
+      const outRel = await versionedPath(wsPath, target.outputDir, name, 'pdf', target.versionOutput);
       try {
-        await exportMarkdownToPDF(parts.join('\n\n---\n\n'), `${wsPath}/${outRel}`, wsPath);
+        await exportMarkdownToPDF(merged, `${wsPath}/${outRel}`, wsPath, {
+          customCss,
+          prependHtml: buildPrependHtml(merged),
+        });
         outputs.push(outRel);
       } catch (e) { errors.push(`merge: ${e}`); }
     }
   } else {
+    // ── One PDF per file ──────────────────────────────────────────────────
     for (const rel of files) {
-      const outRel = `${target.outputDir}/${stripExt(basename(rel))}.pdf`;
+      const baseName = stripExt(basename(rel));
+      const outRel = await versionedPath(wsPath, target.outputDir, baseName, 'pdf', target.versionOutput);
       try {
-        const content = await readTextFile(`${wsPath}/${rel}`);
-        await exportMarkdownToPDF(content, `${wsPath}/${outRel}`, wsPath);
+        const raw = await readTextFile(`${wsPath}/${rel}`);
+        const content = preProcessMarkdown(raw, target.preProcess);
+        await exportMarkdownToPDF(content, `${wsPath}/${outRel}`, wsPath, {
+          customCss,
+          prependHtml: buildPrependHtml(content),
+        });
         outputs.push(outRel);
       } catch (e) { errors.push(`${rel}: ${e}`); }
     }
@@ -194,9 +352,7 @@ async function exportCanvasPNG(
         const suffix = ids.length > 1 ? `-${shapeName.replace(/[^a-z0-9]/gi, '-')}` : '';
         const outRel = `${target.outputDir}/${canvasBasename(rel)}${suffix}.png`;
         const { url } = await editor.toImageDataUrl([ids[i]], { format: 'png', pixelRatio: 2, background: true });
-        const response = await fetch(url);
-        const buf = await response.arrayBuffer();
-        await writeFile(`${wsPath}/${outRel}`, new Uint8Array(buf));
+        await writeFile(`${wsPath}/${outRel}`, dataUrlToBytes(url));
         outputs.push(outRel);
       }
     } catch (e) {

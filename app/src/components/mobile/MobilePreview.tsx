@@ -139,6 +139,47 @@ function VideoViewer({ absPath }: { absPath: string }) {
   );
 }
 
+// ── Audio player ────────────────────────────────────────────────────────
+
+function AudioViewer({ absPath }: { absPath: string }) {
+  const [src, setSrc] = useState<string | null>(null);
+
+  useEffect(() => {
+    let url: string | null = null;
+    readFile(absPath).then(bytes => {
+      const ext = absPath.split('.').pop()?.toLowerCase() ?? '';
+      const mimeMap: Record<string, string> = {
+        webm: 'audio/webm', ogg: 'audio/ogg',
+        m4a: 'audio/mp4',  mp4: 'audio/mp4',
+        mp3: 'audio/mpeg', wav: 'audio/wav',
+        aac: 'audio/aac',  opus: 'audio/ogg',
+      };
+      const mime = mimeMap[ext] ?? 'audio/webm';
+      const blob = new Blob([bytes], { type: mime });
+      url = URL.createObjectURL(blob);
+      setSrc(url);
+    }).catch(() => {});
+    return () => { if (url) URL.revokeObjectURL(url); };
+  }, [absPath]);
+
+  if (!src) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', padding: 32 }}>
+        <div className="mb-spinner" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="mb-audio-wrap">
+      <div className="mb-audio-icon">🎵</div>
+      <div className="mb-audio-filename">{absPath.split('/').pop()}</div>
+      {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+      <audio controls src={src} className="mb-audio-player" />
+    </div>
+  );
+}
+
 // ── PDF viewer ───────────────────────────────────────────────────────────
 
 function PDFViewer({ absPath }: { absPath: string }) {
@@ -180,6 +221,8 @@ export default function MobilePreview({ workspacePath, filePath, onClear }: Mobi
         return <ImageViewer absPath={absPath} />;
       case 'video':
         return <VideoViewer absPath={absPath} />;
+      case 'audio':
+        return <AudioViewer absPath={absPath} />;
       case 'pdf':
         return <PDFViewer absPath={absPath} />;
       case 'code':

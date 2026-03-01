@@ -133,10 +133,16 @@ export async function loadWorkspace(folderPath: string): Promise<Workspace> {
     } catch { /* hidden path or permission denied — skip */ }
   }
 
-  // 4. Auto-init git if needed
+  // 4. Auto-init git if needed; then detect if a remote is configured
   try {
     await invoke('git_init', { path: folderPath });
   } catch { /* not fatal */ }
+
+  let hasGit = false;
+  try {
+    const remote = await invoke<string>('git_get_remote', { path: folderPath });
+    hasGit = !!remote?.trim();
+  } catch { /* no remote = local only */ }
 
   // 5. Build full recursive file tree (and derive .md file list from it)
   const fileTree = await buildFileTree(folderPath);
@@ -149,10 +155,11 @@ export async function loadWorkspace(folderPath: string): Promise<Workspace> {
     agentContext,
     files,
     fileTree,
+    hasGit,
   };
 
-  // 6. Persist to recents
-  saveRecent({ path: folderPath, name: config.name, lastOpened: new Date().toISOString(), lastEditedAt: config.lastEditedAt });
+  // 6. Persist to recents (include hasGit so picker can show badge without opening)
+  saveRecent({ path: folderPath, name: config.name, lastOpened: new Date().toISOString(), lastEditedAt: config.lastEditedAt, hasGit });
 
   return workspace;
 }

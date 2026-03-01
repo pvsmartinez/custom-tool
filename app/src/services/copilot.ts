@@ -117,14 +117,15 @@ const CONTEXT_TOKEN_LIMIT = 90_000;
 
 /**
  * Rough token estimate: 1 token ≈ 4 characters of JSON-serialized content.
- * Base64 data URLs are stripped before counting so they don't skew the estimate.
+ * Base64 images are counted at their actual size (they DO consume context tokens).
+ * Vision images (PNG/JPEG) cost roughly 1 token per 4 chars of base64.
  */
 export function estimateTokens(messages: ChatMessage[]): number {
   return Math.ceil(
     messages.reduce((sum, m) => {
       const raw = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
-      const stripped = raw.replace(/data:image\/[^;]+;base64,[A-Za-z0-9+/=]+/g, '[img]');
-      return sum + stripped.length / 4;
+      // Count base64 images at full length (they are real tokens, not free)
+      return sum + raw.length / 4;
     }, 0),
   );
 }
@@ -558,6 +559,31 @@ export async function streamCopilotChat(
       if (attempt > 0) {
         await new Promise((r) => setTimeout(r, 1000 * 2 ** (attempt - 1)));
       }
+      // Hard payload size guard: if the serialised body exceeds ~6 MB, strip base64
+      // images from the context (except they've been moved to user messages already).
+      // This prevents 400 / 413 errors when a large screenshot is included.
+      const MAX_PAYLOAD_BYTES = 6 * 1024 * 1024; // 6 MB
+      let messagesForRequest = cleanMessages;
+      const bodyCandidate = JSON.stringify({
+        model,
+        messages: cleanMessages,
+        ...(tools ? { tools, tool_choice: 'auto' } : {}),
+        stream: true,
+        ...modelApiParams(model, 0.7, 16384),
+      });
+      if (bodyCandidate.length > MAX_PAYLOAD_BYTES) {
+        console.warn(
+          `[Copilot] payload ${(bodyCandidate.length / 1024).toFixed(0)} KB exceeds ${MAX_PAYLOAD_BYTES / 1024 / 1024} MB limit — stripping vision messages`,
+        );
+        // Remove vision user messages (multipart with image_url) starting from oldest
+        const stripped = cleanMessages.filter(
+          (m) =>
+            !(m.role === 'user' &&
+              Array.isArray(m.content) &&
+              (m.content as any[]).some((p: any) => p.type === 'image_url')),
+        );
+        messagesForRequest = stripped;
+      }
       response = await fetch(COPILOT_API_URL, {
         method: 'POST',
         headers: {
@@ -568,7 +594,7 @@ export async function streamCopilotChat(
         signal,
         body: JSON.stringify({
           model,
-          messages: cleanMessages,
+          messages: messagesForRequest,
           ...(tools ? { tools, tool_choice: 'auto' } : {}),
           stream: true,
           ...modelApiParams(model, 0.7, 16384),
@@ -1049,6 +1075,7 @@ export async function runCopilotAgent(
   workspacePath?: string,
   sessionId?: string,
   signal?: AbortSignal,
+  onExhausted?: () => void,
 ): Promise<void> {
   try {
     const sessionToken = await getCopilotSessionToken();
@@ -1062,7 +1089,7 @@ export async function runCopilotAgent(
     // (consecutive roles, orphan tool messages) before the first round.
     // Messages appended within the loop are synthetic and already clean.
     const loop = sanitizeLoop([...messages]);
-    const MAX_ROUNDS = 50;
+    const MAX_ROUNDS = 100;
 
     for (let round = 0; round < MAX_ROUNDS; round++) {
       // Early-exit if the caller aborted (user sent a new message mid-run)
@@ -1492,9 +1519,10 @@ export async function runCopilotAgent(
 
     // Exhausted all rounds — let the user know and allow them to continue.
     onChunk(
-      `\n\n⚠️ The agent reached the ${MAX_ROUNDS}-round limit and may not have finished. ` +
-      `Reply **"continue"** to pick up where it left off.`,
+      `\n\n⚠️ O agente atingiu o limite de ${MAX_ROUNDS} rodadas e pode não ter terminado. ` +
+      `Clique em **Continuar** para retomar aonde parou.`,
     );
+    onExhausted?.();
     onDone();
   } catch (err) {
     // AbortError = intentional interrupt by the user sending a new message — swallow silently

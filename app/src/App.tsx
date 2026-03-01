@@ -27,11 +27,12 @@ import AIMarkOverlay from './components/AIMarkOverlay';
 import TabBar from './components/TabBar';
 import BottomPanel, { type FileMeta } from './components/BottomPanel';
 import { useDragResize } from './hooks/useDragResize';
+import { syncSecretsFromCloud } from './services/apiSecrets';
 import { useTabManager } from './hooks/useTabManager';
 import { useAutosave } from './hooks/useAutosave';
 import { useFileWatcher } from './hooks/useFileWatcher';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
-import type { Editor as TldrawEditor, TLShapeId } from 'tldraw';
+import type { TLShapeId } from 'tldraw';
 const CanvasEditor = lazy(() => import('./components/CanvasEditor'));
 import { canvasAIContext, executeCanvasCommands } from './utils/canvasAI';
 import { exportMarkdownToPDF } from './utils/exportPDF';
@@ -44,14 +45,18 @@ import {
   flatMdFiles,
   refreshFileTree,
 } from './services/workspace';
-import { loadMarks, addMark, addMarksBulk, saveMarks, markReviewed } from './services/aiMarks';
+import { registerWorkspace } from './services/syncConfig';
+import { useAuthSession } from './hooks/useAuthSession';
 import { onLockedFilesChange, getLockedFiles } from './services/copilotLock';
 import { loadWorkspaceSession, saveWorkspaceSession } from './services/workspaceSession';
 import { getFileTypeInfo } from './utils/fileType';
 import { generateId } from './utils/generateId';
-import type { Workspace, AIEditMark, AppSettings, WorkspaceExportConfig } from './types';
+import type { Workspace, AIEditMark, AppSettings, WorkspaceExportConfig, WorkspaceConfig } from './types';
 import { DEFAULT_APP_SETTINGS, APP_SETTINGS_KEY } from './types';
 import { useBacklinks } from './hooks/useBacklinks';
+import { useModals } from './hooks/useModals';
+import { useCanvasState } from './hooks/useCanvasState';
+import { useAIMarks, makeCanvasMark } from './hooks/useAIMarks';
 import BacklinksPanel from './components/BacklinksPanel';
 import './App.css';
 
@@ -64,19 +69,6 @@ function loadAppSettings(): AppSettings {
 }
 
 const FALLBACK_CONTENT = `# Untitled Document\n\nStart writing here…\n`;
-
-/** Build an AIEditMark for a canvas AI edit. */
-function makeCanvasMark(relPath: string, shapeIds: string[], model: string): AIEditMark {
-  return {
-    id: generateId(),
-    fileRelPath: relPath,
-    text: `AI canvas edit — ${shapeIds.length} shape${shapeIds.length !== 1 ? 's' : ''}`,
-    model,
-    insertedAt: new Date().toISOString(),
-    reviewed: false,
-    canvasShapeIds: shapeIds,
-  };
-}
 
 export default function App() {
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
@@ -117,26 +109,14 @@ export default function App() {
     switchToTab, addTab, closeTab, closeAllTabs, closeOthers, closeToRight, reorderTabs,
     promoteTab, clearAll,
   } = useTabManager({ fallbackContent: FALLBACK_CONTENT });
-  const [aiOpen, setAiOpen] = useState(false);
-  const [aiInitialPrompt, setAiInitialPrompt] = useState('');
-  const [canvasSlideCount, setCanvasSlideCount] = useState(0);
   const wordCount = useMemo(() => content.trim().split(/\s+/).filter(Boolean).length, [content]);
   const [fileStat, setFileStat] = useState<string | null>(null);
-  const [showUpdateModal, setShowUpdateModal] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
-  const [settingsInitialTab, setSettingsInitialTab] = useState<'general' | 'workspace' | 'sync'>('general');
   const [appSettings, setAppSettings] = useState<AppSettings>(() => initSettings);
-  const [imgSearchOpen, setImgSearchOpen] = useState(false);
   const [dirtyFiles, setDirtyFiles] = useState<Set<string>>(new Set());
-  const [aiMarks, setAiMarks] = useState<AIEditMark[]>([]);
   // Find + Replace bar (Ctrl/Cmd+F)
-  const [findReplaceOpen, setFindReplaceOpen] = useState(false);
   // Pending jump: set by project search results; cleared after content loads
   const [pendingJumpText, setPendingJumpText] = useState<string | null>(null);
   const [pendingJumpLine, setPendingJumpLine] = useState<number | null>(null);
-  // AI highlight toggle and nav
-  const [aiHighlight, setAiHighlight] = useState(initSettings.aiHighlightDefault);
-  const [aiNavIndex, setAiNavIndex] = useState(0);
   // Sidebar / panel visibility, mode and widths
   const [sidebarMode, setSidebarMode] = useState<'explorer' | 'search'>('explorer');
   const [sidebarOpen, setSidebarOpen] = useState(initSettings.sidebarOpenDefault);
@@ -161,6 +141,31 @@ export default function App() {
     const unsub = onLockedFilesChange((locked) => setLockedFiles(locked));
     return unsub;
   }, []);
+  // Stable refs declared early (before hooks that reference them)
+  const editorRef = useRef<EditorHandle>(null);
+  const editorAreaRef = useRef<HTMLDivElement>(null);
+  const aiPanelRef = useRef<AIPanelHandle | null>(null);
+  const webPreviewRef = useRef<WebPreviewHandle | null>(null);
+  const mountedRef = useRef(true);
+  // ── Modals / overlays (──────────────────────────────────────────────────
+  const {
+    showUpdateModal, setShowUpdateModal,
+    showSettings, setShowSettings,
+    settingsInitialTab, openSettings,
+    imgSearchOpen, setImgSearchOpen,
+    exportModalOpen, setExportModalOpen,
+    findReplaceOpen, setFindReplaceOpen,
+    aiOpen, setAiOpen,
+    aiInitialPrompt, setAiInitialPrompt,
+  } = useModals();
+  // ── Canvas refs + transient state ───────────────────────────────────────
+  const {
+    canvasEditorRef,
+    forceSaveRef,
+    rescanFramesRef,
+    canvasResetKey, setCanvasResetKey,
+    canvasSlideCount, setCanvasSlideCount,
+  } = useCanvasState();
   // ── Panel resize (sidebar ↔ editor ↔ AI panel) ───────────────────────────
   const { sidebarWidth, aiPanelWidth, startSidebarDrag, startAiDrag } = useDragResize();
   const { autosaveDelayRef, scheduleAutosave, cancelAutosave } = useAutosave({
@@ -170,6 +175,35 @@ export default function App() {
     setWorkspace,
     initialDelay: initSettings.autosaveDelay,
   });
+  // ── AI edit marks ────────────────────────────────────────────────────────
+  const {
+    aiMarks, setAiMarks,
+    aiHighlight, setAiHighlight,
+    aiNavIndex, setAiNavIndex,
+    activeFileMarks,
+    loadMarksForWorkspace,
+    handleMarkRecorded,
+    handleCanvasMarkRecorded,
+    handleMarkReviewed,
+    handleReviewAllMarks,
+    handleMarkUserEdited,
+    handleAINavNext,
+    handleAINavPrev,
+    recordMark,
+    cleanupMarksForContent,
+  } = useAIMarks({
+    workspace,
+    activeFile,
+    initHighlightDefault: initSettings.aiHighlightDefault,
+    activeTabIdRef,
+    tabsRef,
+    tabContentsRef,
+    savedContentRef,
+    canvasEditorRef,
+    editorRef,
+    setContent,
+    setDirtyFiles,
+  });
   // Visual "Saved ✓" toast
   const [savedToast, setSavedToast] = useState(false);
   const savedToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -178,30 +212,9 @@ export default function App() {
   // Pandoc PDF export
   const [pandocBusy, setPandocBusy] = useState(false);
   const [pandocError, setPandocError] = useState<string | null>(null);
-  // Export / Build Settings modal
-  const [exportModalOpen, setExportModalOpen] = useState(false);
   // Export lock — shown while auto-opening a canvas for export (blur + coffee animation)
   const [exportLock, setExportLock] = useState(false);
   const exportRestoreTabRef = useRef<string | null>(null);
-  // Lets CanvasEditor expose an imperative flush so Cmd+S always saves the
-  // latest snapshot even within the canvas's 500 ms debounce window.
-  const forceSaveRef = useRef<(() => void) | null>(null);
-  const editorRef = useRef<EditorHandle>(null);
-  // Ref to the editor-area container div (needed for AIMarkOverlay positioning)
-  const editorAreaRef = useRef<HTMLDivElement>(null);
-  // Holds the live tldraw Editor instance when a canvas file is open
-  const canvasEditorRef = useRef<TldrawEditor | null>(null);
-  const aiPanelRef = useRef<AIPanelHandle | null>(null);
-  /** Ref to the live HTML preview pane — used by the screenshot_preview agent tool. */
-  const webPreviewRef = useRef<WebPreviewHandle | null>(null);
-  // Tracks whether this component is still mounted (used to cancel async polls on cleanup)
-  const mountedRef = useRef(true);
-  // Incremented each time the user recovers from a canvas error — forces remount
-  const [canvasResetKey, setCanvasResetKey] = useState(0);
-  // Lets CanvasEditor expose its rescanFrames() so AIPanel can force-sync
-  // the slide strip immediately after canvas_op (belt-and-suspenders alongside
-  // the debounced store listener).
-  const rescanFramesRef = useRef<(() => void) | null>(null);
   // Always-fresh ref for dirty state so watcher can check without stale closure
   const dirtyFilesRef = useRef<Set<string>>(dirtyFiles);
   dirtyFilesRef.current = dirtyFiles;
@@ -257,12 +270,23 @@ export default function App() {
 
   // Listen for the native menu "Settings…" event (⌘,)
   useEffect(() => {
-    const unlisten = listen('menu-settings', () => {
-      setSettingsInitialTab('general');
-      setShowSettings(true);
-    });
+    const unlisten = listen('menu-settings', () => openSettings());
     return () => { unlisten.then((fn) => fn()).catch(() => {}); };
   }, []);
+
+  // ── OAuth deep-link callback (cafezin://auth/callback#access_token=...) ───
+  // Delegated to useAuthSession. onAuthSuccess runs syncSecretsFromCloud and
+  // dispatches cafezin:auth-updated so WorkspacePicker can refresh its state.
+  useAuthSession({
+    onAuthSuccess: async () => {
+      await syncSecretsFromCloud();
+      window.dispatchEvent(new CustomEvent('cafezin:auth-updated'));
+    },
+  });
+
+  // On startup, silently pull any secrets already saved to Supabase.
+  // No-ops when not logged in or offline.
+  useEffect(() => { syncSecretsFromCloud(); }, []);
 
   // First-launch sync prompt: if sync was never configured and user hasn't
   // dismissed it, open Settings directly on the Sync tab.
@@ -273,8 +297,7 @@ export default function App() {
     if (!alreadySkipped && !alreadyConnected) {
       // Mark as shown so we don't prompt again
       localStorage.setItem(SKIP_KEY, '1');
-      setSettingsInitialTab('sync');
-      setShowSettings(true);
+      openSettings('sync');
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -368,7 +391,7 @@ export default function App() {
     onOpenAI:        () => { setAiInitialPrompt(''); setAiOpen(true); },
     onCloseAI:       () => setAiOpen(false),
     onCloseTab:      handleCloseTab,
-    onOpenSettings:  () => { setSettingsInitialTab('general'); setShowSettings(true); },
+    onOpenSettings:  () => openSettings(),
     onToggleSidebar: () => setSidebarOpen((v) => !v),
     onSave: async () => {
       const kind = fileTypeInfo?.kind;
@@ -401,7 +424,7 @@ export default function App() {
     onReload:        reloadActiveFile,
     onNewFile:       () => { setSidebarOpen(true); setTimeout(() => newFileRef.current?.(), 80); },
     onSwitchTab:     switchToTab,
-    onToggleFind:    () => setFindReplaceOpen((v) => !v),
+    onToggleFind:    () => setFindReplaceOpen((v: boolean) => !v),
     onGlobalSearch:  () => { setSidebarOpen(true); setSidebarMode('search'); },
     onTogglePreview: () => {
       if (fileTypeInfo?.supportsPreview) {
@@ -583,7 +606,9 @@ export default function App() {
 
   function handleCloseAllTabs() {
     cancelAutosave();
-    closeAllTabs();
+    closeAllTabs((paths) => {
+      setDirtyFiles((prev) => { const s = new Set(prev); paths.forEach((p) => s.delete(p)); return s; });
+    });
   }
 
   function handleCloseOthers(filePath: string) {
@@ -650,6 +675,13 @@ export default function App() {
     try { await saveWorkspaceConfig(updated); } catch (e) { console.error('Failed to save export config:', e); }
   }
 
+  async function handleWorkspaceConfigChange(patch: Partial<WorkspaceConfig>): Promise<void> {
+    if (!workspace) return;
+    const updated: Workspace = { ...workspace, config: { ...workspace.config, ...patch } };
+    setWorkspace(updated);
+    try { await saveWorkspaceConfig(updated); } catch (e) { console.error('Failed to save workspace config:', e); }
+  }
+
   // ── File open ────────────────────────────────────────────────────────────────
   async function handleOpenFile(filename: string) {
     if (!workspace) return;
@@ -708,28 +740,9 @@ export default function App() {
       if (activeFile) tabContentsRef.current.set(activeFile, newContent);
       if (!workspace || !activeFile) return;
 
-      // Auto-remove AI marks whose text no longer exists in the document.
-      // This covers the case where a human types over an AI-inserted chunk.
-      // Canvas marks are identified by canvasShapeIds, not text content — the
-      // tldraw JSON snapshot never contains the mark's display text, so we must
-      // skip the text-presence check for them or they'd be wiped on every save.
-      setAiMarks((prev) => {
-        const fileMarks = prev.filter(
-          (m) => m.fileRelPath === activeFile && !m.reviewed,
-        );
-        const toRemove = fileMarks
-          .filter((m) => !m.canvasShapeIds?.length && !newContent.includes(m.text))
-          .map((m) => m.id);
-        if (toRemove.length === 0) return prev;
-        const updated = prev.map((m) =>
-          toRemove.includes(m.id)
-            ? { ...m, reviewed: true, reviewedAt: new Date().toISOString() }
-            : m,
-        );
-        // Persist asynchronously
-        saveMarks(workspace, updated).catch(() => {});
-        return updated;
-      });
+      // Auto-remove AI marks whose text no longer exists in the document
+      // (delegated to useAIMarks).
+      cleanupMarksForContent(activeFile, newContent);
 
       // Canvas files: the tldraw store listener already debounces to 500ms before
       // calling onChange — a second autosave debounce (1s) is redundant and pushes
@@ -910,54 +923,6 @@ export default function App() {
     }
   }, [workspace, refreshWorkspace]);
 
-  // ── AI canvas mark recording (agent canvas_op path) ─────────────────────
-  const handleCanvasMarkRecorded = useCallback((relPath: string, shapeIds: string[], aiModel: string) => {
-    if (!workspace || shapeIds.length === 0) return;
-    const mark = makeCanvasMark(relPath, shapeIds, aiModel);
-    addMark(workspace, mark).then(setAiMarks).catch(() => {});
-  }, [workspace]);
-
-  // ── AI mark recording (agent write_workspace_file path) ──────────────────
-  const handleMarkRecorded = useCallback((relPath: string, written: string, aiModel: string) => {
-    if (!workspace) return;
-    // Canvas files are tracked via canvasShapeIds (handleCanvasMarkRecorded),
-    // not by text position — skip text-based marks for .tldr.json files.
-    if (relPath.endsWith('.tldr.json')) return;
-    // Split the written content into meaningful chunks so the user reviews
-    // paragraph-sized pieces rather than the whole file at once.
-    // Each chunk must appear verbatim in the document for jumpToText to work.
-    const MIN_CHUNK = 40;
-    const MAX_CHUNKS = 12;
-    const chunks = written
-      .split(/\n{2,}/)
-      .map((s) => s.trim())
-      .filter((s) => s.length >= MIN_CHUNK)
-      .slice(0, MAX_CHUNKS);
-    if (chunks.length === 0) return; // nothing meaningful to mark
-    const now = new Date().toISOString();
-    const newMarks = chunks.map((text) => ({
-      id: generateId(),
-      fileRelPath: relPath,
-      text,
-      model: aiModel,
-      insertedAt: now,
-      reviewed: false,
-    }));
-    addMarksBulk(workspace, newMarks).then(setAiMarks).catch(() => {});
-    // Update editor view if the file is currently open
-    const currentActiveFile = activeTabIdRef.current;
-    const currentTabs = tabsRef.current;
-    if (relPath === currentActiveFile) {
-      setContent(written);
-      savedContentRef.current.set(relPath, written);
-      tabContentsRef.current.set(relPath, written);
-      setDirtyFiles((prev) => { const s = new Set(prev); s.delete(relPath); return s; });
-    } else if (currentTabs.includes(relPath)) {
-      tabContentsRef.current.set(relPath, written);
-      savedContentRef.current.set(relPath, written);
-    }
-  }, [workspace]);
-
   // ── Insert from AI ───────────────────────────────────────────
   // Canvas: parse the ```canvas``` block from the AI response and execute
   // commands against the live editor.  Text files: append to the document.
@@ -970,7 +935,7 @@ export default function App() {
         const { shapeIds } = executeCanvasCommands(canvasEditorRef.current, text);
         // Record a canvas AI mark with the created shape IDs
         if (shapeIds.length > 0 && workspace) {
-          addMark(workspace, makeCanvasMark(activeFile, shapeIds, model)).then(setAiMarks).catch(() => {});
+          recordMark(makeCanvasMark(activeFile, shapeIds, model));
         }
       }
       return;
@@ -998,68 +963,9 @@ export default function App() {
         insertedAt: new Date().toISOString(),
         reviewed: false,
       };
-      addMark(workspace, mark).then(setAiMarks).catch(() => {});
+      recordMark(mark);
     }
   }, [workspace, activeFile, scheduleAutosave]);
-
-  // ── AI mark review ───────────────────────────────────────────
-  const handleMarkReviewed = useCallback((id: string) => {
-    if (!workspace) return;
-    markReviewed(workspace, id).then(setAiMarks).catch(() => {});
-  }, [workspace]);
-
-  // ── Mark ALL unreviewed marks as reviewed (human review done) ─────────────
-  const handleReviewAllMarks = useCallback(() => {
-    if (!workspace) return;
-    const now = new Date().toISOString();
-    setAiMarks((prev) => {
-      const updated = prev.map((m) =>
-        m.reviewed ? m : { ...m, reviewed: true, reviewedAt: now },
-      );
-      saveMarks(workspace, updated).catch(() => {});
-      return updated;
-    });
-  }, [workspace]);
-
-  // ── Canvas AI mark user-edit: remove the mark when user touches the shape ──
-  const handleMarkUserEdited = useCallback((markId: string) => {
-    if (!workspace) return;
-    markReviewed(workspace, markId).then(setAiMarks).catch(() => {});
-  }, [workspace]);
-
-  // ── AI nav (prev/next within active file) ────────────────────
-  const activeFileMarks = aiMarks.filter(
-    (m) => m.fileRelPath === activeFile && !m.reviewed,
-  );
-
-  const handleAINavNext = useCallback(() => {
-    if (activeFileMarks.length === 0) return;
-    const idx = (aiNavIndex + 1) % activeFileMarks.length;
-    setAiNavIndex(idx);
-    const mark = activeFileMarks[idx];
-    if (mark.canvasShapeIds?.length && canvasEditorRef.current) {
-      const bounds = canvasEditorRef.current.getShapePageBounds(mark.canvasShapeIds[0] as TLShapeId);
-      if (bounds) canvasEditorRef.current.zoomToBounds(bounds, { animation: { duration: 300 }, inset: 60 });
-    } else {
-      editorRef.current?.jumpToText(mark.text);
-    }
-  }, [activeFileMarks, aiNavIndex]);
-
-  const handleAINavPrev = useCallback(() => {
-    if (activeFileMarks.length === 0) return;
-    const idx = (aiNavIndex - 1 + activeFileMarks.length) % activeFileMarks.length;
-    setAiNavIndex(idx);
-    const mark = activeFileMarks[idx];
-    if (mark.canvasShapeIds?.length && canvasEditorRef.current) {
-      const bounds = canvasEditorRef.current.getShapePageBounds(mark.canvasShapeIds[0] as TLShapeId);
-      if (bounds) canvasEditorRef.current.zoomToBounds(bounds, { animation: { duration: 300 }, inset: 60 });
-    } else {
-      editorRef.current?.jumpToText(mark.text);
-    }
-  }, [activeFileMarks, aiNavIndex]);
-
-  // Reset nav index when file changes
-  useEffect(() => { setAiNavIndex(0); }, [activeFile]);
 
   // AI document context: for canvas, send live shape summary + command protocol
   const aiDocumentContext = (() => {
@@ -1105,7 +1011,13 @@ export default function App() {
     clearAll();
     setWorkspace(ws);
     // Load AI edit marks for this workspace
-    loadMarks(ws).then(setAiMarks).catch(() => setAiMarks([]));
+    loadMarksForWorkspace(ws);
+
+    // Silently register in Supabase if user is logged in and workspace has a git remote.
+    // No-ops if not authenticated or no git remote — never blocks the UI.
+    if (ws.hasGit) {
+      registerWorkspace(ws.path, ws.name, 'personal').catch(() => { /* not fatal */ });
+    }
 
     // Restore last session (open tabs + active file)
     const session = loadWorkspaceSession(ws.path);
@@ -1173,8 +1085,8 @@ export default function App() {
         <button
           className="app-focus-exit"
           onClick={() => setFocusMode(false)}
-          title="Exit focus mode (Esc or ⌘⇧.)"
-        >… focus</button>
+          title="Exit Zen Mode (Esc or ⌘⇧.)"
+        >✕ zen</button>
       )}
       {/* Header */}
       <header className="app-header">
@@ -1575,8 +1487,15 @@ export default function App() {
           style={aiOpen ? { width: aiPanelWidth } : undefined}
           screenshotTargetRef={editorAreaRef}
           webPreviewRef={webPreviewRef}
+          getActiveHtml={
+            fileTypeInfo?.kind === 'code' && fileTypeInfo.supportsPreview && activeFile
+              ? () => ({ html: content, absPath: `${workspace.path}/${activeFile}` })
+              : undefined
+          }
           workspaceExportConfig={workspace.config.exportConfig}
           onExportConfigChange={handleExportConfigChange}
+          workspaceConfig={workspace.config}
+          onWorkspaceConfigChange={handleWorkspaceConfigChange}
         />
 
         {/* Drag-and-drop overlay — shown while dragging files from Finder */}

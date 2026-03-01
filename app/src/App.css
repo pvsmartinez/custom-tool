@@ -71,6 +71,7 @@ body,
   --z-canvas-top:     800;   /* slide strip, present mode bar            */
   --z-modal:          1000;  /* blocking dialogs                         */
   --z-overlay:        1200;  /* full-screen top-level overlays           */
+  --z-top:          100000;  /* must-win overlays: UpdateModal, critical  */
 
   /* ── Shadow scale ── */
   --shadow-sm: 0 1px 3px var(--shadow);    /* subtle inline elevation    */
@@ -1071,7 +1072,9 @@ body.is-resizing webview {
   background: var(--bg-tertiary);
 }
 
-/* ── Focus (distraction-free) mode ──────────────────────────────────────── */
+/* ── Zen (distraction-free) mode ────────────────────────────────────────── */
+/* Hides ALL chrome: header, tab bar, sidebar, resize dividers, AI panel,
+   and bottom terminal. Only the active editor / canvas remains visible.     */
 .focus-mode .app-header {
   opacity: 0;
   pointer-events: none;
@@ -1079,8 +1082,12 @@ body.is-resizing webview {
   overflow: hidden;
   padding: 0;
 }
+.focus-mode .tab-bar,
+.focus-mode .sidebar,
+.focus-mode .resize-divider,
+.focus-mode .ai-panel,
 .focus-mode .bottom-panel {
-  /* keep terminal fully accessible; just hide chrome */
+  display: none !important;
 }
 /* Floating exit button — bottom-right corner */
 .app-focus-exit {
@@ -1096,9 +1103,10 @@ body.is-resizing webview {
   padding: 4px 10px;
   border-radius: var(--radius-lg);
   cursor: pointer;
-  opacity: 0.4;
+  opacity: 0.25;
   transition: opacity 0.2s;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.06em;
+  text-transform: lowercase;
 }
 .app-focus-exit:hover {
   opacity: 1;

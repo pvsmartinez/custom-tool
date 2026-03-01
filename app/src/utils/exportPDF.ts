@@ -143,6 +143,70 @@ const PRINT_STYLES = `
   img    { max-width: 100%; border-radius: 4px; }
   strong { font-weight: 700; color: #111; }
   em     { font-style: italic; color: inherit; }
+
+  /* ── Title page ─────────────────────────────────────────────────────── */
+  .title-page {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 900px;
+    text-align: center;
+    padding: 80px 60px;
+    page-break-after: always;
+  }
+  .title-page .tp-title {
+    font-family: -apple-system, "Helvetica Neue", Arial, sans-serif;
+    font-size: 3em;
+    font-weight: 800;
+    color: #111;
+    line-height: 1.15;
+    margin-bottom: 0.3em;
+  }
+  .title-page .tp-subtitle {
+    font-size: 1.4em;
+    font-weight: 400;
+    color: #444;
+    margin-bottom: 2.5em;
+    font-style: italic;
+  }
+  .title-page .tp-author {
+    font-size: 1.1em;
+    color: #333;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .title-page .tp-version {
+    margin-top: 1em;
+    font-size: 0.85em;
+    color: #888;
+    font-family: "SFMono-Regular", Menlo, monospace;
+  }
+
+  /* ── Table of Contents ──────────────────────────────────────────────── */
+  .toc-page {
+    padding: 60px 0 40px;
+    page-break-after: always;
+  }
+  .toc-page h2.toc-heading {
+    font-size: 1.8em;
+    font-weight: 700;
+    border-bottom: 1px solid #ddd;
+    padding-bottom: 0.3em;
+    margin-bottom: 1.2em;
+  }
+  .toc-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+  .toc-list li {
+    border-bottom: 1px dotted #ddd;
+    padding: 4px 0;
+    font-size: 0.97em;
+  }
+  .toc-list li.toc-h1 { font-weight: 600; margin-top: 0.5em; }
+  .toc-list li.toc-h2 { padding-left: 1.5em; color: #444; }
 `;
 
 export async function exportMarkdownToPDF(
@@ -151,6 +215,12 @@ export async function exportMarkdownToPDF(
   destAbsPath: string,
   /** Absolute path of the workspace root, used to resolve relative image paths */
   workspaceAbsPath: string,
+  options?: {
+    /** Extra CSS appended after the default styles (can override anything) */
+    customCss?: string;
+    /** Raw HTML injected at the very beginning of the document (e.g. title page, TOC) */
+    prependHtml?: string;
+  },
 ): Promise<void> {
   // ── 1. Pre-process math (KaTeX), then render markdown ─────────────────────
   const rawHtml = marked.parse(preprocessMath(content)) as string;
@@ -167,12 +237,12 @@ export async function exportMarkdownToPDF(
   ].join(';');
 
   const styleEl = document.createElement('style');
-  styleEl.textContent = PRINT_STYLES;
+  styleEl.textContent = PRINT_STYLES + (options?.customCss ? `\n/* custom */\n${options.customCss}` : '');
   wrapper.appendChild(styleEl);
 
   const body = document.createElement('div');
   body.className = 'pdf-root';
-  body.innerHTML = rawHtml;
+  body.innerHTML = (options?.prependHtml ?? '') + rawHtml;
   wrapper.appendChild(body);
 
   document.body.appendChild(wrapper);

@@ -33,9 +33,9 @@ export default defineConfig(async () => ({
   },
 
   build: {
-    // Raise the warning threshold slightly — tldraw is inherently large;
-    // we split it out but don't want a warning for the tldraw chunk itself.
-    chunkSizeWarningLimit: 600,
+    // Tauri desktop app — chunks load from disk, not network.
+    // tldraw and codemirror are monolithic libs; 2 MB is a reasonable ceiling.
+    chunkSizeWarningLimit: 2000,
     rollupOptions: {
       output: {
         manualChunks(id) {

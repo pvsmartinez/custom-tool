@@ -819,3 +819,229 @@ html, body, #root {
   animation: mb-spin 0.6s linear infinite;
   vertical-align: middle;
 }
+
+/* ── Generic input ─────────────────────────────────────────────────────────── */
+.mb-input {
+  background: var(--mb-surface2);
+  border: 1px solid var(--mb-border);
+  border-radius: 10px;
+  color: var(--mb-text);
+  font-size: 14px;
+  padding: 10px 12px;
+  outline: none;
+  width: 100%;
+  -webkit-appearance: none;
+}
+.mb-input:focus {
+  border-color: var(--mb-accent);
+}
+.mb-input::placeholder { color: var(--mb-muted); }
+
+/* ── Voice memo screen ─────────────────────────────────────────────────────── */
+.mb-voice-scroll {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+/* Groq key setup */
+.mb-voice-key-setup {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  background: var(--mb-surface);
+  border-bottom: 1px solid var(--mb-border);
+}
+
+.mb-voice-key-hint {
+  font-size: 13px;
+  color: var(--mb-muted);
+  margin: 0;
+  line-height: 1.5;
+}
+
+.mb-voice-key-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.mb-voice-key-row .mb-btn {
+  flex-shrink: 0;
+  font-size: 13px;
+  padding: 10px 16px;
+}
+
+/* Record area */
+.mb-voice-record-area {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 28px 24px;
+  border-bottom: 1px solid var(--mb-border);
+}
+
+.mb-record-btn {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  border: 3px solid var(--mb-accent);
+  background: var(--mb-surface2);
+  color: var(--mb-text);
+  font-size: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 0.15s, background 0.15s, border-color 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.mb-record-btn:active { transform: scale(0.94); }
+
+.mb-record-btn.recording {
+  border-color: #e06060;
+  background: rgba(224, 96, 96, 0.15);
+  animation: mb-record-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes mb-record-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(224, 96, 96, 0.4); }
+  50%       { box-shadow: 0 0 0 12px rgba(224, 96, 96, 0); }
+}
+
+.mb-record-timer {
+  font-size: 20px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: #e06060;
+  letter-spacing: 2px;
+}
+
+.mb-voice-hint {
+  font-size: 13px;
+  color: var(--mb-muted);
+  text-align: center;
+}
+
+.mb-voice-transcribing {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  color: var(--mb-muted);
+  font-size: 13px;
+}
+
+/* Memo list */
+.mb-memo-item {
+  border-bottom: 1px solid var(--mb-border);
+}
+
+.mb-memo-header {
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  color: var(--mb-text);
+}
+
+.mb-memo-header:active { background: var(--mb-surface); }
+
+.mb-memo-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  text-align: left;
+}
+
+.mb-memo-date {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.mb-memo-time {
+  font-size: 12px;
+  color: var(--mb-muted);
+}
+
+.mb-memo-chevron {
+  font-size: 12px;
+  color: var(--mb-muted);
+  flex-shrink: 0;
+}
+
+.mb-memo-body {
+  padding: 0 16px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.mb-memo-audio {
+  width: 100%;
+  height: 44px;
+  border-radius: 8px;
+}
+
+.mb-memo-transcript {
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--mb-text);
+  margin: 0;
+  white-space: pre-wrap;
+  background: var(--mb-surface2);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.mb-memo-delete {
+  background: none;
+  border: 1px solid rgba(201,117,112,0.3);
+  color: var(--mb-danger);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  align-self: flex-start;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ── Audio file preview ─────────────────────────────────────────────────────── */
+.mb-audio-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 40px 24px;
+}
+
+.mb-audio-icon {
+  font-size: 56px;
+  line-height: 1;
+}
+
+.mb-audio-filename {
+  font-size: 13px;
+  color: var(--mb-muted);
+  text-align: center;
+  word-break: break-all;
+}
+
+.mb-audio-player {
+  width: 100%;
+  max-width: 360px;
+  border-radius: 8px;
+}

@@ -1,3 +1,8 @@
+/** A single part in a multipart (vision) message sent to the API. */
+export type ContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string; detail?: 'auto' | 'low' | 'high' } };
+
 export interface ToolCall {
   id: string;
   type: 'function';
@@ -26,7 +31,11 @@ export type MessageItem =
 
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'system' | 'tool';
-  content: string;
+  /**
+   * Message content: a plain string for text-only messages, or a ContentPart[]
+   * array for multipart messages (e.g. vision requests with image_url + text).
+   */
+  content: string | ContentPart[];
   /** Present on assistant messages that request tool calls */
   tool_calls?: ToolCall[];
   /** Present on tool-result messages (role === 'tool') */
@@ -97,6 +106,48 @@ export interface ExportTarget {
   merge?: boolean;
   /** Filename (without extension) for the merged output. Default: 'merged' */
   mergeName?: string;
+
+  // ── PDF-only options ────────────────────────────────────────────────────────
+
+  /**
+   * Path (workspace-relative) to a .css file whose contents are appended after
+   * the default PDF styles, allowing full overrides (fonts, page size, colors…).
+   * e.g. "styles/book.css"
+   */
+  pdfCssFile?: string;
+  /**
+   * When set, a title page is prepended to the PDF before the content.
+   * All fields are optional — omit any you don't want.
+   */
+  titlePage?: {
+    title?: string;
+    subtitle?: string;
+    author?: string;
+    version?: string;
+  };
+  /**
+   * Generate a Table of Contents from H1/H2 headings in the merged content.
+   * Only meaningful when merge: true. Inserted after the title page (if any).
+   */
+  toc?: boolean;
+  /**
+   * Automatically version the output file instead of overwriting it.
+   * - 'timestamp' → appends _YYYY-MM-DD  (e.g. manuscript_2026-02-28.pdf)
+   * - 'counter'   → appends _v1, _v2 …   (e.g. manuscript_v3.pdf)
+   */
+  versionOutput?: 'timestamp' | 'counter';
+  /**
+   * Pre-export markdown transformations applied to each file's content
+   * before it is rendered (merge or single-file).
+   */
+  preProcess?: {
+    /** Strip YAML front-matter blocks (---...---) */
+    stripFrontmatter?: boolean;
+    /** Remove ### Draft … sections (until next same-level heading or EOF) */
+    stripDraftSections?: boolean;
+    /** Remove <details>…</details> HTML blocks */
+    stripDetails?: boolean;
+  };
 }
 
 export interface WorkspaceExportConfig {
@@ -153,6 +204,8 @@ export interface Workspace {
   agentContext?: string; // contents of AGENT.md if present
   files: string[];       // .md filenames (relative) – kept for compat
   fileTree: FileTreeNode[]; // full recursive tree of the workspace
+  /** True when the workspace folder has a git remote configured (origin). */
+  hasGit: boolean;
 }
 
 export interface RecentWorkspace {
@@ -161,6 +214,8 @@ export interface RecentWorkspace {
   lastOpened: string;
   /** ISO timestamp of the last file edit — persisted at open time from workspace config */
   lastEditedAt?: string;
+  /** Cached git status from last open. undefined = unknown (old entry). */
+  hasGit?: boolean;
 }
 
 export interface FileTreeNode {

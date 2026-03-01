@@ -1,7 +1,7 @@
 import { useMemo, useRef, useEffect, useCallback, useState, forwardRef, useImperativeHandle } from 'react';
 import { toPng } from 'html-to-image';
-import { convertFileSrc } from '@tauri-apps/api/core';
 import './WebPreview.css';
+import { buildSrcDoc, renderHtmlOffscreen } from '../utils/htmlPreview';
 
 export interface WebPreviewHandle {
   /** Capture a PNG screenshot of the currently rendered HTML preview. */
@@ -16,46 +16,6 @@ interface WebPreviewProps {
   filename: string;
   /** When true (Copilot is writing this file) freeze live updates and show an overlay. */
   isLocked?: boolean;
-}
-
-/**
- * Returns true if a URL value should be left untouched (already absolute or
- * a special scheme that the browser handles natively).
- */
-function isAbsoluteUrl(url: string): boolean {
-  return /^(?:[a-z][a-z\d+\-.]*:|\/\/|#|data:|blob:|javascript:)/i.test(url);
-}
-
-/**
- * Rewrite every relative src/href/url() reference in an HTML string to an
- * absolute asset:// URL so that Tauri's WebView can load them from
- * within an srcdoc iframe (which has a null origin and cannot follow a
- * <base> tag to asset:// resources in all WebKit versions).
- */
-function rewriteAssetPaths(html: string, dir: string): string {
-  // Rewrite src="..." and href="..." attributes
-  let result = html.replace(
-    /(\s(?:src|href)\s*=\s*)(["'])([^"']*)\2/gi,
-    (_match, attr, quote, url) => {
-      if (isAbsoluteUrl(url)) return _match;
-      const absPath = url.startsWith('/')
-        ? url  // web-root-relative: leave as-is (no known root to resolve against)
-        : dir + url;
-      return `${attr}${quote}${convertFileSrc(absPath)}${quote}`;
-    },
-  );
-
-  // Rewrite url('...') / url("...") / url(...) inside <style> blocks and style="" attrs
-  result = result.replace(
-    /url\(\s*(["']?)([^)"']+)\1\s*\)/gi,
-    (_match, quote, url) => {
-      if (isAbsoluteUrl(url)) return _match;
-      const absPath = url.startsWith('/') ? url : dir + url;
-      return `url(${quote}${convertFileSrc(absPath)}${quote})`;
-    },
-  );
-
-  return result;
 }
 
 /**
@@ -82,24 +42,10 @@ const WebPreview = forwardRef<WebPreviewHandle, WebPreviewProps>(function WebPre
     [absPath],
   );
 
-  // Rewrite relative paths to asset:// URLs, then optionally keep a <base>
-  // tag as a fallback for any dynamic paths the rewriter cannot see at
-  // parse time (e.g. paths built in JS).
-  const srcDoc = useMemo(() => {
-    // Skip files that already have a <base> tag — honour the author's intent
-    if (/<base\s/i.test(content)) return content;
-
-    const rewritten = rewriteAssetPaths(content, dir);
-    const baseTag = `<base href="${convertFileSrc(dir)}">`;
-
-    if (/<head(\s[^>]*)?>/i.test(rewritten)) {
-      return rewritten.replace(/(<head(\s[^>]*)?>)/i, `$1${baseTag}`);
-    }
-    if (/<html(\s[^>]*)?>/i.test(rewritten)) {
-      return rewritten.replace(/(<html(\s[^>]*)?>)/i, `$1<head>${baseTag}</head>`);
-    }
-    return baseTag + rewritten;
-  }, [content, dir]);
+  // Rewrite relative paths to asset:// URLs and inject a <base> tag.
+  // Logic lives in the shared htmlPreview utility so that the off-screen
+  // fallback renderer in workspaceTools can reuse it without mounting an iframe.
+  const srcDoc = useMemo(() => buildSrcDoc(content, dir), [content, dir]);
 
   // Keep iframe src-doc in sync — freeze when Copilot is writing, flush on unlock
   const prevDocRef = useRef('');
@@ -157,25 +103,9 @@ const WebPreview = forwardRef<WebPreviewHandle, WebPreviewProps>(function WebPre
           // fall through to off-screen fallback
         }
       }
-      // Fallback: render body + styles in an off-screen div so layout/spacing
-      // is captured even if the iframe content is inaccessible.
-      const container = document.createElement('div');
-      container.style.cssText =
-        'position:fixed;left:-9999px;top:0;width:900px;background:#fff;pointer-events:none;';
-      const styleBlocks = [...srcDoc.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/gi)]
-        .map(m => m[0]).join('\n');
-      const bodyMatch = srcDoc.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
-      const bodyHtml = bodyMatch ? bodyMatch[1] : srcDoc;
-      const safe = (styleBlocks + '\n' + bodyHtml).replace(/<script[\s\S]*?<\/script>/gi, '');
-      container.innerHTML = safe;
-      document.body.appendChild(container);
-      try {
-        return await toPng(container, { width: 900, backgroundColor: '#ffffff' });
-      } catch {
-        return null;
-      } finally {
-        document.body.removeChild(container);
-      }
+      // Fallback: render off-screen using the shared htmlPreview utility.
+      // Strips <script> tags, extracts styles + body, renders via html-to-image.
+      return await renderHtmlOffscreen(content, absPath);
     },
   }), [srcDoc]);
 

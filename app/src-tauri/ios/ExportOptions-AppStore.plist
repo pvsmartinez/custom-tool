@@ -2,25 +2,15 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <!-- Upload to TestFlight / App Store -->
-    <key>method</key>
-    <string>app-store-connect</string>
-
-    <!-- Your 10-character Apple Developer Team ID (found at developer.apple.com → Account) -->
-    <!-- Overridden at runtime by the APPLE_DEVELOPMENT_TEAM env var in upload-testflight.sh -->
-    <key>teamID</key>
-    <string>REPLACE_WITH_TEAM_ID</string>
-
-    <!-- Let Xcode manage certificates automatically -->
-    <key>signingStyle</key>
-    <string>automatic</string>
-
-    <!-- Upload the symbols so crash reports are symbolicated in TestFlight -->
-    <key>uploadSymbols</key>
-    <true/>
-
-    <!-- Bitcode is deprecated and rejected by App Store — keep off -->
-    <key>compileBitcode</key>
-    <false/>
+	<key>compileBitcode</key>
+	<false/>
+	<key>method</key>
+	<string>app-store-connect</string>
+	<key>signingStyle</key>
+	<string>automatic</string>
+	<key>teamID</key>
+	<string>8VV48629P3</string>
+	<key>uploadSymbols</key>
+	<true/>
 </dict>
 </plist>

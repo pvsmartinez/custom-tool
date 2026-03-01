@@ -3,14 +3,12 @@ import { createPortal } from 'react-dom';
 import { writeTextFile } from '@tauri-apps/plugin-fs';
 import { saveWorkspaceConfig } from '../services/workspace';
 import {
-  getSyncAccountToken, clearSyncAccountToken,
-  storeSyncAccountToken,
+  signIn, signUp, signOut, getUser,
   startGitAccountFlow,
   listSyncedWorkspaces, registerWorkspace, unregisterWorkspace,
   listGitAccountLabels,
   type SyncDeviceFlowState, type SyncedWorkspace,
-} from '../services/syncConfig';
-import { fetch } from '@tauri-apps/plugin-http';
+} from '../services/syncConfig'
 import type { Workspace, AppSettings, SidebarButton } from '../types';
 import './SettingsModal.css';
 
@@ -58,82 +56,70 @@ export default function SettingsModal({
   }, [open, initialTab]);
 
   // ── Sync tab state ────────────────────────────────────────────────────────
-  type SyncStatus = 'idle' | 'checking' | 'not_connected' | 'connected';
-  const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle');
-  const [syncUser, setSyncUser] = useState('');
-  const [syncWorkspaces, setSyncWorkspaces] = useState<SyncedWorkspace[]>([]);
-  const [patInput, setPatInput] = useState('');
-  const [patBusy, setPatBusy] = useState(false);
-  const [syncError, setSyncError] = useState<string | null>(null);
-  const [regLabel, setRegLabel] = useState('personal');
-  const [regState, setRegState] = useState<'idle' | 'busy' | 'done' | 'error'>('idle');
-  const [regError, setRegError] = useState('');
-  const [gitLabel, setGitLabel] = useState('');
-  const [gitFlowState, setGitFlowState] = useState<SyncDeviceFlowState | null>(null);
-  const [gitFlowBusy, setGitFlowBusy] = useState(false);
-  const [gitAccounts, setGitAccounts] = useState<string[]>([]);
+  type SyncStatus = 'idle' | 'checking' | 'not_connected' | 'connected'
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle')
+  const [syncUser, setSyncUser] = useState('')
+  const [syncWorkspaces, setSyncWorkspaces] = useState<SyncedWorkspace[]>([])
+  const [emailInput, setEmailInput] = useState('')
+  const [passwordInput, setPasswordInput] = useState('')
+  const [authMode, setAuthMode] = useState<'login' | 'signup'>('login')
+  const [authBusy, setAuthBusy] = useState(false)
+  const [syncError, setSyncError] = useState<string | null>(null)
+  const [regLabel, setRegLabel] = useState('personal')
+  const [regState, setRegState] = useState<'idle' | 'busy' | 'done' | 'error'>('idle')
+  const [regError, setRegError] = useState('')
+  const [gitLabel, setGitLabel] = useState('')
+  const [gitFlowState, setGitFlowState] = useState<SyncDeviceFlowState | null>(null)
+  const [gitFlowBusy, setGitFlowBusy] = useState(false)
+  const [gitAccounts, setGitAccounts] = useState<string[]>([])
 
   const loadSyncState = useCallback(async () => {
-    const token = getSyncAccountToken();
-    if (!token) { setSyncStatus('not_connected'); return; }
-    setSyncStatus('checking');
+    setSyncStatus('checking')
     try {
-      const meRes = await fetch('https://api.github.com/user', {
-        headers: { Authorization: `token ${token}`, Accept: 'application/vnd.github.v3+json' },
-      });
-      if (meRes.ok) {
-        const me = await meRes.json() as { login: string };
-        setSyncUser(me.login);
-      }
-      const list = await listSyncedWorkspaces();
-      setSyncWorkspaces(list);
-      setGitAccounts(listGitAccountLabels());
-      setSyncStatus('connected');
+      const user = await getUser()
+      if (!user) { setSyncStatus('not_connected'); return }
+      setSyncUser(user.email ?? user.id)
+      const list = await listSyncedWorkspaces()
+      setSyncWorkspaces(list)
+      setGitAccounts(listGitAccountLabels())
+      setSyncStatus('connected')
     } catch (e) {
-      setSyncError(String(e));
-      setSyncStatus('connected');
+      setSyncError(String(e))
+      setSyncStatus('not_connected')
     }
-  }, []);
+  }, [])
 
   useEffect(() => {
     if (open && tab === 'sync' && syncStatus === 'idle') loadSyncState();
   }, [open, tab, syncStatus, loadSyncState]);
 
-  async function handleConnectPAT() {
-    const raw = patInput.trim();
-    if (!raw) return;
-    setPatBusy(true);
-    setSyncError(null);
+  async function handleAuth() {
+    const email = emailInput.trim()
+    const password = passwordInput.trim()
+    if (!email || !password) return
+    setAuthBusy(true)
+    setSyncError(null)
     try {
-      // Validate the token by calling /user
-      const meRes = await fetch('https://api.github.com/user', {
-        headers: { Authorization: `token ${raw}`, Accept: 'application/vnd.github.v3+json' },
-      });
-      if (!meRes.ok) throw new Error(`GitHub returned ${meRes.status} — check your token.`);
-      const me = await meRes.json() as { login: string };
-      const grantedScopes = (meRes.headers.get('x-oauth-scopes') ?? '').split(',').map((s: string) => s.trim());
-      if (!grantedScopes.includes('gist')) {
-        throw new Error(`This token is missing the 'gist' scope (has: ${grantedScopes.join(', ') || 'none'}). Generate a new token with 'gist' checked.`);
+      if (authMode === 'login') {
+        await signIn(email, password)
+      } else {
+        await signUp(email, password)
       }
-      storeSyncAccountToken(raw);
-      setPatInput('');
-      setSyncUser(me.login);
-      const list = await listSyncedWorkspaces();
-      setSyncWorkspaces(list);
-      setGitAccounts(listGitAccountLabels());
-      setSyncStatus('connected');
+      setEmailInput('')
+      setPasswordInput('')
+      await loadSyncState()
     } catch (e) {
-      setSyncError(String(e));
+      setSyncError(String(e))
     } finally {
-      setPatBusy(false);
+      setAuthBusy(false)
     }
   }
-  function handleDisconnectSync() {
-    clearSyncAccountToken();
-    setSyncStatus('not_connected');
-    setSyncWorkspaces([]);
-    setSyncUser('');
-    setPatInput('');
+
+  async function handleSignOut() {
+    await signOut()
+    setSyncStatus('not_connected')
+    setSyncWorkspaces([])
+    setSyncUser('')
   }
 
   async function handleRegister() {
@@ -579,40 +565,52 @@ export default function SettingsModal({
             <div className="sm-section-list">
 
               <section className="sm-section">
-                <h3 className="sm-section-title">Sync Account</h3>
+                <h3 className="sm-section-title">Conta Cafezin</h3>
                 <p className="sm-section-desc">
-                  Paste a GitHub <strong>Personal Access Token</strong> with the{' '}
-                  <code>gist</code> scope. It will be stored locally and used to keep
-                  a private gist listing your synced workspaces.{' '}
-                  <a
-                    href="https://github.com/settings/tokens/new?scopes=gist&description=cafezin+sync"
-                    target="_blank" rel="noreferrer"
-                    className="sm-sync-pat-link"
-                  >
-                    Generate one on GitHub ↗
-                  </a>
+                  Entre com e-mail e senha para sincronizar seus workspaces entre dispositivos.
+                  A lista de workspaces fica armazenada de forma segura no Supabase.
                 </p>
 
                 {syncStatus === 'checking' && (
-                  <div className="sm-sync-status">Connecting…</div>
+                  <div className="sm-sync-status">Conectando…</div>
                 )}
 
                 {syncStatus === 'not_connected' && (
                   <div className="sm-sync-pat-form">
+                    <div className="sm-sync-auth-tabs">
+                      <button
+                        className={`sm-sync-auth-tab ${authMode === 'login' ? 'active' : ''}`}
+                        onClick={() => { setAuthMode('login'); setSyncError(null) }}
+                      >Entrar</button>
+                      <button
+                        className={`sm-sync-auth-tab ${authMode === 'signup' ? 'active' : ''}`}
+                        onClick={() => { setAuthMode('signup'); setSyncError(null) }}
+                      >Criar conta</button>
+                    </div>
                     <input
-                      className="sm-sync-pat-input"
+                      className="sm-input"
+                      type="email"
+                      placeholder="seu@email.com"
+                      value={emailInput}
+                      onChange={(e) => setEmailInput(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') void handleAuth() }}
+                    />
+                    <input
+                      className="sm-input"
                       type="password"
-                      placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
-                      value={patInput}
-                      onChange={(e) => setPatInput(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === 'Enter') handleConnectPAT(); }}
+                      placeholder="Senha"
+                      value={passwordInput}
+                      onChange={(e) => setPasswordInput(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') void handleAuth() }}
+                      style={{ marginTop: 6 }}
                     />
                     <button
                       className="sm-sync-btn sm-save-btn"
-                      onClick={handleConnectPAT}
-                      disabled={patBusy || !patInput.trim()}
+                      onClick={() => void handleAuth()}
+                      disabled={authBusy || !emailInput.trim() || !passwordInput.trim()}
+                      style={{ marginTop: 8 }}
                     >
-                      {patBusy ? 'Connecting…' : 'Connect'}
+                      {authBusy ? 'Aguarde…' : authMode === 'login' ? 'Entrar' : 'Criar conta'}
                     </button>
                     {syncError && <p className="sm-sync-error">{syncError}</p>}
                   </div>
@@ -620,7 +618,7 @@ export default function SettingsModal({
 
                 {gitFlowState && (
                   <div className="sm-sync-flow">
-                    <p className="sm-sync-flow-text">Open this URL in your browser and enter the code:</p>
+                    <p className="sm-sync-flow-text">Abra esta URL no navegador e insira o código:</p>
                     <a
                       className="sm-sync-flow-url"
                       href={gitFlowState.verificationUri}
@@ -629,7 +627,7 @@ export default function SettingsModal({
                       {gitFlowState.verificationUri}
                     </a>
                     <div className="sm-sync-flow-code">{gitFlowState.userCode}</div>
-                    <p className="sm-sync-flow-hint">Waiting for authorisation…</p>
+                    <p className="sm-sync-flow-hint">Aguardando autorização…</p>
                   </div>
                 )}
 
@@ -637,10 +635,10 @@ export default function SettingsModal({
                   <div className="sm-sync-connected">
                     <div className="sm-sync-connected-info">
                       <span className="sm-sync-dot" />
-                      <span>Connected{syncUser ? ` as @${syncUser}` : ''}</span>
+                      <span>Conectado{syncUser ? ` como ${syncUser}` : ''}</span>
                     </div>
-                    <button className="sm-sync-disconnect" onClick={handleDisconnectSync}>
-                      Disconnect
+                    <button className="sm-sync-disconnect" onClick={() => void handleSignOut()}>
+                      Sair
                     </button>
                   </div>
                 )}
