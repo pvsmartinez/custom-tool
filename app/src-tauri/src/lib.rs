@@ -139,6 +139,8 @@ mod git_cli {
             .map_err(|e| e.to_string())?;
         if set.status.success() { Ok("updated".into()) }
         else { Err(String::from_utf8_lossy(&set.stderr).to_string()) }
+    }
+
     pub fn git_clone(url: String, path: String, _token: Option<String>, branch: Option<String>) -> Result<String, String> {
         if std::path::Path::new(&path).join(".git").exists() {
             return Ok("already_cloned".into());
