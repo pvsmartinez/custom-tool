@@ -206,6 +206,9 @@
 
 .wp-git-badge {
   flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
   font-size: var(--font-size-2xs);
   font-weight: 600;
   line-height: 1;
@@ -407,4 +410,166 @@
   flex: 1;
   height: 1px;
   background: var(--border2);
+}
+
+/* ── Badges row ─────────────────────────────────────────────────────────────── */
+
+.wp-badges {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+/* ── Synced badge ────────────────────────────────────────────────────────────── */
+
+.wp-synced-badge {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: var(--font-size-2xs);
+  font-weight: 600;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: var(--radius-lg);
+  background: rgba(var(--accent-rgb, 87,200,150), 0.12);
+  color: var(--accent);
+  letter-spacing: 0.02em;
+}
+
+/* ── Synced item variant ─────────────────────────────────────────────────────── */
+
+.wp-recent-item--synced {
+  border-color: rgba(var(--accent-rgb, 87,200,150), 0.18);
+}
+.wp-recent-item--synced:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+/* ── Cloud-only item (non-interactive) ───────────────────────────────────────── */
+
+.wp-recent-item--cloud-only {
+  cursor: default;
+  display: block;
+  text-align: left;
+  padding: var(--space-3) var(--space-4);
+  position: relative;
+}
+.wp-recent-item--cloud-only:hover {
+  border-color: var(--border2);
+  background: var(--surface-code);
+}
+
+/* ── Row item (has sidebar action button) ────────────────────────────────────── */
+
+.wp-recent-item--row {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 0;
+  cursor: default;
+  padding: 0;
+  overflow: hidden;
+}
+.wp-recent-item--row:hover {
+  border-color: var(--border2);
+  background: transparent;
+}
+
+.wp-recent-item-inner {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-4);
+  background: none;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  font-family: inherit;
+  font-size: inherit;
+  border-radius: 0;
+  transition: background var(--transition-base);
+  min-width: 0;
+}
+.wp-recent-item-inner:hover:not(:disabled) {
+  background: var(--surface2);
+}
+.wp-recent-item-inner:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Action button (Clonar / Nuvem) ─────────────────────────────────────────── */
+
+.wp-action-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 12px;
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  border-left: 1px solid var(--border);
+  cursor: pointer;
+  transition: background var(--transition-base), color var(--transition-base);
+  white-space: nowrap;
+}
+.wp-action-btn:hover:not(:disabled) {
+  background: var(--surface2);
+  color: var(--accent);
+}
+.wp-action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Publish-to-cloud inline form ────────────────────────────────────────────── */
+
+.wp-publish-form {
+  width: 100%;
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.wp-publish-label {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.wp-publish-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-3);
+}
+
+.wp-publish-cancel {
+  background: none;
+  border: none;
+  font-size: var(--font-size-sm);
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 0 4px;
+}
+.wp-publish-cancel:hover {
+  color: var(--text);
+}
+
+.wp-btn-open--sm {
+  font-size: var(--font-size-sm);
+  padding: 8px 16px;
+  margin-top: 0;
 }

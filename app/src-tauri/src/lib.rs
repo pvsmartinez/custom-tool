@@ -124,6 +124,21 @@ mod git_cli {
         } else { Err("no remote".into()) }
     }
 
+    pub fn git_set_remote(path: String, url: String) -> Result<String, String> {
+        // Try "add" first; fall back to "set-url" if origin already exists.
+        let add = Command::new("git")
+            .args(["remote", "add", "origin", &url])
+            .current_dir(&path).output()
+            .map_err(|e| e.to_string())?;
+        if add.status.success() {
+            return Ok("added".into());
+        }
+        let set = Command::new("git")
+            .args(["remote", "set-url", "origin", &url])
+            .current_dir(&path).output()
+            .map_err(|e| e.to_string())?;
+        if set.status.success() { Ok("updated".into()) }
+        else { Err(String::from_utf8_lossy(&set.stderr).to_string()) }
     pub fn git_clone(url: String, path: String, _token: Option<String>, branch: Option<String>) -> Result<String, String> {
         if std::path::Path::new(&path).join(".git").exists() {
             return Ok("already_cloned".into());
@@ -317,6 +332,14 @@ mod git_native {
             .find_remote("origin")
             .map_err(|_| "no remote".to_string())?;
         Ok(remote.url().unwrap_or("").to_string())
+    }
+
+    pub fn git_set_remote(path: String, url: String) -> Result<String, String> {
+        let repo = Repository::open(&path).map_err(|e| e.to_string())?;
+        // Delete then re-add so the call is always idempotent.
+        let _ = repo.remote_delete("origin");
+        repo.remote("origin", &url).map_err(|e| e.to_string())?;
+        Ok("set".into())
     }
 
     pub fn git_clone(url: String, path: String, token: Option<String>, branch: Option<String>) -> Result<String, String> {
@@ -536,6 +559,8 @@ fn git_diff(path: String) -> Result<serde_json::Value, String> { git::git_diff(p
 fn git_sync(path: String, message: String) -> Result<String, String> { git::git_sync(path, message) }
 #[tauri::command]
 fn git_get_remote(path: String) -> Result<String, String> { git::git_get_remote(path) }
+#[tauri::command]
+fn git_set_remote(path: String, url: String) -> Result<String, String> { git::git_set_remote(path, url) }
 #[tauri::command]
 fn git_checkout_file(path: String, file: String) -> Result<String, String> { git::git_checkout_file(path, file) }
 #[tauri::command]
@@ -876,7 +901,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_http::init())
-        .invoke_handler(tauri::generate_handler![canonicalize_path, ensure_config_dir, git_init, git_diff, git_sync, git_checkout_file, git_checkout_branch, git_get_remote, git_clone, git_pull, shell_run, update_app, transcribe_audio, open_devtools, build_channel, github_device_flow_init, github_device_flow_poll])
+        .invoke_handler(tauri::generate_handler![canonicalize_path, ensure_config_dir, git_init, git_diff, git_sync, git_checkout_file, git_checkout_branch, git_get_remote, git_set_remote, git_clone, git_pull, shell_run, update_app, transcribe_audio, open_devtools, build_channel, github_device_flow_init, github_device_flow_poll])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

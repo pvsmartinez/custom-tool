@@ -239,6 +239,8 @@ export interface RecentWorkspace {
   lastEditedAt?: string;
   /** Cached git status from last open. undefined = unknown (old entry). */
   hasGit?: boolean;
+  /** Git remote origin URL — used to match against cloud workspaces in the picker. */
+  gitRemote?: string;
 }
 
 export interface FileTreeNode {

@@ -10,6 +10,7 @@ import {
   exists,
   rename,
   remove,
+  stat,
 } from '@tauri-apps/plugin-fs';
 import { walkFilesFlat } from '../../services/workspace';
 import { lockFile, unlockFile } from '../../services/copilotLock';
@@ -177,15 +178,15 @@ export const FILE_TOOL_DEFS: ToolDefinition[] = [
     function: {
       name: 'delete_workspace_file',
       description:
-        'Permanently delete a file from the workspace. ' +
-        'Only use when the user explicitly asks to delete or remove a file. ' +
-        'Cannot delete folders — use run_command for that.',
+        'Permanently delete a file or folder from the workspace. ' +
+        'Folders are deleted recursively (all contents removed). ' +
+        'Only use when the user explicitly asks to delete or remove a file or folder.',
       parameters: {
         type: 'object',
         properties: {
           path: {
             type: 'string',
-            description: 'Relative path from workspace root of the file to delete.',
+            description: 'Relative path from workspace root of the file or folder to delete. Folder deletion is recursive.',
           },
           confirm: {
             type: 'string',
@@ -526,10 +527,14 @@ export const executeFileTools: DomainExecutor = async (name, args, ctx) => {
       catch (e) { return String(e); }
       if (!(await exists(abs))) return `File not found: ${relPath}.`;
       try {
-        await remove(abs);
+        const info = await stat(abs);
+        const isDir = info.isDirectory;
+        await remove(abs, { recursive: isDir });
         onFileWritten?.(relPath);
-      } catch (e) { return `Error deleting file: ${e}`; }
-      return `Deleted "${relPath}" permanently.`;
+        return isDir
+          ? `Deleted folder "${relPath}" and all its contents permanently.`
+          : `Deleted "${relPath}" permanently.`;
+      } catch (e) { return `Error deleting: ${e}`; }
     }
 
     // ── scaffold_workspace ────────────────────────────────────────────────

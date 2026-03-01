@@ -95,20 +95,13 @@ export async function pickWorkspaceFolder(): Promise<string | null> {
 }
 
 /** Load (or create) workspace config + agent context + file list. */
-export async function loadWorkspace(rawFolderPath: string): Promise<Workspace> {
-  // 1. Canonicalize the workspace root path.
-  // On iOS, documentDir() returns /var/mobile/... but the Tauri FS scope is
-  // built from /private/var/mobile/... (symlink-resolved). For non-existent
-  // child paths (e.g. cafezin/ on first open), tauri-plugin-fs can't
-  // canonicalize them and rejects them as "forbidden". Fix: resolve the root
-  // (which exists) so all derived paths also start with /private/var/...
-  let folderPath = rawFolderPath;
-  try {
-    const canonical = await invoke<string>('canonicalize_path', { path: rawFolderPath });
-    if (canonical) folderPath = canonical;
-  } catch { /* non-fatal: falls back to raw path on desktop */ }
-
-  // 2. Ensure cafezin/ dir exists via direct Rust fs (bypasses FS plugin scope).
+export async function loadWorkspace(folderPath: string): Promise<Workspace> {
+  // 1. Ensure cafezin/ dir exists.
+  // Uses a direct Rust std::fs command to bypass tauri-plugin-fs scope checks,
+  // which fail for non-existent paths on iOS: the scope uses the canonical
+  // /private/var/... form but non-existent paths can't be canonicalized for
+  // comparison. We use the RAW path here (no canonicalize) — iOS sandbox
+  // allows writes via /var/mobile/... but rejects /private/var/... directly.
   await invoke('ensure_config_dir', { workspacePath: folderPath });
   const configDir = `${folderPath}/${CONFIG_DIR}`;
   const configPath = `${configDir}/${CONFIG_FILE}`;
@@ -148,9 +141,11 @@ export async function loadWorkspace(rawFolderPath: string): Promise<Workspace> {
   } catch { /* not fatal */ }
 
   let hasGit = false;
+  let gitRemote: string | undefined;
   try {
     const remote = await invoke<string>('git_get_remote', { path: folderPath });
-    hasGit = !!remote?.trim();
+    gitRemote = remote?.trim() || undefined;
+    hasGit = !!gitRemote;
   } catch { /* no remote = local only */ }
 
   // 5. Build full recursive file tree (and derive .md file list from it)
@@ -167,8 +162,8 @@ export async function loadWorkspace(rawFolderPath: string): Promise<Workspace> {
     hasGit,
   };
 
-  // 6. Persist to recents (include hasGit so picker can show badge without opening)
-  saveRecent({ path: folderPath, name: config.name, lastOpened: new Date().toISOString(), lastEditedAt: config.lastEditedAt, hasGit });
+  // 6. Persist to recents (include hasGit + gitRemote so picker can match against cloud workspaces)
+  saveRecent({ path: folderPath, name: config.name, lastOpened: new Date().toISOString(), lastEditedAt: config.lastEditedAt, hasGit, gitRemote });
 
   return workspace;
 }

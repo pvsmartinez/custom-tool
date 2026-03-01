@@ -227,17 +227,9 @@ export async function gitClone(gitUrl: string, token?: string, branch?: string):
   if (result !== 'already_cloned' && result !== 'cloned') {
     throw new Error(result)
   }
-  // Canonicalize dest — on iOS, documentDir() returns /var/mobile/... but the
-  // Tauri FS scope uses /private/var/mobile/... (symlink-resolved). Storing the
-  // canonical path ensures subsequent FS operations match the scope correctly.
-  let canonicalDest = dest
-  try {
-    const c = await invoke<string>('canonicalize_path', { path: dest })
-    if (c) canonicalDest = c
-  } catch { /* non-fatal on desktop */ }
-  setLocalClonedPath(gitUrl, canonicalDest)
+  setLocalClonedPath(gitUrl, dest)
   if (branch) setLocalBranch(gitUrl, branch)
-  return canonicalDest
+  return dest
 }
 
 /**
@@ -300,6 +292,43 @@ export async function registerWorkspace(
   } catch {
     return null
   }
+
+  const { data, error } = await supabase
+    .from('synced_workspaces')
+    .upsert(
+      {
+        user_id: session.user.id,
+        name: workspaceName,
+        git_url: gitUrl,
+        git_account_label: gitAccountLabel,
+      },
+      { onConflict: 'user_id,git_url' },
+    )
+    .select()
+    .single()
+
+  if (error) throw new Error(error.message)
+
+  return {
+    id: data.id as string,
+    name: data.name as string,
+    gitUrl: data.git_url as string,
+    gitAccountLabel: data.git_account_label as string,
+    addedAt: data.added_at as string,
+  }
+}
+
+/**
+ * Register a workspace using an explicit git URL (no disk read).
+ * Used when the user is linking a local workspace to the cloud by pasting a remote URL.
+ */
+export async function registerWorkspaceByUrl(
+  workspaceName: string,
+  gitUrl: string,
+  gitAccountLabel = 'personal',
+): Promise<SyncedWorkspace | null> {
+  const session = await getSession()
+  if (!session) return null
 
   const { data, error } = await supabase
     .from('synced_workspaces')
