@@ -128,7 +128,8 @@ export default function MobileApp() {
     try {
       const ws = await loadWorkspace(path);
       setWorkspace(ws);
-      localStorage.setItem(LAST_WS_KEY, path);
+      // Save canonical path (loadWorkspace canonicalizes it internally)
+      localStorage.setItem(LAST_WS_KEY, ws.path);
     } catch (err) {
       setWsError(`Could not open workspace: ${err}`);
     } finally {

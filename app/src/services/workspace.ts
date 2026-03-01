@@ -95,14 +95,23 @@ export async function pickWorkspaceFolder(): Promise<string | null> {
 }
 
 /** Load (or create) workspace config + agent context + file list. */
-export async function loadWorkspace(folderPath: string): Promise<Workspace> {
-  // 1. Ensure cafezin/ dir exists
+export async function loadWorkspace(rawFolderPath: string): Promise<Workspace> {
+  // 1. Canonicalize the workspace root path.
+  // On iOS, documentDir() returns /var/mobile/... but the Tauri FS scope is
+  // built from /private/var/mobile/... (symlink-resolved). For non-existent
+  // child paths (e.g. cafezin/ on first open), tauri-plugin-fs can't
+  // canonicalize them and rejects them as "forbidden". Fix: resolve the root
+  // (which exists) so all derived paths also start with /private/var/...
+  let folderPath = rawFolderPath;
+  try {
+    const canonical = await invoke<string>('canonicalize_path', { path: rawFolderPath });
+    if (canonical) folderPath = canonical;
+  } catch { /* non-fatal: falls back to raw path on desktop */ }
+
+  // 2. Ensure cafezin/ dir exists via direct Rust fs (bypasses FS plugin scope).
+  await invoke('ensure_config_dir', { workspacePath: folderPath });
   const configDir = `${folderPath}/${CONFIG_DIR}`;
   const configPath = `${configDir}/${CONFIG_FILE}`;
-
-  if (!(await exists(configDir))) {
-    await mkdir(configDir, { recursive: true });
-  }
 
   // 2. Read or create config
   let config: WorkspaceConfig;

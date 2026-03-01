@@ -227,9 +227,17 @@ export async function gitClone(gitUrl: string, token?: string, branch?: string):
   if (result !== 'already_cloned' && result !== 'cloned') {
     throw new Error(result)
   }
-  setLocalClonedPath(gitUrl, dest)
+  // Canonicalize dest — on iOS, documentDir() returns /var/mobile/... but the
+  // Tauri FS scope uses /private/var/mobile/... (symlink-resolved). Storing the
+  // canonical path ensures subsequent FS operations match the scope correctly.
+  let canonicalDest = dest
+  try {
+    const c = await invoke<string>('canonicalize_path', { path: dest })
+    if (c) canonicalDest = c
+  } catch { /* non-fatal on desktop */ }
+  setLocalClonedPath(gitUrl, canonicalDest)
   if (branch) setLocalBranch(gitUrl, branch)
-  return dest
+  return canonicalDest
 }
 
 /**

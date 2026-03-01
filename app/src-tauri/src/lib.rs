@@ -504,6 +504,29 @@ use git_cli as git;
 #[cfg(any(feature = "mas", target_os = "ios"))]
 use git_native as git;
 
+// ── Workspace helpers ───────────────────────────────────────────────────────
+/// Returns the canonical (symlink-resolved) path of an existing directory.
+/// On iOS, documentDir() returns /var/mobile/... but the Tauri FS scope is
+/// built with canonicalized /private/var/mobile/... paths. For files that
+/// don't exist yet, tauri-plugin-fs can't canonicalize them, so they fail
+/// the scope check even though they're under $DOCUMENT/**.
+/// Fix: canonicalize the workspace root (which DOES exist) and derive all
+/// child paths from it — they'll have /private/var/... and match the scope.
+#[tauri::command]
+fn canonicalize_path(path: String) -> Result<String, String> {
+    std::fs::canonicalize(&path)
+        .map(|p| p.to_string_lossy().into_owned())
+        .map_err(|e| e.to_string())
+}
+
+/// Creates <workspace_path>/cafezin/ (and parents) using std::fs directly,
+/// bypassing tauri-plugin-fs scope for the initial mkdir.
+#[tauri::command]
+fn ensure_config_dir(workspace_path: String) -> Result<(), String> {
+    let dir = std::path::Path::new(&workspace_path).join("cafezin");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())
+}
+
 // ── Tauri command dispatchers (one per git command, no duplication) ───────────────
 #[tauri::command]
 fn git_init(path: String) -> Result<String, String> { git::git_init(path) }
@@ -853,7 +876,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_http::init())
-        .invoke_handler(tauri::generate_handler![git_init, git_diff, git_sync, git_checkout_file, git_checkout_branch, git_get_remote, git_clone, git_pull, shell_run, update_app, transcribe_audio, open_devtools, build_channel, github_device_flow_init, github_device_flow_poll])
+        .invoke_handler(tauri::generate_handler![canonicalize_path, ensure_config_dir, git_init, git_diff, git_sync, git_checkout_file, git_checkout_branch, git_get_remote, git_clone, git_pull, shell_run, update_app, transcribe_audio, open_devtools, build_channel, github_device_flow_init, github_device_flow_poll])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
