@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
-import { FolderOpen, SignIn, SignOut, Cloud, CloudSlash, CloudArrowUp, GitBranch, ArrowSquareOut } from '@phosphor-icons/react';
+import { FolderOpen, Plus, SignIn, SignOut, Cloud, CloudSlash, CloudArrowUp, GitBranch, ArrowSquareOut } from '@phosphor-icons/react';
 import { invoke } from '@tauri-apps/api/core';
 import { openUrl } from '@tauri-apps/plugin-opener';
+import { mkdir } from '@tauri-apps/plugin-fs';
 import { pickWorkspaceFolder, loadWorkspace, getRecents, removeRecent } from '../services/workspace';
 import {
   getSession, getUser, signIn, signUp, signOut, signInWithGoogle, signInWithApple,
@@ -95,19 +96,43 @@ export default function WorkspacePicker({ onOpen }: WorkspacePickerProps) {
   const [cloudWorkspaces, setCloudWorkspaces] = useState<SyncedWorkspace[]>([]);
   const [cloudLoading, setCloudLoading] = useState(false);
 
-  // ── Publish-to-cloud state (local-nogit flow) ─────────────────────────────
+  // ── New workspace state ───────────────────────────────────────────────────
+  const [createMode, setCreateMode] = useState(false);
+  const [createName, setCreateName] = useState('');
+  const [createBusy, setCreateBusy] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
   const [publishPath, setPublishPath] = useState<string | null>(null);
   const [publishName, setPublishName] = useState('');
   const [publishUrl, setPublishUrl] = useState('');
   const [publishBusy, setPublishBusy] = useState(false);
   const [publishError, setPublishError] = useState<string | null>(null);
 
-  // ── Clone state (cloud-only flow) ─────────────────────────────────────────
+  // ── Publish-to-cloud state (local-nogit flow) ─────────────────────────────
   const [cloneBusy, setCloneBusy] = useState<string | null>(null); // gitUrl being cloned
 
-  // ── Auto-publish state (local-git flow) ───────────────────────────────────
+  // ── Clone state (cloud-only flow) ─────────────────────────────────────────
   const [registerBusy, setRegisterBusy] = useState<string | null>(null); // local path being registered
 
+  /** Create a new empty workspace folder and open it. */
+  async function handleCreate() {
+    const name = createName.trim();
+    if (!name) return;
+    setCreateBusy(true);
+    setCreateError(null);
+    try {
+      const parent = await pickWorkspaceFolder();
+      if (!parent) { setCreateBusy(false); return; }
+      const dest = `${parent}/${name}`;
+      await mkdir(dest, { recursive: true });
+      const workspace = await loadWorkspace(dest);
+      onOpen(workspace);
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : String(err));
+      setCreateBusy(false);
+    }
+  }
+
+  // ── Initialise session + recents ─────────────────────────────────────────
   useEffect(() => {
     getSession().then(async (session) => {
       if (session) {
@@ -280,19 +305,59 @@ export default function WorkspacePicker({ onOpen }: WorkspacePickerProps) {
   return (
     <div className="wp-overlay">
       <div className="wp-card">
-        <h1 className="wp-welcome">Welcome!</h1>
-        <div className="wp-logo">✦</div>
-        <h1 className="wp-title">Cafezin</h1>
-        <p className="wp-tagline">Just Chilling</p>
-        <p className="wp-subtitle">Open a folder to begin. Each folder is an independent workspace.</p>
 
-        <button className="wp-btn-open" onClick={handlePick} disabled={loading}>
-          {loading ? 'Opening…' : <><FolderOpen weight="thin" size={15} /> Open Folder</>}
-        </button>
+        {/* ── Header ── */}
+        <div className="wp-header">
+          <div className="wp-logo">✦</div>
+          <h1 className="wp-title">Cafezin</h1>
+          <p className="wp-tagline">Just Chilling</p>
+        </div>
+
+        {/* ── Primary actions ── */}
+        <div className="wp-actions">
+          <button className="wp-btn-action" onClick={handlePick} disabled={loading || createBusy}>
+            <FolderOpen weight="thin" size={16} />
+            <span>Abrir pasta</span>
+          </button>
+          <button
+            className={`wp-btn-action wp-btn-action--create${createMode ? ' wp-btn-action--active' : ''}`}
+            onClick={() => { setCreateMode((m) => !m); setCreateName(''); setCreateError(null); }}
+            disabled={loading || createBusy}
+          >
+            <Plus weight="thin" size={16} />
+            <span>Novo workspace</span>
+          </button>
+        </div>
+
+        {/* ── New workspace inline form ── */}
+        {createMode && (
+          <div className="wp-create-form">
+            <input
+              className="wp-auth-input"
+              placeholder="Nome do workspace"
+              value={createName}
+              onChange={(e) => setCreateName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') void handleCreate();
+                if (e.key === 'Escape') { setCreateMode(false); setCreateName(''); }
+              }}
+              autoFocus
+            />
+            <p className="wp-create-hint">Escolha onde salvar na próxima etapa.</p>
+            {createError && <div className="wp-auth-error">{createError}</div>}
+            <button
+              className="wp-btn-action wp-btn-action--primary"
+              onClick={handleCreate}
+              disabled={createBusy || !createName.trim()}
+            >
+              {createBusy ? 'Criando…' : 'Escolher local e criar'}
+            </button>
+          </div>
+        )}
 
         {error && <div className="wp-error">{error}</div>}
 
-        {/* ── Publish-to-cloud form (inline modal) ── */}
+        {/* ── Publish-to-cloud form (inline) ── */}
         {publishPath && (
           <div className="wp-publish-form">
             <p className="wp-publish-label">Cole a URL do repositório remoto:</p>
@@ -307,7 +372,7 @@ export default function WorkspacePicker({ onOpen }: WorkspacePickerProps) {
             {publishError && <div className="wp-auth-error">{publishError}</div>}
             <div className="wp-publish-actions">
               <button className="wp-publish-cancel" onClick={() => setPublishPath(null)}>Cancelar</button>
-              <button className="wp-btn-open wp-btn-open--sm" onClick={handlePublish} disabled={publishBusy || !publishUrl.trim()}>
+              <button className="wp-btn-action wp-btn-action--primary wp-btn-action--sm" onClick={handlePublish} disabled={publishBusy || !publishUrl.trim()}>
                 {publishBusy ? 'Salvando…' : <><CloudArrowUp weight="thin" size={13} /> Publicar</>}
               </button>
             </div>
