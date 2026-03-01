@@ -132,8 +132,6 @@ else
   BUILD_NUM=1
 fi
 echo "$BUILD_NUM" > "$BUILD_NUM_FILE"
-BUILD_NUM="$BUILD_NUM"
-INFO_PLIST="$APPLE_DIR/app_iOS/Info.plist"
 
 # Read marketing version from tauri.conf.json
 MARKETING_VER="$(python3 -c "import json; print(json.load(open('$APP_DIR/src-tauri/tauri.conf.json'))['version'])")"
@@ -149,18 +147,22 @@ fi
 echo "═══════════════════════════════════════════════════════"
 echo ""
 
-# Patch Info.plist — build number + export compliance
-/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUM" "$INFO_PLIST" 2>/dev/null || \
-  /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string $BUILD_NUM" "$INFO_PLIST"
-/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $MARKETING_VER" "$INFO_PLIST" 2>/dev/null || true
-echo "✓ Build number set to $BUILD_NUM"
+# NOTE: We do NOT patch gen/apple/app_iOS/Info.plist here because
+# `npx tauri ios build` regenerates it from tauri.conf.json, overwriting
+# any patches made before the build. The build number is injected into
+# the IPA *after* the build in the post-processing section below.
 
-# Declare standard-only encryption so TestFlight auto-approves compliance.
-# The app uses HTTPS/TLS exclusively (Apple's built-in networking stack).
-# This satisfies US EAR §740.17 exemption + French ANSSI standard-crypto exemption.
-/usr/libexec/PlistBuddy -c "Set :ITSAppUsesNonExemptEncryption false" "$INFO_PLIST" 2>/dev/null || \
-  /usr/libexec/PlistBuddy -c "Add :ITSAppUsesNonExemptEncryption bool false" "$INFO_PLIST"
-echo "✓ Export compliance set (standard encryption only)"
+# ── Patch project.yml (sets CFBundleVersion before xcodegen runs) ─────────────
+# Tauri does NOT regenerate project.yml on each build (only on `tauri ios init`),
+# so patching it here is safe and survives the build.
+PROJECT_YML="$APPLE_DIR/project.yml"
+if [[ -f "$PROJECT_YML" ]]; then
+  # Replace CFBundleVersion value (quoted or unquoted) with the new build number
+  sed -i '' "s/CFBundleVersion: .*/CFBundleVersion: \"$BUILD_NUM\"/" "$PROJECT_YML"
+  echo "✓ project.yml CFBundleVersion set to $BUILD_NUM"
+else
+  echo "  ⚠ project.yml not found — run 'npx tauri ios init' first"
+fi
 
 # ── Build the release IPA ──────────────────────────────────────────────────
 echo ""

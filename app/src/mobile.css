@@ -1,17 +1,10 @@
-/* ── Mobile app shell ─────────────────────────────────────────────────────── */
+/* Mobile app shell
+   Cores, tipografia e escala vem de tokens.css (compartilhado com desktop).
+   So variaveis de layout exclusivas do mobile ficam aqui. */
 :root {
-  --mb-bg:        #111315;
-  --mb-surface:   #1a1d20;
-  --mb-surface2:  #22262b;
-  --mb-border:    rgba(255,255,255,0.08);
-  --mb-text:      #e8eaed;
-  --mb-muted:     #7a8290;
-  --mb-accent:    #4fa3e0;
-  --mb-accent2:   #56cfb2;
-  --mb-danger:    #c97570;
-  --mb-tab-h:     56px;
-  --mb-safe-b:    env(safe-area-inset-bottom, 0px);
-  --mb-safe-t:    env(safe-area-inset-top, 0px);
+  --mb-tab-h:  56px;
+  --mb-safe-b: env(safe-area-inset-bottom, 0px);
+  --mb-safe-t: env(safe-area-inset-top, 0px);
 }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -20,9 +13,9 @@ html, body, #root {
   height: 100%;
   margin: 0;
   padding: 0;
-  background: var(--mb-bg);
-  color: var(--mb-text);
-  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ui);
   font-size: 15px;
   -webkit-text-size-adjust: 100%;
   overscroll-behavior: none;
@@ -48,8 +41,8 @@ html, body, #root {
 .mb-tabbar {
   display: flex;
   align-items: stretch;
-  background: var(--mb-surface);
-  border-top: 1px solid var(--mb-border);
+  background: var(--surface);
+  border-top: 1px solid var(--border);
   padding-bottom: var(--mb-safe-b);
   flex-shrink: 0;
   z-index: var(--z-raised);
@@ -65,19 +58,23 @@ html, body, #root {
   padding: 8px 0;
   background: none;
   border: none;
+  border-top: 2px solid transparent;
   cursor: pointer;
-  color: var(--mb-muted);
-  transition: color 0.15s;
+  color: var(--text-muted);
+  transition: color 0.15s, border-color 0.15s;
   -webkit-tap-highlight-color: transparent;
   min-height: var(--mb-tab-h);
 }
 
 .mb-tab.active {
-  color: var(--mb-accent);
+  color: var(--accent);
+  border-top-color: var(--accent);
 }
 
 .mb-tab-icon {
-  font-size: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   line-height: 1;
 }
 
@@ -94,8 +91,8 @@ html, body, #root {
   align-items: center;
   gap: 8px;
   padding: 12px 16px 10px;
-  border-bottom: 1px solid var(--mb-border);
-  background: var(--mb-surface);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
   flex-shrink: 0;
 }
 
@@ -111,7 +108,7 @@ html, body, #root {
 .mb-header-sub {
   flex: 1;
   font-size: 13px;
-  color: var(--mb-muted);
+  color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -121,7 +118,7 @@ html, body, #root {
   background: none;
   border: none;
   cursor: pointer;
-  color: var(--mb-accent);
+  color: var(--accent);
   font-size: 20px;
   padding: 4px 6px;
   border-radius: 6px;
@@ -146,23 +143,29 @@ html, body, #root {
   text-align: center;
 }
 
-.mb-empty-icon { font-size: 48px; opacity: 0.3; }
+.mb-empty-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.4;
+  color: var(--text-muted);
+}
 
 .mb-empty-title {
   font-size: 20px;
   font-weight: 600;
-  color: var(--mb-text);
+  color: var(--text);
 }
 
 .mb-empty-desc {
   font-size: 14px;
-  color: var(--mb-muted);
+  color: var(--text-muted);
   max-width: 280px;
   line-height: 1.5;
 }
 
 .mb-btn {
-  background: var(--mb-accent);
+  background: var(--accent);
   color: #fff;
   border: none;
   border-radius: 10px;
@@ -178,13 +181,19 @@ html, body, #root {
 .mb-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
 .mb-btn-ghost {
-  background: var(--mb-surface2);
-  color: var(--mb-text);
-  border: 1px solid var(--mb-border);
+  background: var(--surface2);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.mb-btn-secondary {
+  background: var(--surface2);
+  color: var(--text);
+  border: 1px solid var(--border);
 }
 
 .mb-btn-primary {
-  background: var(--mb-accent);
+  background: var(--accent);
   color: #fff;
   border: 1px solid transparent;
 }
@@ -193,8 +202,8 @@ html, body, #root {
 .mb-spinner {
   width: 28px;
   height: 28px;
-  border: 3px solid var(--mb-border);
-  border-top-color: var(--mb-accent);
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
   border-radius: 50%;
   animation: mb-spin 0.7s linear infinite;
 }
@@ -226,7 +235,7 @@ html, body, #root {
 .mb-filenode:active { background: rgba(255,255,255,0.04); }
 
 .mb-filenode.selected {
-  background: rgba(79,163,224,0.12);
+  background: rgba(var(--accent-rgb), 0.12);
 }
 
 .mb-filenode-indent {
@@ -235,7 +244,7 @@ html, body, #root {
 
 .mb-filenode-chevron {
   font-size: 11px;
-  color: var(--mb-muted);
+  color: var(--text-muted);
   width: 14px;
   flex-shrink: 0;
 }
@@ -255,16 +264,16 @@ html, body, #root {
 }
 
 .mb-filenode.dir .mb-filenode-name {
-  color: var(--mb-text);
+  color: var(--text);
   font-weight: 500;
 }
 
 .mb-filenode.file .mb-filenode-name {
-  color: var(--mb-muted);
+  color: var(--text-muted);
 }
 
 .mb-filenode.file.previewable .mb-filenode-name {
-  color: var(--mb-text);
+  color: var(--text);
 }
 
 /* ── Preview ─────────────────────────────────────────────────────────────── */
@@ -273,7 +282,7 @@ html, body, #root {
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  background: var(--mb-bg);
+  background: var(--bg);
 }
 
 .mb-preview-body {
@@ -294,8 +303,11 @@ html, body, #root {
 }
 
 .mb-preview-no-file {
-  font-size: 40px;
-  opacity: 0.2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.25;
+  color: var(--text-muted);
 }
 
 /* Canvas slide preview */
@@ -358,6 +370,21 @@ html, body, #root {
   padding: 20px 20px 40px;
 }
 
+/* HTML / webpage preview — fills the body so iframe can stretch */
+.mb-preview-body.mb-html {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.mb-html-frame {
+  width: 100%;
+  flex: 1;
+  border: none;
+  display: block;
+  min-height: 0;
+}
+
 /* Image preview */
 .mb-image-wrap {
   display: flex;
@@ -385,8 +412,8 @@ html, body, #root {
   margin: 0;
   padding: 16px 18px 40px;
   font-size: 12px;
-  font-family: 'SF Mono', 'Menlo', 'Courier New', monospace;
-  color: var(--mb-text);
+  font-family: var(--font-mono);
+  color: var(--text);
   white-space: pre-wrap;
   word-break: break-all;
   line-height: 1.6;
@@ -422,19 +449,19 @@ html, body, #root {
 
 .mb-msg-user {
   align-self: flex-end;
-  background: var(--mb-accent);
+  background: var(--accent);
   color: #fff;
   border-bottom-right-radius: 4px;
 }
 
 .mb-msg-assistant {
   align-self: flex-start;
-  background: var(--mb-surface2);
-  color: var(--mb-text);
+  background: var(--surface2);
+  color: var(--text);
   border-bottom-left-radius: 4px;
 }
 
-.mb-msg-assistant a { color: var(--mb-accent); }
+.mb-msg-assistant a { color: var(--accent); }
 
 .mb-msg-streaming::after {
   content: '▍';
@@ -444,9 +471,9 @@ html, body, #root {
 @keyframes mb-blink { 50% { opacity: 0; } }
 
 .mb-chat-error {
-  background: rgba(201,117,112,0.15);
-  border: 1px solid rgba(201,117,112,0.3);
-  color: var(--mb-danger);
+  background: rgba(var(--red-rgb),0.15);
+  border: 1px solid rgba(var(--red-rgb),0.3);
+  color: var(--red);
   border-radius: 10px;
   padding: 10px 13px;
   font-size: 13px;
@@ -456,8 +483,8 @@ html, body, #root {
 .mb-chat-input-area {
   flex-shrink: 0;
   padding: 8px 12px calc(8px + var(--mb-safe-b));
-  background: var(--mb-surface);
-  border-top: 1px solid var(--mb-border);
+  background: var(--surface);
+  border-top: 1px solid var(--border);
   display: flex;
   align-items: flex-end;
   gap: 8px;
@@ -465,11 +492,11 @@ html, body, #root {
 
 .mb-chat-textarea {
   flex: 1;
-  background: var(--mb-surface2);
-  border: 1px solid var(--mb-border);
+  background: var(--surface2);
+  border: 1px solid var(--border);
   border-radius: 12px;
   padding: 10px 12px;
-  color: var(--mb-text);
+  color: var(--text);
   font-size: 15px;
   font-family: inherit;
   resize: none;
@@ -479,12 +506,12 @@ html, body, #root {
   overflow-y: auto;
 }
 
-.mb-chat-textarea::placeholder { color: var(--mb-muted); }
+.mb-chat-textarea::placeholder { color: var(--text-muted); }
 
 .mb-chat-send {
   width: 38px;
   height: 38px;
-  background: var(--mb-accent);
+  background: var(--accent);
   border: none;
   border-radius: 50%;
   color: #fff;
@@ -504,10 +531,10 @@ html, body, #root {
 .mb-chat-voice {
   width: 38px;
   height: 38px;
-  background: var(--mb-surface2);
-  border: 1px solid var(--mb-border);
+  background: var(--surface2);
+  border: 1px solid var(--border);
   border-radius: 50%;
-  color: var(--mb-muted);
+  color: var(--text-muted);
   font-size: 18px;
   cursor: pointer;
   display: flex;
@@ -519,15 +546,15 @@ html, body, #root {
 }
 
 .mb-chat-voice.recording {
-  background: rgba(201,117,112,0.2);
-  color: var(--mb-danger);
-  border-color: var(--mb-danger);
+  background: rgba(var(--red-rgb),0.2);
+  color: var(--red);
+  border-color: var(--red);
   animation: mb-pulse 1s ease-in-out infinite;
 }
 
 @keyframes mb-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(201,117,112,0.4); }
-  50% { box-shadow: 0 0 0 6px rgba(201,117,112,0); }
+  0%, 100% { box-shadow: 0 0 0 0 rgba(var(--red-rgb),0.4); }
+  50% { box-shadow: 0 0 0 6px rgba(var(--red-rgb),0); }
 }
 
 /* Auth screen inside chat */
@@ -549,7 +576,7 @@ html, body, #root {
 
 .mb-chat-auth-desc {
   font-size: 14px;
-  color: var(--mb-muted);
+  color: var(--text-muted);
   max-width: 260px;
   line-height: 1.5;
 }
@@ -558,25 +585,25 @@ html, body, #root {
   font-size: 28px;
   font-weight: 700;
   letter-spacing: 4px;
-  font-family: 'SF Mono', 'Menlo', monospace;
-  color: var(--mb-accent);
-  background: var(--mb-surface2);
-  border: 1px solid var(--mb-border);
+  font-family: 'Maple Mono', 'Fira Code', 'Fira Mono', monospace;
+  color: var(--accent);
+  background: var(--surface2);
+  border: 1px solid var(--border);
   border-radius: 10px;
   padding: 12px 20px;
 }
 
 .mb-device-flow-url {
   font-size: 14px;
-  color: var(--mb-muted);
+  color: var(--text-muted);
   text-decoration: underline;
   cursor: pointer;
 }
 
 /* Groq key setup */
 .mb-groq-setup {
-  background: var(--mb-surface);
-  border-top: 1px solid var(--mb-border);
+  background: var(--surface);
+  border-top: 1px solid var(--border);
   padding: 12px 12px calc(12px + var(--mb-safe-b));
   display: flex;
   flex-direction: column;
@@ -586,7 +613,7 @@ html, body, #root {
 .mb-groq-setup p {
   margin: 0;
   font-size: 13px;
-  color: var(--mb-muted);
+  color: var(--text-muted);
 }
 
 .mb-groq-row {
@@ -596,11 +623,11 @@ html, body, #root {
 
 .mb-groq-input {
   flex: 1;
-  background: var(--mb-surface2);
-  border: 1px solid var(--mb-border);
+  background: var(--surface2);
+  border: 1px solid var(--border);
   border-radius: 8px;
   padding: 8px 10px;
-  color: var(--mb-text);
+  color: var(--text);
   font-size: 14px;
   outline: none;
 }
@@ -611,9 +638,9 @@ html, body, #root {
   align-items: center;
   gap: 6px;
   font-size: 12px;
-  color: var(--mb-muted);
-  background: var(--mb-surface2);
-  border-bottom: 1px solid var(--mb-border);
+  color: var(--text-muted);
+  background: var(--surface2);
+  border-bottom: 1px solid var(--border);
   padding: 6px 12px;
   flex-shrink: 0;
 }
@@ -622,7 +649,7 @@ html, body, #root {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--mb-accent2);
+  background: var(--green);
   flex-shrink: 0;
 }
 
@@ -631,13 +658,13 @@ html, body, #root {
   font-size: 12px;
   padding: 4px 10px;
   border-radius: 8px;
-  background: var(--mb-surface2);
-  color: var(--mb-muted);
+  background: var(--surface2);
+  color: var(--text-muted);
 }
 
 .mb-model-picker {
-  background: var(--mb-surface);
-  border: 1px solid var(--mb-border);
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: 10px;
   margin: 0 12px;
   padding: 4px 0;
@@ -656,13 +683,13 @@ html, body, #root {
   border: none;
   text-align: left;
   cursor: pointer;
-  color: var(--mb-text);
+  color: var(--text);
   font-size: 14px;
   gap: 8px;
   -webkit-tap-highlight-color: transparent;
 }
 
-.mb-model-option.active { background: rgba(79,163,224,0.12); }
+.mb-model-option.active { background: rgba(var(--accent-rgb), 0.12); }
 .mb-model-option:active { background: rgba(255,255,255,0.04); }
 
 .mb-model-name { flex: 1; }
@@ -674,8 +701,8 @@ html, body, #root {
   font-weight: 600;
 }
 
-.mb-model-badge.free    { color: var(--mb-accent2); background: rgba(86,207,178,0.1); }
-.mb-model-badge.premium { color: var(--mb-muted);   background: rgba(255,255,255,0.06); }
+.mb-model-badge.free    { color: var(--green); background: rgba(var(--accent-rgb), 0.1); }
+.mb-model-badge.premium { color: var(--text-muted);   background: rgba(var(--accent-rgb), 0.06); }
 
 /* ── Chat empty state ─────────────────────────────────────────────────────── */
 .mb-chat-empty {
@@ -693,7 +720,7 @@ html, body, #root {
 
 .mb-chat-empty-text {
   font-size: 14px;
-  color: var(--mb-muted);
+  color: var(--text-muted);
   max-width: 280px;
   line-height: 1.55;
 }
@@ -727,15 +754,15 @@ html, body, #root {
 .mb-msg-md-body li { margin: 0.2em 0; }
 
 .mb-msg-md-body code {
-  font-family: 'SF Mono', 'Menlo', monospace;
+  font-family: 'Maple Mono', 'Fira Code', 'Fira Mono', monospace;
   font-size: 0.85em;
-  background: rgba(255,255,255,0.08);
+  background: rgba(var(--accent-rgb), 0.07);
   border-radius: 4px;
   padding: 0.1em 0.35em;
 }
 
 .mb-msg-md-body pre {
-  background: rgba(0,0,0,0.3);
+  background: var(--surface2);
   border-radius: 8px;
   padding: 10px 12px;
   overflow-x: auto;
@@ -747,16 +774,16 @@ html, body, #root {
   background: none;
   padding: 0;
   font-size: 12px;
-  color: var(--mb-text);
+  color: var(--text);
 }
 
-.mb-msg-md-body a { color: var(--mb-accent); }
+.mb-msg-md-body a { color: var(--accent); }
 
 .mb-msg-md-body blockquote {
-  border-left: 3px solid var(--mb-border);
+  border-left: 3px solid var(--border);
   margin: 0.4em 0;
   padding: 0.1em 0 0.1em 10px;
-  color: var(--mb-muted);
+  color: var(--text-muted);
 }
 
 /* ── Tool chips ───────────────────────────────────────────────────────────── */
@@ -773,19 +800,19 @@ html, body, #root {
   display: flex;
   align-items: center;
   gap: 6px;
-  background: var(--mb-surface2);
-  border: 1px solid var(--mb-border);
+  background: var(--surface2);
+  border: 1px solid var(--border);
   border-radius: 20px;
   padding: 5px 10px 5px 8px;
   font-size: 12px;
-  color: var(--mb-muted);
+  color: var(--text-muted);
   max-width: 260px;
   overflow: hidden;
 }
 
-.mb-tool-chip.running { border-color: rgba(79,163,224,0.3); color: var(--mb-text); }
+.mb-tool-chip.running { border-color: rgba(var(--accent-rgb), 0.3); color: var(--text); }
 .mb-tool-chip.done    { opacity: 0.6; }
-.mb-tool-chip.error   { border-color: rgba(201,117,112,0.4); color: var(--mb-danger); }
+.mb-tool-chip.error   { border-color: rgba(var(--red-rgb),0.4); color: var(--red); }
 
 .mb-tool-icon { font-size: 13px; flex-shrink: 0; }
 
@@ -798,7 +825,7 @@ html, body, #root {
 }
 
 .mb-tool-hint {
-  color: var(--mb-muted);
+  color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -813,8 +840,8 @@ html, body, #root {
   display: inline-block;
   width: 10px;
   height: 10px;
-  border: 1.5px solid rgba(79,163,224,0.3);
-  border-top-color: var(--mb-accent);
+  border: 1.5px solid rgba(var(--accent-rgb), 0.3);
+  border-top-color: var(--accent);
   border-radius: 50%;
   animation: mb-spin 0.6s linear infinite;
   vertical-align: middle;
@@ -822,10 +849,10 @@ html, body, #root {
 
 /* ── Generic input ─────────────────────────────────────────────────────────── */
 .mb-input {
-  background: var(--mb-surface2);
-  border: 1px solid var(--mb-border);
+  background: var(--surface2);
+  border: 1px solid var(--border);
   border-radius: 10px;
-  color: var(--mb-text);
+  color: var(--text);
   font-size: 14px;
   padding: 10px 12px;
   outline: none;
@@ -833,9 +860,9 @@ html, body, #root {
   -webkit-appearance: none;
 }
 .mb-input:focus {
-  border-color: var(--mb-accent);
+  border-color: var(--accent);
 }
-.mb-input::placeholder { color: var(--mb-muted); }
+.mb-input::placeholder { color: var(--text-muted); }
 
 /* ── Voice memo screen ─────────────────────────────────────────────────────── */
 .mb-voice-scroll {
@@ -853,13 +880,13 @@ html, body, #root {
   flex-direction: column;
   gap: 10px;
   padding: 16px;
-  background: var(--mb-surface);
-  border-bottom: 1px solid var(--mb-border);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
 }
 
 .mb-voice-key-hint {
   font-size: 13px;
-  color: var(--mb-muted);
+  color: var(--text-muted);
   margin: 0;
   line-height: 1.5;
 }
@@ -883,16 +910,16 @@ html, body, #root {
   align-items: center;
   gap: 12px;
   padding: 28px 24px;
-  border-bottom: 1px solid var(--mb-border);
+  border-bottom: 1px solid var(--border);
 }
 
 .mb-record-btn {
   width: 80px;
   height: 80px;
   border-radius: 50%;
-  border: 3px solid var(--mb-accent);
-  background: var(--mb-surface2);
-  color: var(--mb-text);
+  border: 3px solid var(--accent);
+  background: var(--surface2);
+  color: var(--text);
   font-size: 32px;
   display: flex;
   align-items: center;
@@ -925,7 +952,7 @@ html, body, #root {
 
 .mb-voice-hint {
   font-size: 13px;
-  color: var(--mb-muted);
+  color: var(--text-muted);
   text-align: center;
 }
 
@@ -934,13 +961,13 @@ html, body, #root {
   flex-direction: column;
   align-items: center;
   gap: 10px;
-  color: var(--mb-muted);
+  color: var(--text-muted);
   font-size: 13px;
 }
 
 /* Memo list */
 .mb-memo-item {
-  border-bottom: 1px solid var(--mb-border);
+  border-bottom: 1px solid var(--border);
 }
 
 .mb-memo-header {
@@ -954,10 +981,10 @@ html, body, #root {
   gap: 12px;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
-  color: var(--mb-text);
+  color: var(--text);
 }
 
-.mb-memo-header:active { background: var(--mb-surface); }
+.mb-memo-header:active { background: var(--surface); }
 
 .mb-memo-meta {
   display: flex;
@@ -974,12 +1001,12 @@ html, body, #root {
 
 .mb-memo-time {
   font-size: 12px;
-  color: var(--mb-muted);
+  color: var(--text-muted);
 }
 
 .mb-memo-chevron {
   font-size: 12px;
-  color: var(--mb-muted);
+  color: var(--text-muted);
   flex-shrink: 0;
 }
 
@@ -999,18 +1026,18 @@ html, body, #root {
 .mb-memo-transcript {
   font-size: 14px;
   line-height: 1.65;
-  color: var(--mb-text);
+  color: var(--text);
   margin: 0;
   white-space: pre-wrap;
-  background: var(--mb-surface2);
+  background: var(--surface2);
   border-radius: 8px;
   padding: 10px 12px;
 }
 
 .mb-memo-delete {
   background: none;
-  border: 1px solid rgba(201,117,112,0.3);
-  color: var(--mb-danger);
+  border: 1px solid rgba(var(--red-rgb),0.3);
+  color: var(--red);
   border-radius: 8px;
   padding: 6px 12px;
   font-size: 12px;
@@ -1029,13 +1056,16 @@ html, body, #root {
 }
 
 .mb-audio-icon {
-  font-size: 56px;
-  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.5;
+  color: var(--text-muted);
 }
 
 .mb-audio-filename {
   font-size: 13px;
-  color: var(--mb-muted);
+  color: var(--text-muted);
   text-align: center;
   word-break: break-all;
 }

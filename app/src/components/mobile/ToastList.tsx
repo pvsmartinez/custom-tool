@@ -20,12 +20,20 @@ export default function ToastList({ toasts, onDismiss }: ToastListProps) {
       {toasts.map((t) => (
         <div
           key={t.id}
-          className={`toast toast--${t.type}`}
+          className={`toast toast--${t.type}${t.exiting ? ' toast--exit' : ''}`}
           role="alert"
           onClick={() => onDismiss(t.id)}
         >
           <span className="toast-icon">{ICONS[t.type]}</span>
           <span className="toast-msg">{t.message}</span>
+          {/* Botão X explícito para erros (toque mais preciso) */}
+          {t.type === 'error' && (
+            <button
+              className="toast-close"
+              onClick={(e) => { e.stopPropagation(); onDismiss(t.id); }}
+              aria-label="Fechar"
+            >✕</button>
+          )}
         </div>
       ))}
     </div>

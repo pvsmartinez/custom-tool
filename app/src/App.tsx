@@ -18,6 +18,9 @@ import WebPreview, { type WebPreviewHandle } from './components/WebPreview';
 import PDFViewer from './components/PDFViewer';
 import MediaViewer from './components/MediaViewer';
 import UpdateModal from './components/UpdateModal';
+import MobilePendingModal from './components/MobilePendingModal';
+import { loadPendingTasks } from './services/mobilePendingTasks';
+import type { MobilePendingTask } from './services/mobilePendingTasks';
 import SettingsModal from './components/SettingsModal';
 import ExportModal from './components/ExportModal';
 import ImageSearchPanel from './components/ImageSearchPanel';
@@ -158,6 +161,8 @@ export default function App() {
     aiOpen, setAiOpen,
     aiInitialPrompt, setAiInitialPrompt,
   } = useModals();
+  const [showMobilePending, setShowMobilePending] = useState(false);
+  const [mobilePendingTasks, setMobilePendingTasks] = useState<MobilePendingTask[]>([]);
   // ── Canvas refs + transient state ───────────────────────────────────────
   const {
     canvasEditorRef,
@@ -1012,6 +1017,12 @@ export default function App() {
     setWorkspace(ws);
     // Load AI edit marks for this workspace
     loadMarksForWorkspace(ws);
+    // Check for pending tasks queued from mobile
+    const pending = await loadPendingTasks(ws.path);
+    if (pending.length > 0) {
+      setMobilePendingTasks(pending);
+      setShowMobilePending(true);
+    }
 
     // Silently register in Supabase if user is logged in and workspace has a git remote.
     // No-ops if not authenticated or no git remote — never blocks the UI.
@@ -1070,6 +1081,11 @@ export default function App() {
         />
       </>
     );
+  }
+
+  function handleExecutePendingTask(task: MobilePendingTask) {
+    setAiInitialPrompt(task.description);
+    setAiOpen(true);
   }
 
   return (
@@ -1529,6 +1545,15 @@ export default function App() {
         open={showUpdateModal}
         projectRoot={__PROJECT_ROOT__}
         onClose={() => setShowUpdateModal(false)}
+      />
+
+      <MobilePendingModal
+        open={showMobilePending}
+        workspacePath={workspace.path}
+        tasks={mobilePendingTasks}
+        onExecute={handleExecutePendingTask}
+        onClose={() => setShowMobilePending(false)}
+        onTaskDeleted={(id) => setMobilePendingTasks(prev => prev.filter(t => t.id !== id))}
       />
 
       <SettingsModal

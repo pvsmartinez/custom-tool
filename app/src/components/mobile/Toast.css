@@ -66,6 +66,36 @@
 
 .toast-msg {
   flex: 1;
+  word-break: break-word;
+}
+
+.toast-close {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: inherit;
+  opacity: 0.6;
+  font-size: 14px;
+  font-weight: 700;
+  padding: 0 2px;
+  cursor: pointer;
+  line-height: 1;
+}
+.toast-close:hover { opacity: 1; }
+
+.toast--exit {
+  animation: toast-out 0.25s ease-in both;
+}
+
+@keyframes toast-out {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.95);
+  }
 }
 
 @keyframes toast-in {

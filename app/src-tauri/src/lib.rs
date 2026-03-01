@@ -124,9 +124,22 @@ mod git_cli {
         } else { Err("no remote".into()) }
     }
 
-    pub fn git_clone(url: String, path: String, _token: Option<String>) -> Result<String, String> {
+    pub fn git_clone(url: String, path: String, _token: Option<String>, branch: Option<String>) -> Result<String, String> {
+        if std::path::Path::new(&path).join(".git").exists() {
+            return Ok("already_cloned".into());
+        }
+        let mut args = vec!["clone"];
+        // Temporary storage so the borrow lives long enough
+        let branch_arg;
+        if let Some(ref b) = branch {
+            args.push("--branch");
+            branch_arg = b.as_str();
+            args.push(branch_arg);
+        }
+        args.push(&url);
+        args.push(&path);
         let out = Command::new("git")
-            .args(["clone", &url, &path])
+            .args(&args)
             .output()
             .map_err(|e| e.to_string())?;
         if out.status.success() { Ok("cloned".into()) }
@@ -149,6 +162,23 @@ mod git_cli {
             .current_dir(&path).output()
             .map_err(|e| e.to_string())?;
         if out.status.success() { Ok("reverted".into()) }
+        else { Err(String::from_utf8_lossy(&out.stderr).to_string()) }
+    }
+
+    pub fn git_checkout_branch(path: String, branch: String, token: Option<String>) -> Result<String, String> {
+        // Fetch the latest from origin (so the branch exists locally if it's new)
+        let _ = Command::new("git")
+            .args(["fetch", "origin", &branch])
+            .current_dir(&path)
+            .output();
+        // Checkout and reset to origin/<branch>
+        let out = Command::new("git")
+            .args(["checkout", "-B", &branch, &format!("origin/{branch}")])
+            .current_dir(&path)
+            .output()
+            .map_err(|e| e.to_string())?;
+        let _ = token; // token unused in CLI variant (credential helper handles auth)
+        if out.status.success() { Ok("switched".into()) }
         else { Err(String::from_utf8_lossy(&out.stderr).to_string()) }
     }
 }
@@ -251,7 +281,10 @@ mod git_native {
         // Push best-effort (uses SSH agent / system credential helper)
         if let Ok(mut remote) = repo.find_remote("origin") {
             let mut callbacks = RemoteCallbacks::new();
-            callbacks.credentials(|_url, username, allowed| {
+            let mut tried = false;
+            callbacks.credentials(move |_url, username, allowed| {
+                if tried { return Err(git2::Error::from_str("authentication failed")); }
+                tried = true;
                 if allowed.contains(git2::CredentialType::SSH_KEY) {
                     git2::Cred::ssh_key_from_agent(username.unwrap_or("git"))
                 } else if allowed.contains(git2::CredentialType::DEFAULT) {
@@ -259,6 +292,9 @@ mod git_native {
                 } else {
                     Err(git2::Error::from_str("no credential method available"))
                 }
+            });
+            callbacks.certificate_check(|_cert, _valid| {
+                Ok(git2::CertificateCheckStatus::CertificateOk)
             });
             let mut push_opts = PushOptions::new();
             push_opts.remote_callbacks(callbacks);
@@ -283,10 +319,19 @@ mod git_native {
         Ok(remote.url().unwrap_or("").to_string())
     }
 
-    pub fn git_clone(url: String, path: String, token: Option<String>) -> Result<String, String> {
+    pub fn git_clone(url: String, path: String, token: Option<String>, branch: Option<String>) -> Result<String, String> {
+        // Idempotent: if the destination is already a valid git repo, skip the clone.
+        if std::path::Path::new(&path).join(".git").exists() {
+            return Ok("already_cloned".into());
+        }
         let mut callbacks = RemoteCallbacks::new();
+        // `tried` prevents the libgit2 credential loop: if called more than once
+        // it means the first attempt failed — bail immediately instead of looping.
         if let Some(tok) = token {
+            let mut tried = false;
             callbacks.credentials(move |_url, _username, allowed| {
+                if tried { return Err(git2::Error::from_str("authentication failed")); }
+                tried = true;
                 if allowed.contains(git2::CredentialType::USER_PASS_PLAINTEXT) {
                     git2::Cred::userpass_plaintext("oauth2", &tok)
                 } else {
@@ -294,7 +339,10 @@ mod git_native {
                 }
             });
         } else {
-            callbacks.credentials(|_url, username, allowed| {
+            let mut tried = false;
+            callbacks.credentials(move |_url, username, allowed| {
+                if tried { return Err(git2::Error::from_str("authentication failed")); }
+                tried = true;
                 if allowed.contains(git2::CredentialType::SSH_KEY) {
                     git2::Cred::ssh_key_from_agent(username.unwrap_or("git"))
                 } else {
@@ -302,23 +350,42 @@ mod git_native {
                 }
             });
         }
+        callbacks.certificate_check(|_cert, _valid| {
+            Ok(git2::CertificateCheckStatus::CertificateOk)
+        });
         let mut fetch_opts = git2::FetchOptions::new();
         fetch_opts.remote_callbacks(callbacks);
         let mut builder = git2::build::RepoBuilder::new();
         builder.fetch_options(fetch_opts);
+        if let Some(ref b) = branch {
+            if !b.is_empty() {
+                builder.branch(b);
+            }
+        }
         builder.clone(&url, std::path::Path::new(&path)).map_err(|e| e.to_string())?;
         Ok("cloned".into())
     }
 
     pub fn git_pull(path: String, token: Option<String>) -> Result<String, String> {
         let repo = Repository::open(&path).map_err(|e| e.to_string())?;
-        let head = repo.head().map_err(|e| e.to_string())?;
+
+        // Guard: detached HEAD or unborn branch (empty repo) — nothing to pull
+        let head = match repo.head() {
+            Ok(h) => h,
+            Err(_) => return Ok("up_to_date".into()), // empty / unborn branch
+        };
+        if head.is_branch() == false {
+            return Err("HEAD is detached — resolve on desktop".into());
+        }
         let branch_name = head.shorthand().unwrap_or("main").to_string();
 
         let mut remote = repo.find_remote("origin").map_err(|e| e.to_string())?;
         let mut callbacks = RemoteCallbacks::new();
         if let Some(tok) = token {
+            let mut tried = false;
             callbacks.credentials(move |_url, _username, allowed| {
+                if tried { return Err(git2::Error::from_str("authentication failed")); }
+                tried = true;
                 if allowed.contains(git2::CredentialType::USER_PASS_PLAINTEXT) {
                     git2::Cred::userpass_plaintext("oauth2", &tok)
                 } else {
@@ -326,7 +393,10 @@ mod git_native {
                 }
             });
         } else {
-            callbacks.credentials(|_url, username, allowed| {
+            let mut tried = false;
+            callbacks.credentials(move |_url, username, allowed| {
+                if tried { return Err(git2::Error::from_str("authentication failed")); }
+                tried = true;
                 if allowed.contains(git2::CredentialType::SSH_KEY) {
                     git2::Cred::ssh_key_from_agent(username.unwrap_or("git"))
                 } else {
@@ -334,6 +404,9 @@ mod git_native {
                 }
             });
         }
+        callbacks.certificate_check(|_cert, _valid| {
+            Ok(git2::CertificateCheckStatus::CertificateOk)
+        });
         let mut fetch_opts = git2::FetchOptions::new();
         fetch_opts.remote_callbacks(callbacks);
         remote.fetch(&[branch_name.as_str()], Some(&mut fetch_opts), None)
@@ -370,6 +443,57 @@ mod git_native {
         Ok("reverted".into())
     }
 
+    pub fn git_checkout_branch(path: String, branch: String, token: Option<String>) -> Result<String, String> {
+        let repo = Repository::open(&path).map_err(|e| e.to_string())?;
+
+        // Fetch the branch from origin first
+        let mut remote = repo.find_remote("origin").map_err(|e| e.to_string())?;
+        let mut callbacks = RemoteCallbacks::new();
+        if let Some(tok) = token {
+            let mut tried = false;
+            callbacks.credentials(move |_url, _username, allowed| {
+                if tried { return Err(git2::Error::from_str("authentication failed")); }
+                tried = true;
+                if allowed.contains(git2::CredentialType::USER_PASS_PLAINTEXT) {
+                    git2::Cred::userpass_plaintext("oauth2", &tok)
+                } else { git2::Cred::default() }
+            });
+        } else {
+            let mut tried = false;
+            callbacks.credentials(move |_url, username, allowed| {
+                if tried { return Err(git2::Error::from_str("authentication failed")); }
+                tried = true;
+                if allowed.contains(git2::CredentialType::SSH_KEY) {
+                    git2::Cred::ssh_key_from_agent(username.unwrap_or("git"))
+                } else { git2::Cred::default() }
+            });
+        }
+        callbacks.certificate_check(|_cert, _valid| Ok(git2::CertificateCheckStatus::CertificateOk));
+        let mut fetch_opts = git2::FetchOptions::new();
+        fetch_opts.remote_callbacks(callbacks);
+        // best-effort fetch — branch may already be present
+        let _ = remote.fetch(&[branch.as_str()], Some(&mut fetch_opts), None);
+
+        // Find the remote tracking commit
+        let remote_ref = format!("refs/remotes/origin/{branch}");
+        let remote_oid = repo.find_reference(&remote_ref)
+            .map_err(|e| e.to_string())?
+            .target()
+            .ok_or_else(|| "remote ref has no target".to_string())?;
+        let target_commit = repo.find_commit(remote_oid).map_err(|e| e.to_string())?;
+
+        // Create or reset the local branch to that commit
+        repo.branch(&branch, &target_commit, true).map_err(|e| e.to_string())?;
+
+        // Set HEAD and checkout working tree
+        let refname = format!("refs/heads/{branch}");
+        repo.set_head(&refname).map_err(|e| e.to_string())?;
+        repo.checkout_head(Some(CheckoutBuilder::new().force()))
+            .map_err(|e| e.to_string())?;
+
+        Ok("switched".into())
+    }
+
 }
 
 // ── Compile-time routing: dev/Linux → git_cli, MAS/iOS → git_native ──────────────────
@@ -392,9 +516,26 @@ fn git_get_remote(path: String) -> Result<String, String> { git::git_get_remote(
 #[tauri::command]
 fn git_checkout_file(path: String, file: String) -> Result<String, String> { git::git_checkout_file(path, file) }
 #[tauri::command]
-fn git_clone(url: String, path: String, token: Option<String>) -> Result<String, String> { git::git_clone(url, path, token) }
+async fn git_checkout_branch(path: String, branch: String, token: Option<String>) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || git::git_checkout_branch(path, branch, token))
+        .await
+        .map_err(|e| e.to_string())?
+}
+// git_clone and git_pull are async to prevent blocking the tokio runtime.
+// On iOS the OS watchdog kills the process if the main/async thread is blocked
+// for more than ~few seconds during a network operation.
 #[tauri::command]
-fn git_pull(path: String, token: Option<String>) -> Result<String, String> { git::git_pull(path, token) }
+async fn git_clone(url: String, path: String, token: Option<String>, branch: Option<String>) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || git::git_clone(url, path, token, branch))
+        .await
+        .map_err(|e| e.to_string())?
+}
+#[tauri::command]
+async fn git_pull(path: String, token: Option<String>) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || git::git_pull(path, token))
+        .await
+        .map_err(|e| e.to_string())?
+}
 
 
 // ── GitHub Device Flow (credentials stay in Rust, never exposed to the renderer) ──────────────
@@ -712,7 +853,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_http::init())
-        .invoke_handler(tauri::generate_handler![git_init, git_diff, git_sync, git_checkout_file, git_get_remote, git_clone, git_pull, shell_run, update_app, transcribe_audio, open_devtools, build_channel, github_device_flow_init, github_device_flow_poll])
+        .invoke_handler(tauri::generate_handler![git_init, git_diff, git_sync, git_checkout_file, git_checkout_branch, git_get_remote, git_clone, git_pull, shell_run, update_app, transcribe_audio, open_devtools, build_channel, github_device_flow_init, github_device_flow_poll])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

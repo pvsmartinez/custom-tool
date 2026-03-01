@@ -9,7 +9,8 @@ import {
   listGitAccountLabels,
   type SyncDeviceFlowState, type SyncedWorkspace,
 } from '../services/syncConfig'
-import type { Workspace, AppSettings, SidebarButton } from '../types';
+import type { Workspace, AppSettings, SidebarButton, VercelWorkspaceConfig } from '../types';
+import { saveApiSecret } from '../services/apiSecrets';
 import './SettingsModal.css';
 
 interface SettingsModalProps {
@@ -165,8 +166,23 @@ export default function SettingsModal({
   const [wsAgent, setWsAgent] = useState('');
   const [wsSidebarButtons, setWsSidebarButtons] = useState<SidebarButton[]>([]);
   const [wsInboxFile, setWsInboxFile] = useState('');
+  const [wsGitBranch, setWsGitBranch] = useState('');
+  const [wsVercelToken, setWsVercelToken] = useState('');
+  const [wsVercelTeamId, setWsVercelTeamId] = useState('');
   const [wsSaving, setWsSaving] = useState(false);
   const [wsSaved, setWsSaved] = useState(false);
+
+  // Global Vercel token (localStorage)
+  const [globalVercelToken, setGlobalVercelToken] = useState(
+    () => localStorage.getItem('cafezin-vercel-token') ?? '',
+  );
+  const [vercelTokenSaved, setVercelTokenSaved] = useState(false);
+
+  function handleSaveVercelToken() {
+    void saveApiSecret('cafezin-vercel-token', globalVercelToken.trim());
+    setVercelTokenSaved(true);
+    setTimeout(() => setVercelTokenSaved(false), 2000);
+  }
   // New button form state
   const [newBtnLabel, setNewBtnLabel] = useState('');
   const [newBtnCmd, setNewBtnCmd] = useState('');
@@ -180,6 +196,9 @@ export default function SettingsModal({
     setWsAgent(workspace.agentContext ?? '');
     setWsSidebarButtons(workspace.config.sidebarButtons ?? []);
     setWsInboxFile(workspace.config.inboxFile ?? '');
+    setWsGitBranch(workspace.config.gitBranch ?? '');
+    setWsVercelToken(workspace.config.vercelConfig?.token ?? '');
+    setWsVercelTeamId(workspace.config.vercelConfig?.teamId ?? '');
     setWsSaved(false);
   }, [open, workspace]);
 
@@ -202,6 +221,13 @@ export default function SettingsModal({
           preferredModel: wsModel || undefined,
           sidebarButtons: wsSidebarButtons.length > 0 ? wsSidebarButtons : undefined,
           inboxFile: wsInboxFile.trim() || undefined,
+          gitBranch: wsGitBranch.trim() || undefined,
+          vercelConfig: (wsVercelToken.trim() || wsVercelTeamId.trim())
+            ? {
+                token: wsVercelToken.trim() || undefined,
+                teamId: wsVercelTeamId.trim() || undefined,
+              } as VercelWorkspaceConfig
+            : undefined,
         },
         agentContext: wsAgent || undefined,
       };
@@ -386,6 +412,37 @@ export default function SettingsModal({
               </section>
 
               <section className="sm-section">
+                <h3 className="sm-section-title">API Keys</h3>
+                <p className="sm-section-desc">
+                  Chaves globais — aplicam-se a todos os workspaces. Podem ser sobrescritas por workspace em Workspace &gt; Vercel Publish.
+                  Armazenadas localmente e sincronizadas encriptadas na nuvem.
+                </p>
+
+                <div className="sm-row sm-row--col">
+                  <label className="sm-label">
+                    Vercel token
+                    <span className="sm-row-desc"> — <a href="https://vercel.com/account/tokens" target="_blank" rel="noreferrer">vercel.com/account/tokens</a></span>
+                  </label>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <input
+                      className="sm-input"
+                      type="password"
+                      value={globalVercelToken}
+                      onChange={(e) => setGlobalVercelToken(e.target.value)}
+                      placeholder="token_..."
+                      style={{ flex: 1 }}
+                    />
+                    <button
+                      className={`sm-save-btn ${vercelTokenSaved ? 'saved' : ''}`}
+                      onClick={handleSaveVercelToken}
+                    >
+                      {vercelTokenSaved ? '✓ Salvo' : 'Salvar'}
+                    </button>
+                  </div>
+                </div>
+              </section>
+
+              <section className="sm-section">
                 <h3 className="sm-section-title">Keyboard Shortcuts</h3>
                 <table className="sm-shortcuts">
                   <tbody>
@@ -528,6 +585,57 @@ export default function SettingsModal({
                       setNewBtnLabel(''); setNewBtnCmd(''); setNewBtnDesc('');
                     }}
                   >+ Add button</button>
+                </div>
+              </section>
+
+              <section className="sm-section">
+                <h3 className="sm-section-title">Vercel Publish</h3>
+                <p className="sm-section-desc">
+                  Override do token global e configuração de equipe para este workspace.
+                  Deixe em branco para usar o token global das API Keys.
+                </p>
+
+                <div className="sm-row sm-row--col">
+                  <label className="sm-label">
+                    Token override
+                    <span className="sm-row-desc"> — sobrescreve o token global</span>
+                  </label>
+                  <input
+                    className="sm-input"
+                    type="password"
+                    value={wsVercelToken}
+                    onChange={(e) => setWsVercelToken(e.target.value)}
+                    placeholder="Deixe vazio para usar o token global"
+                  />
+                </div>
+
+                <div className="sm-row sm-row--col">
+                  <label className="sm-label">
+                    Team ID
+                    <span className="sm-row-desc"> — opcional, para contas de equipe Vercel</span>
+                  </label>
+                  <input
+                    className="sm-input"
+                    value={wsVercelTeamId}
+                    onChange={(e) => setWsVercelTeamId(e.target.value)}
+                    placeholder="team_abc123 (deixe vazio para conta pessoal)"
+                  />
+                </div>
+              </section>
+
+              <section className="sm-section">
+                <h3 className="sm-section-title">Git sync branch</h3>
+                <div className="sm-row sm-row--col">
+                  <label className="sm-label">
+                    Branch
+                    <span className="sm-row-desc"> — branch usada para sync no mobile. Deixe vazio para usar a branch padrão do repositório (main / master).</span>
+                  </label>
+                  <input
+                    className="sm-input"
+                    value={wsGitBranch}
+                    onChange={(e) => setWsGitBranch(e.target.value)}
+                    placeholder="main"
+                  />
                 </div>
               </section>
 

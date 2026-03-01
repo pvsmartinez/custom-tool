@@ -6,6 +6,7 @@
 import { readTextFile, writeTextFile, mkdir, exists } from '@tauri-apps/plugin-fs';
 import { runExportTarget } from '../exportWorkspace';
 import { safeResolvePath } from './shared';
+import { appendPendingTask } from '../../services/mobilePendingTasks';
 import type { ToolDefinition, DomainExecutor } from './shared';
 import type { ExportTarget, ExportFormat, WorkspaceExportConfig, SidebarButton } from '../../types';
 
@@ -182,9 +183,37 @@ export const CONFIG_TOOL_DEFS: ToolDefinition[] = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'save_desktop_task',
+      description:
+        'Save a task to be executed later on the desktop. ' +
+        'Use this ONLY when the user requests something that cannot be done on mobile: ' +
+        'running scripts, editing canvas/slides, compiling code, running a local server, etc. ' +
+        'Do NOT use this for file edits, markdown writing, or anything the mobile Copilot can do directly. ' +
+        'The task will show up as a notification when the user opens this workspace on their computer.',
+      parameters: {
+        type: 'object',
+        properties: {
+          description: {
+            type: 'string',
+            description:
+              'Clear, actionable description of what should be done on the desktop. ' +
+              'Write as if briefing someone: what to do, which file, what the goal is.',
+          },
+          context: {
+            type: 'string',
+            description:
+              'Optional extra context: relevant file path, code snippet, link, or background info.',
+          },
+        },
+        required: ['description'],
+      },
+    },
+  },
 ];
 
-// ── Executor ─────────────────────────────────────────────────────────────────
 
 export const executeConfigTools: DomainExecutor = async (name, args, ctx) => {
   const {
@@ -479,6 +508,19 @@ export const executeConfigTools: DomainExecutor = async (name, args, ctx) => {
       }
 
       return `Unknown action: ${action}. Use list, set_model, set_inbox, add_button, update_button, or remove_button.`;
+    }
+
+    // ── save_desktop_task ──────────────────────────────────────────────────
+    case 'save_desktop_task': {
+      const description = String(args.description ?? '').trim();
+      if (!description) return 'Error: description is required.';
+      const context = args.context ? String(args.context).trim() : undefined;
+      try {
+        const task = await appendPendingTask(workspacePath, { description, context });
+        return `Task saved for desktop (id: ${task.id}). It will appear as a notification when this workspace is opened on the computer.`;
+      } catch (e) {
+        return `Error saving task: ${e}`;
+      }
     }
 
     default:

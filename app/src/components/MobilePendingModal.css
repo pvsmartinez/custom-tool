@@ -1,0 +1,167 @@
+/* ── Overlay ──────────────────────────────────────── */
+.mpm-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: var(--z-modal);
+  backdrop-filter: blur(4px);
+}
+
+/* ── Modal ─────────────────────────────────────────── */
+.mpm-modal {
+  width: 540px;
+  max-width: 92vw;
+  max-height: 78vh;
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius-xl);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: var(--shadow-lg);
+}
+
+/* ── Header ────────────────────────────────────────── */
+.mpm-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.mpm-icon {
+  font-size: 22px;
+  flex-shrink: 0;
+}
+
+.mpm-title {
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  color: var(--text1);
+}
+
+.mpm-subtitle {
+  font-size: var(--font-size-sm);
+  color: var(--text3);
+  margin-top: 1px;
+}
+
+.mpm-close {
+  margin-left: auto;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text3);
+  font-size: 15px;
+  padding: 4px 6px;
+  border-radius: var(--radius-md);
+  transition: background 0.15s, color 0.15s;
+}
+.mpm-close:hover {
+  background: var(--hover);
+  color: var(--text1);
+}
+
+/* ── Task list ─────────────────────────────────────── */
+.mpm-list {
+  overflow-y: auto;
+  flex: 1;
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.mpm-task {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.mpm-task-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mpm-task-desc {
+  font-size: var(--font-size-base);
+  color: var(--text1);
+  line-height: var(--line-height-base);
+}
+
+.mpm-task-ctx {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--text3);
+  background: var(--surface3, var(--surface));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 6px 10px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin: 0;
+  max-height: 100px;
+  overflow-y: auto;
+}
+
+.mpm-task-date {
+  font-size: var(--font-size-xs);
+  color: var(--text4, var(--text3));
+}
+
+.mpm-task-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* ── Buttons ───────────────────────────────────────── */
+.mpm-btn {
+  padding: 6px 14px;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  cursor: pointer;
+  border: none;
+  transition: background 0.15s, opacity 0.15s;
+}
+.mpm-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.mpm-btn-primary {
+  background: var(--accent);
+  color: #fff;
+}
+.mpm-btn-primary:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+.mpm-btn-ghost {
+  background: var(--hover, rgba(255,255,255,0.06));
+  color: var(--text2);
+  border: 1px solid var(--border);
+}
+.mpm-btn-ghost:hover:not(:disabled) {
+  background: var(--hover2, rgba(255,255,255,0.1));
+  color: var(--text1);
+}
+
+/* ── Footer ────────────────────────────────────────── */
+.mpm-footer {
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: flex-end;
+  flex-shrink: 0;
+}

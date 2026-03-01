@@ -44,6 +44,11 @@ export interface SyncedWorkspace {
   addedAt: string
   /** Absolute local path — only set on mobile after cloning. Never stored in DB. */
   localPath?: string
+  /**
+   * Git branch to use for clone/pull. Stored locally per device.
+   * Defaults to the remote’s default branch when not set.
+   */
+  branch?: string
 }
 
 // ── Auth ───────────────────────────────────────────────────────────────────────
@@ -133,13 +138,25 @@ export async function handleAuthCallbackUrl(url: string): Promise<User | null> {
 // ── Local clone paths (device-specific, never stored in DB) ──────────────────
 
 const CLONED_PATH_PREFIX = 'cafezin-cloned-path:'
+const CLONED_BRANCH_PREFIX = 'cafezin-cloned-branch:'
 
 export function getLocalClonedPath(gitUrl: string): string | null {
-  return localStorage.getItem(`${CLONED_PATH_PREFIX}${gitUrl}`)
+  const raw = localStorage.getItem(`${CLONED_PATH_PREFIX}${gitUrl}`);
+  return raw ? raw.replace(/\/cafezin$/, '') : null;
 }
 
 export function setLocalClonedPath(gitUrl: string, path: string): void {
-  localStorage.setItem(`${CLONED_PATH_PREFIX}${gitUrl}`, path)
+  // Sanitize: never store a path ending in /cafezin (config dir)
+  const clean = path.replace(/\/cafezin$/, '');
+  localStorage.setItem(`${CLONED_PATH_PREFIX}${gitUrl}`, clean);
+}
+
+export function getLocalBranch(gitUrl: string): string | null {
+  return localStorage.getItem(`${CLONED_BRANCH_PREFIX}${gitUrl}`)
+}
+
+export function setLocalBranch(gitUrl: string, branch: string): void {
+  localStorage.setItem(`${CLONED_BRANCH_PREFIX}${gitUrl}`, branch)
 }
 
 export async function listSyncedWorkspaces(): Promise<SyncedWorkspace[]> {
@@ -157,29 +174,70 @@ export async function listSyncedWorkspaces(): Promise<SyncedWorkspace[]> {
     gitAccountLabel: row.git_account_label as string,
     addedAt: row.added_at as string,
     localPath: getLocalClonedPath(row.git_url as string) ?? undefined,
+    branch: getLocalBranch(row.git_url as string) ?? undefined,
   }))
 }
 
 // ── Git clone / pull (mobile) ─────────────────────────────────────────────────
 
-/** Derive a local folder name from a git URL (last segment, strip .git). */
+/** Derive a safe local folder name from a git URL (last segment, strip .git, sanitize). */
 export function repoNameFromUrl(gitUrl: string): string {
-  return gitUrl.split('/').pop()?.replace(/\.git$/, '') ?? 'repo'
+  // Strip trailing slash before splitting so "https://github.com/x/y/" still works
+  const raw = gitUrl.replace(/\/+$/, '').split('/').pop()?.replace(/\.git$/, '') ?? ''
+  // Replace any character that isn't alphanumeric, dash, dot or underscore
+  const safe = raw.replace(/[^\w.-]/g, '_')
+  return safe || 'repo'
 }
 
 /**
  * Clone a git repo into the device Documents folder.
- * Stores the resulting local path in localStorage so it survives app restarts.
+ * If the destination already exists and is a valid git repo, skips the clone
+ * and just records the path (idempotent — safe to call twice).
  * @param gitUrl  Remote URL (https)
  * @param token   Optional GitHub PAT / OAuth token for private repos
+ * @param branch  Optional branch to checkout. Defaults to the remote’s default branch.
  */
-export async function gitClone(gitUrl: string, token?: string): Promise<string> {
-  const docs = await documentDir()
+export async function gitClone(gitUrl: string, token?: string, branch?: string): Promise<string> {
+  // Normalize: strip trailing slash so we never get double //
+  const docs = (await documentDir()).replace(/\/+$/, '')
   const name = repoNameFromUrl(gitUrl)
-  const dest = `${docs}${name}`
-  await invoke<string>('git_clone', { url: gitUrl, path: dest, token: token ?? null })
+  const dest = `${docs}/${name}`
+  const result = await invoke<string>('git_clone', {
+    url: gitUrl,
+    path: dest,
+    token: token ?? null,
+    branch: branch ?? null,
+  })
+  // 'already_cloned' means the directory already had a valid .git
+  // If a specific branch was requested, ensure we're on it (handles the
+  // "cloned on wrong branch" case — the clone was previously done without
+  // specifying a branch, or the config was updated later).
+  if (result === 'already_cloned' && branch) {
+    try {
+      await invoke<string>('git_checkout_branch', {
+        path: dest,
+        branch,
+        token: token ?? null,
+      })
+    } catch {
+      // non-fatal: if checkout fails (e.g. branch doesn't exist remotely)
+      // we still open the repo on whatever branch it's currently on
+    }
+  }
+  if (result !== 'already_cloned' && result !== 'cloned') {
+    throw new Error(result)
+  }
   setLocalClonedPath(gitUrl, dest)
+  if (branch) setLocalBranch(gitUrl, branch)
   return dest
+}
+
+/**
+ * Switch the already-cloned repo at `localPath` to `branch`, fetching from
+ * origin first. Safe to call even if the branch is already the current one.
+ */
+export async function gitCheckoutBranch(localPath: string, branch: string, token?: string): Promise<void> {
+  await invoke<string>('git_checkout_branch', { path: localPath, branch, token: token ?? null })
 }
 
 /**
@@ -189,6 +247,29 @@ export async function gitClone(gitUrl: string, token?: string): Promise<string> 
  */
 export async function gitPull(localPath: string, token?: string): Promise<string> {
   return invoke<string>('git_pull', { path: localPath, token: token ?? null })
+}
+
+/**
+ * Sync: stage all local changes, commit with an auto message, then push.
+ * Intended for the mobile “Sync” button where the user just wants to upload their edits.
+ * @param localPath Absolute path to the local repo
+ * @param token     Optional GitHub PAT / OAuth token
+ * @param message   Commit message. Defaults to a timestamped “Sync from mobile” message.
+ */
+export async function gitSync(
+  localPath: string,
+  token?: string,
+  message?: string,
+): Promise<string> {
+  const msg = message ?? `Sync from mobile — ${new Date().toLocaleString('pt-BR')}`
+  // 1. Pull latest first (fast-forward only; ignore “up_to_date”)
+  try {
+    await gitPull(localPath, token)
+  } catch {
+    // Pull failed (e.g. conflicts) — still try to push local changes
+  }
+  // 2. Commit + push via existing git_sync Rust command
+  return invoke<string>('git_sync', { path: localPath, message: msg })
 }
 
 /**

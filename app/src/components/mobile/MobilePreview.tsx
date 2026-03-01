@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { readTextFile, readFile } from '@tauri-apps/plugin-fs';
 import { convertFileSrc } from '@tauri-apps/api/core';
+import { CaretLeft, SpeakerSimpleHigh } from '@phosphor-icons/react';
 import { getFileTypeInfo } from '../../utils/fileType';
 import { loadSlidePreviews } from '../../utils/slidePreviews';
 import MarkdownPreview from '../MarkdownPreview';
@@ -41,8 +42,7 @@ function SlideViewer({ workspacePath, filePath }: { workspacePath: string; fileP
     return (
       <div className="mb-slide-viewer">
         <div className="mb-empty">
-          <div className="mb-empty-icon">🎨</div>
-          <div className="mb-empty-desc">No slide previews yet. Open this canvas on desktop to generate them.</div>
+          <div className="mb-empty-desc">Sem slides gerados. Abra este canvas no desktop para gerar as imagens.</div>
         </div>
       </div>
     );
@@ -70,6 +70,20 @@ function SlideViewer({ workspacePath, filePath }: { workspacePath: string; fileP
         >›</button>
       </div>
     </div>
+  );
+}
+
+// ── HTML / webpage viewer ────────────────────────────────────────────────
+
+function HtmlViewer({ absPath }: { absPath: string }) {
+  const src = convertFileSrc(absPath);
+  return (
+    <iframe
+      src={src}
+      title="webpage preview"
+      className="mb-html-frame"
+      sandbox="allow-scripts allow-same-origin"
+    />
   );
 }
 
@@ -172,7 +186,7 @@ function AudioViewer({ absPath }: { absPath: string }) {
 
   return (
     <div className="mb-audio-wrap">
-      <div className="mb-audio-icon">🎵</div>
+      <div className="mb-audio-icon"><SpeakerSimpleHigh weight="thin" size={56} /></div>
       <div className="mb-audio-filename">{absPath.split('/').pop()}</div>
       {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
       <audio controls src={src} className="mb-audio-player" />
@@ -215,6 +229,8 @@ export default function MobilePreview({ workspacePath, filePath, onClear }: Mobi
     switch (kind) {
       case 'canvas':
         return <SlideViewer workspacePath={workspacePath} filePath={filePath} />;
+      case 'html':
+        return <HtmlViewer absPath={absPath} />;
       case 'markdown':
         return <MarkdownViewer absPath={absPath} />;
       case 'image':
@@ -230,8 +246,7 @@ export default function MobilePreview({ workspacePath, filePath, onClear }: Mobi
       default:
         return (
           <div className="mb-empty">
-            <div className="mb-empty-icon">📎</div>
-            <div className="mb-empty-desc">No preview available for this file type.</div>
+            <div className="mb-empty-desc">Sem preview disponível para este tipo de arquivo.</div>
           </div>
         );
     }
@@ -240,11 +255,13 @@ export default function MobilePreview({ workspacePath, filePath, onClear }: Mobi
   return (
     <>
       <div className="mb-header">
-        <button className="mb-icon-btn" onClick={onClear} title="Back">‹</button>
-        <span className="mb-header-title">{filename}</span>
+        <button className="mb-icon-btn" onClick={onClear} title="Voltar">
+          <CaretLeft weight="bold" size={18} />
+        </button>
+        <span className="mb-header-title">{filename === 'index.html' ? (filePath.split('/').slice(-2)[0] ?? filename) : filename}</span>
       </div>
 
-      <div className="mb-preview-body">
+      <div className={`mb-preview-body${kind === 'html' ? ' mb-html' : ''}`}>
         {renderBody()}
       </div>
     </>

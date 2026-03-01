@@ -35,6 +35,30 @@ const MOBILE_TOOLS = WORKSPACE_TOOLS.filter(
   (t) => !CANVAS_TOOLS.has(t.function.name) && t.function.name !== 'run_command',
 );
 
+const MOBILE_SYSTEM_CONTEXT = `\
+## Mobile environment constraints
+You are running inside the Cafezin iOS app. Keep these limitations in mind:
+
+**What you CAN do:**
+- Read, write, patch, rename, delete files in the workspace (markdown, HTML, CSS, JS, JSON, etc.)
+- Search across workspace files
+- Browse the web and fetch URLs
+- Save notes to workspace memory (remember tool)
+- Save tasks for desktop execution (save_desktop_task tool)
+
+**What you CANNOT do on mobile:**
+- Run shell commands or scripts (no terminal, no npm/node/python/make)
+- Edit canvas/tldraw files (slides and diagrams are desktop-only)
+- Compile or execute code
+- Access external network APIs from within HTML previews (sandbox restricted)
+- Push to git requiring SSH keys (HTTPS token auth only)
+
+**When to use save_desktop_task:**
+Use it proactively whenever the user asks for something that requires the desktop:
+- "run the build", "execute the script", "update the canvas slide", "npm install", etc.
+Save a clear task description so the user sees it as a reminder when they open the workspace on their computer.
+Do NOT use it for things you can already do here (file edits, writing, web search).`;
+
 // ── Simple markdown renderer for chat bubbles ────────────────────────────────
 function MobileMdMessage({ content }: { content: string }) {
   const html = useMemo(() => {
@@ -67,6 +91,7 @@ const TOOL_ICONS: Record<string, string> = {
   configure_export_targets: '⚙️',
   mark_for_review:          '🚩',
   screenshot_preview:       '📷',
+  save_desktop_task:        '🖥️',
 };
 
 function ToolChip({ activity }: { activity: ToolActivity }) {
@@ -200,6 +225,7 @@ export default function MobileCopilot({
     // Build system prompt with workspace + file context
     const systemParts: string[] = [
       'You are a helpful coding and writing assistant. Keep answers concise and clear.',
+      MOBILE_SYSTEM_CONTEXT,
     ];
     if (workspace) {
       systemParts.push(`Workspace: ${workspace.name}.`);

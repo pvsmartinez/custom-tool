@@ -1,8 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
+import { Coffee, Folders, Eye, Robot, Microphone, ArrowDown, ArrowClockwise, SignOut, ArrowRight } from '@phosphor-icons/react';
 import { readTextFile } from '@tauri-apps/plugin-fs';
 import { loadWorkspace } from './services/workspace';
 import { useAuthSession } from './hooks/useAuthSession';
-import { gitClone, gitPull, getGitAccountToken } from './services/syncConfig';
+import { gitClone, gitPull, gitSync, getGitAccountToken } from './services/syncConfig';
+import { CONFIG_DIR } from './services/config';
 import type { Workspace } from './types';
 import MobileFileBrowser from './components/mobile/MobileFileBrowser';
 import MobilePreview from './components/mobile/MobilePreview';
@@ -16,6 +18,33 @@ type Tab = 'files' | 'preview' | 'copilot' | 'voice'
 
 const LAST_WS_KEY = 'mobile-last-workspace-path';
 
+/**
+ * Strip the config dir suffix if it was accidentally stored.
+ * e.g. ".../book/cafezin" → ".../book"
+ */
+function sanitizeWsPath(p: string): string {
+  const suffix = `/${CONFIG_DIR}`;
+  return p.endsWith(suffix) ? p.slice(0, -suffix.length) : p;
+}
+
+/** Transforma erros técnicos do libgit2 em mensagens legíveis em português. */
+
+function friendlyGitError(err: unknown): string {
+  const raw = String(err);
+  if (/Certificate|host key|hostkey|ssh.*23|code=-17/i.test(raw))
+    return 'Não foi possível verificar o servidor SSH. Verifique sua conexão.';
+  if (/Authentication|credential|auth/i.test(raw))
+    return 'Falha de autenticação. Verifique o token ou chave SSH.';
+  if (/not found|repository not found|does not exist/i.test(raw))
+    return 'Repositório não encontrado. Confira a URL.';
+  if (/timed? ?out|Operation.*timed/i.test(raw))
+    return 'Tempo limite esgotado. Verifique sua conexão.';
+  if (/network|could not resolve|name or service not known/i.test(raw))
+    return 'Sem conexão com o servidor git. Verifique o Wi-Fi.';
+  // fallback: mostra só a primeira linha para não poluir o toast
+  return raw.split('\n')[0].replace(/^Error: /i, '').slice(0, 120);
+}
+
 export default function MobileApp() {
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [loadingWs, setLoadingWs] = useState(true);
@@ -23,6 +52,7 @@ export default function MobileApp() {
 
   // gitUrl → 'clone' | 'pull'
   const [gitBusy, setGitBusy] = useState<Record<string, 'clone' | 'pull'>>({});
+  const [isSyncing, setIsSyncing] = useState(false);
 
   const [activeTab, setActiveTab] = useState<Tab>('files');
   const [openFile, setOpenFile] = useState<string | null>(null);
@@ -61,8 +91,11 @@ export default function MobileApp() {
 
   // ── Bootstrap: load last workspace from localStorage ─────────────────────
   useEffect(() => {
-    const lastPath = localStorage.getItem(LAST_WS_KEY);
-    if (lastPath) {
+    const raw = localStorage.getItem(LAST_WS_KEY);
+    if (raw) {
+      const lastPath = sanitizeWsPath(raw);
+      // Self-heal: overwrite if we stripped a bad suffix
+      if (lastPath !== raw) localStorage.setItem(LAST_WS_KEY, lastPath);
       void openWorkspacePath(lastPath);
       return;
     }
@@ -88,7 +121,8 @@ export default function MobileApp() {
     if (err) toast({ message: err, type: 'error', duration: 6000 });
   }
 
-  async function openWorkspacePath(path: string) {
+  async function openWorkspacePath(rawPath: string) {
+    const path = sanitizeWsPath(rawPath);
     setLoadingWs(true);
     setWsError(null);
     try {
@@ -102,17 +136,21 @@ export default function MobileApp() {
     }
   }
 
-  async function handleClone(gitUrl: string, accountLabel: string) {
+  async function handleClone(gitUrl: string, accountLabel: string, branch?: string) {
     setGitBusy(b => ({ ...b, [gitUrl]: 'clone' }));
     try {
       const token = getGitAccountToken(accountLabel) ?? undefined;
-      const localPath = await gitClone(gitUrl, token);
-      toast({ message: 'Repositório clonado!', type: 'success' });
+      const localPath = await gitClone(gitUrl, token, branch || undefined);
+      // Auto-pull after clone to ensure we're on the latest commit of the branch
+      try {
+        await gitPull(localPath, token);
+      } catch { /* ignore pull errors on fresh clone */ }
+      toast({ message: 'Repositório clonado e sincronizado!', type: 'success' });
       // Reload list so localPath shows up, then open
       await loadSyncedList();
       void openWorkspacePath(localPath);
     } catch (err) {
-      toast({ message: `Erro ao clonar: ${err}`, type: 'error', duration: 8000 });
+      toast({ message: `Erro ao clonar: ${friendlyGitError(err)}`, type: 'error', duration: null });
     } finally {
       setGitBusy(b => { const n = { ...b }; delete n[gitUrl]; return n; });
     }
@@ -127,9 +165,31 @@ export default function MobileApp() {
       toast({ message: msg, type: 'success' });
       void refreshWorkspace();
     } catch (err) {
-      toast({ message: `Erro no pull: ${err}`, type: 'error', duration: 8000 });
+      toast({ message: `Erro no pull: ${friendlyGitError(err)}`, type: 'error', duration: null });
     } finally {
       setGitBusy(b => { const n = { ...b }; delete n[gitUrl]; return n; });
+    }
+  }
+
+  /**
+   * Mobile sync: pull latest + commit & push local changes.
+   * "Sync" para os leigos = pull + push.
+   */
+  async function handleSync() {
+    if (!workspace) return;
+    setIsSyncing(true);
+    try {
+      // Find the git account label for this workspace (match by localPath)
+      const ws = syncedWorkspaces.find(w => w.localPath === workspace.path);
+      const token = ws ? (getGitAccountToken(ws.gitAccountLabel) ?? undefined) : undefined;
+      const result = await gitSync(workspace.path, token);
+      const msg = result === 'synced' ? 'Sincronizado com sucesso!' : 'Já estava atualizado.';
+      toast({ message: msg, type: 'success' });
+      void refreshWorkspace();
+    } catch (err) {
+      toast({ message: `Erro ao sincronizar: ${friendlyGitError(err)}`, type: 'error', duration: null });
+    } finally {
+      setIsSyncing(false);
     }
   }
 
@@ -181,7 +241,7 @@ export default function MobileApp() {
           <ToastList toasts={toasts} onDismiss={dismiss} />
           <div className="mb-screen">
             <div className="mb-empty" style={{ flex: 1, gap: 20 }}>
-              <div className="mb-empty-icon">☕</div>
+              <div className="mb-empty-icon"><Coffee weight="thin" size={48} /></div>
               <div className="mb-empty-title">Bem-vindo ao Cafezin</div>
               <div className="mb-empty-desc">Entre com sua conta para acessar seus workspaces.</div>
 
@@ -285,9 +345,11 @@ export default function MobileApp() {
 
     // ── Signed in — show workspace list ───────────────────────────────────
     return (
-      <div className="mb-shell">        <ToastList toasts={toasts} onDismiss={dismiss} />        <div className="mb-screen">
+      <div className="mb-shell">
+        <ToastList toasts={toasts} onDismiss={dismiss} />
+        <div className="mb-screen">
           <div className="mb-empty" style={{ flex: 1 }}>
-            <div className="mb-empty-icon">🗂</div>
+            <div className="mb-empty-icon"><Folders weight="thin" size={48} /></div>
             <div className="mb-empty-title">Workspaces</div>
 
             {wsError && (
@@ -337,7 +399,7 @@ export default function MobileApp() {
                             onClick={() => openWorkspacePath(ws.localPath!)}
                             disabled={!!busy}
                           >
-                            Abrir →
+                            <ArrowRight size={14} /> Abrir
                           </button>
                           <button
                             className="mb-btn mb-btn-secondary"
@@ -347,7 +409,7 @@ export default function MobileApp() {
                           >
                             {busy === 'pull'
                               ? <><div className="mb-spinner" style={{ width: 12, height: 12, borderWidth: 2 }} /> Pull…</>
-                              : '↓ Pull'
+                              : <><ArrowDown size={14} /> Pull</>
                             }
                           </button>
                         </div>
@@ -355,12 +417,12 @@ export default function MobileApp() {
                         <button
                           className="mb-btn mb-btn-secondary"
                           style={{ marginTop: 6, fontSize: 13, padding: '6px 14px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
-                          onClick={() => void handleClone(ws.gitUrl, ws.gitAccountLabel)}
+                          onClick={() => void handleClone(ws.gitUrl, ws.gitAccountLabel, ws.branch)}
                           disabled={!!busy}
                         >
                           {busy === 'clone'
                             ? <><div className="mb-spinner" style={{ width: 12, height: 12, borderWidth: 2 }} /> Clonando…</>
-                            : '↓ Clonar'
+                            : <><ArrowDown size={14} /> Clonar</>
                           }
                         </button>
                       )}
@@ -376,18 +438,18 @@ export default function MobileApp() {
 
             <button
               className="mb-btn mb-btn-ghost"
-              style={{ marginTop: 4, fontSize: 14 }}
+              style={{ marginTop: 4, fontSize: 14, display: 'flex', alignItems: 'center', gap: 6 }}
               onClick={loadSyncedList}
             >
-              ↻ Refresh
+              <ArrowClockwise size={15} /> Atualizar
             </button>
 
             <button
               className="mb-btn mb-btn-ghost"
-              style={{ fontSize: 12, color: 'var(--mb-muted)' }}
+              style={{ fontSize: 13, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}
               onClick={() => void handleSignOut()}
             >
-              Sair da conta
+              <SignOut size={14} /> Sair da conta
             </button>
           </div>
         </div>
@@ -406,6 +468,9 @@ export default function MobileApp() {
             selectedPath={openFile ?? undefined}
             onFileSelect={handleFileSelect}
             onRefresh={refreshWorkspace}
+            hasGit={workspace!.hasGit}
+            onSync={handleSync}
+            isSyncing={isSyncing}
           />
         );
 
@@ -413,8 +478,8 @@ export default function MobileApp() {
         if (!openFile) {
           return (
             <div className="mb-preview-empty">
-              <div className="mb-preview-no-file">👁</div>
-              <div style={{ color: 'var(--mb-muted)', fontSize: 14 }}>
+              <div className="mb-preview-no-file"><Eye weight="thin" size={40} /></div>
+              <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>
                 Select a file from Files to preview it here.
               </div>
             </div>
@@ -455,29 +520,29 @@ export default function MobileApp() {
           className={`mb-tab ${activeTab === 'files' ? 'active' : ''}`}
           onClick={() => setActiveTab('files')}
         >
-          <span className="mb-tab-icon">🗂</span>
-          <span className="mb-tab-label">Files</span>
+          <span className="mb-tab-icon"><Folders weight="thin" size={22} /></span>
+          <span className="mb-tab-label">Arquivos</span>
         </button>
         <button
           className={`mb-tab ${activeTab === 'preview' ? 'active' : ''}`}
           onClick={() => setActiveTab('preview')}
         >
-          <span className="mb-tab-icon">👁</span>
+          <span className="mb-tab-icon"><Eye weight="thin" size={22} /></span>
           <span className="mb-tab-label">Preview</span>
         </button>
         <button
           className={`mb-tab ${activeTab === 'copilot' ? 'active' : ''}`}
           onClick={() => setActiveTab('copilot')}
         >
-          <span className="mb-tab-icon">🤖</span>
+          <span className="mb-tab-icon"><Robot weight="thin" size={22} /></span>
           <span className="mb-tab-label">Copilot</span>
         </button>
         <button
           className={`mb-tab ${activeTab === 'voice' ? 'active' : ''}`}
           onClick={() => setActiveTab('voice')}
         >
-          <span className="mb-tab-icon">🎙</span>
-          <span className="mb-tab-label">Voice</span>
+          <span className="mb-tab-icon"><Microphone weight="thin" size={22} /></span>
+          <span className="mb-tab-label">Voz</span>
         </button>
       </nav>
     </div>

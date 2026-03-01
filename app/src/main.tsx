@@ -7,6 +7,7 @@ import '@fontsource/vollkorn/400-italic.css';  /* Serif: italic */
 import '@fontsource/vollkorn/600.css';         /* Serif: semibold */
 import '@fontsource/fira-code/400.css';        /* Mono: regular */
 import '@fontsource/fira-code/500.css';        /* Mono: medium */
+import './tokens.css';                         /* Design tokens — compartilhado entre desktop e mobile */
 import App from "./App";
 import MobileApp from "./MobileApp";
 

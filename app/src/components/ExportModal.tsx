@@ -7,9 +7,10 @@
  */
 
 import { useState, useCallback, useEffect } from 'react';
-import { X, Plus, Play, Trash, CaretDown, CaretUp, CheckCircle, WarningCircle, CircleNotch, FolderOpen } from '@phosphor-icons/react';
+import { X, Plus, Play, Trash, CaretDown, CaretUp, CheckCircle, WarningCircle, CircleNotch, FolderOpen, CloudArrowUp } from '@phosphor-icons/react';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import { runExportTarget, listAllFiles, resolveFiles, type ExportResult } from '../utils/exportWorkspace';
+import { deployToVercel, resolveVercelToken } from '../services/publishVercel';
 import { saveWorkspaceConfig } from '../services/workspace';
 import type { Workspace, ExportTarget, ExportFormat, WorkspaceExportConfig } from '../types';
 import type { Editor } from 'tldraw';
@@ -58,6 +59,14 @@ interface TargetStatus {
   progress?: { done: number; total: number; label: string };
 }
 
+type PublishStatus = 'idle' | 'deploying' | 'done' | 'error';
+
+interface TargetPublishStatus {
+  status: PublishStatus;
+  url?: string;
+  error?: string;
+}
+
 // ── Component ──────────────────────────────────────────────────────────────────
 
 interface ExportModalProps {
@@ -85,6 +94,7 @@ export default function ExportModal({
   const [targets, setTargets] = useState<ExportTarget[]>(savedConfig?.targets ?? []);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [statuses, setStatuses] = useState<Map<string, TargetStatus>>(new Map());
+  const [publishStatuses, setPublishStatuses] = useState<Map<string, TargetPublishStatus>>(new Map());
   // Async file-count per target: targetId → number
   const [fileCounts, setFileCounts] = useState<Map<string, number>>(new Map());
   const [isRunningAll, setIsRunningAll] = useState(false);
@@ -184,6 +194,42 @@ export default function ExportModal({
       }
     } finally {
       setIsRunningAll(false);
+    }
+  }
+
+  async function handlePublish(target: ExportTarget) {
+    const token = resolveVercelToken(workspace.config.vercelConfig?.token);
+    if (!token) {
+      setPublishStatuses((prev) => new Map(prev).set(target.id, {
+        status: 'error',
+        error: 'Token Vercel não configurado. Acesse Settings → API Keys.',
+      }));
+      return;
+    }
+    if (!target.vercelPublish?.projectName) {
+      setPublishStatuses((prev) => new Map(prev).set(target.id, {
+        status: 'error',
+        error: 'Nome do projeto Vercel não configurado neste target.',
+      }));
+      return;
+    }
+    setPublishStatuses((prev) => new Map(prev).set(target.id, { status: 'deploying' }));
+    try {
+      const result = await deployToVercel({
+        token,
+        projectName: target.vercelPublish.projectName,
+        teamId: workspace.config.vercelConfig?.teamId,
+        dirPath: `${workspace.path}/${target.outputDir}`,
+      });
+      setPublishStatuses((prev) => new Map(prev).set(target.id, {
+        status: 'done',
+        url: result.url,
+      }));
+    } catch (e) {
+      setPublishStatuses((prev) => new Map(prev).set(target.id, {
+        status: 'error',
+        error: String(e),
+      }));
     }
   }
 
@@ -301,8 +347,41 @@ export default function ExportModal({
                           <FolderOpen weight="fill" size={13} />
                           Reveal
                         </button>
+
+                        {/* Vercel publish button */}
+                        {target.vercelPublish && s.status === 'done' && (() => {
+                          const ps = publishStatuses.get(target.id);
+                          return (
+                            <button
+                              className="em-reveal-btn em-publish-btn"
+                              title={`Publish ${target.outputDir}/ to Vercel project "${target.vercelPublish.projectName}"`}
+                              onClick={() => handlePublish(target)}
+                              disabled={ps?.status === 'deploying'}
+                            >
+                              {ps?.status === 'deploying'
+                                ? <CircleNotch className="em-spin" size={13} />
+                                : <CloudArrowUp weight="fill" size={13} />}
+                              {ps?.status === 'deploying' ? 'Publicando…' : 'Publicar'}
+                            </button>
+                          );
+                        })()}
                       </div>
                     )}
+
+                    {/* Publish result */}
+                    {(() => {
+                      const ps = publishStatuses.get(target.id);
+                      if (!ps || ps.status === 'idle') return null;
+                      if (ps.status === 'done' && ps.url) return (
+                        <div className="em-result-row">
+                          <span>☁ Publicado: <a href={ps.url} target="_blank" rel="noreferrer">{ps.url}</a></span>
+                        </div>
+                      );
+                      if (ps.status === 'error') return (
+                        <span className="em-result-error">☁ {ps.error}</span>
+                      );
+                      return null;
+                    })()}
                     {s.result.errors.map((e, i) => (
                       <span key={i} className="em-result-error">{e}</span>
                     ))}
@@ -578,6 +657,39 @@ export default function ExportModal({
                     {(target.format === 'canvas-png' || target.format === 'canvas-pdf') && (
                       <div className="em-hint em-hint--block em-hint--info">
                         Canvas files are opened headlessly during export. A full-screen overlay covers the UI — no visible tab switching.
+                      </div>
+                    )}
+
+                    {/* Vercel Publish ─────────────────────────────────── */}
+                    <div className="em-section-label">Vercel Publish</div>
+                    <div className="em-field">
+                      <label>
+                        <input
+                          type="checkbox"
+                          checked={!!target.vercelPublish}
+                          onChange={(e) => updateTarget(target.id, {
+                            vercelPublish: e.target.checked
+                              ? { projectName: target.vercelPublish?.projectName ?? '' }
+                              : undefined,
+                          })}
+                        />
+                        {' '}Habilitar "Publicar" após export
+                      </label>
+                      <span className="em-hint">Exibe botão "Publicar" após export bem-sucedido para fazer deploy no Vercel.</span>
+                    </div>
+                    {target.vercelPublish && (
+                      <div className="em-field">
+                        <label>Nome do projeto Vercel <span className="em-hint">(e.g. santacruz → santacruz.vercel.app)</span></label>
+                        <input
+                          placeholder="meu-projeto"
+                          value={target.vercelPublish.projectName}
+                          onChange={(e) => updateTarget(target.id, {
+                            vercelPublish: { ...target.vercelPublish!, projectName: e.target.value },
+                          })}
+                        />
+                        <span className="em-hint">
+                          Token e Team ID são configurados em Settings → API Keys (global) ou Settings → Workspace → Vercel Publish (override).
+                        </span>
                       </div>
                     )}
                   </div>

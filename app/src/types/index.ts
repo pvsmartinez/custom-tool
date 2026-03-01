@@ -98,6 +98,14 @@ export interface ExportTarget {
    * Placeholders: {{input}} = source file, {{output}} = output path.
    */
   customCommand?: string;
+  /**
+   * When set, a "Publish to Vercel" button appears after a successful export.
+   * The Vercel token is read from workspace vercelConfig > global cafezin-vercel-token.
+   */
+  vercelPublish?: {
+    /** Vercel project name (e.g. "santacruz" → deploys to santacruz.vercel.app) */
+    projectName: string;
+  };
   enabled: boolean;
   /**
    * Merge all matched files into a single output instead of one per file.
@@ -154,6 +162,14 @@ export interface WorkspaceExportConfig {
   targets: ExportTarget[];
 }
 
+/** Vercel publish config stored per-workspace (overrides global token) */
+export interface VercelWorkspaceConfig {
+  /** Override the global Vercel token for this workspace */
+  token?: string;
+  /** Vercel team/org ID — leave empty for personal accounts */
+  teamId?: string;
+}
+
 /** A custom action button shown at the bottom of the sidebar. */
 export interface SidebarButton {
   id: string;
@@ -179,6 +195,13 @@ export interface WorkspaceConfig {
   sidebarButtons?: SidebarButton[];
   /** Relative path of the voice-dump inbox file (default: 00_Inbox/raw_transcripts.md) */
   inboxFile?: string;
+  /** Vercel publish config — workspace-level override (token, teamId) */
+  vercelConfig?: VercelWorkspaceConfig;
+  /**
+   * Git branch used for sync. Defaults to the remote's default branch (usually main/master).
+   * Set on desktop via Settings → Workspace. Mobile uses this branch when cloning/pulling.
+   */
+  gitBranch?: string;
 }
 
 /** A span of text inserted by the AI and not yet reviewed by the human. */

@@ -22,6 +22,7 @@ import { supabase } from './supabase';
 export const SYNCED_SECRET_KEYS = [
   'cafezin-groq-key',
   'cafezin_pexels_key',
+  'cafezin-vercel-token',
 ] as const;
 
 export type SyncedSecretKey = typeof SYNCED_SECRET_KEYS[number];

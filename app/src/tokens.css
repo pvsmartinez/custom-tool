@@ -1,0 +1,211 @@
+/* =============================================================================
+   Design tokens — fonte única de verdade para tema e tipografia
+   Importado por main.tsx antes de App.css e mobile.css.
+   Edite APENAS aqui para mudar cores, fontes ou escala no app inteiro.
+   ============================================================================= */
+
+/* ── Typography ──────────────────────────────────────────────────────────────
+   Nunito Variable → UI chrome (sidebar, tabs, panels, botões)
+   Vollkorn        → preview Markdown, títulos de documento
+   Maple Mono / Fira Code → editor de código, blocos de código, tool output
+   ─────────────────────────────────────────────────────────────────────────── */
+:root {
+  --font-ui:    'Nunito Variable', 'Nunito', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-serif: 'Vollkorn', Georgia, 'Times New Roman', serif;
+  --font-mono:  'Maple Mono', 'Fira Code', 'Cascadia Code', 'JetBrains Mono', 'Fira Mono', monospace;
+
+  /* ── Font scale ── */
+  --font-size-2xs:  10px;
+  --font-size-xs:   11px;
+  --font-size-sm:   12px;
+  --font-size-base: 13px;
+  --font-size-md:   14px;
+  --font-size-lg:   16px;
+  --font-size-xl:   18px;
+
+  --line-height-tight:  1.3;
+  --line-height-base:   1.5;
+  --line-height-loose:  1.7;
+
+  /* ── Border radius ── */
+  --radius-sm:   4px;   /* tags, chips, small badges        */
+  --radius-md:   6px;   /* buttons, inputs, small cards     */
+  --radius-lg:   8px;   /* panels, dropdowns, tool items    */
+  --radius-xl:   12px;  /* modals, large overlays           */
+  --radius-pill: 999px; /* pill badges, toggle buttons      */
+
+  /* ── Spacing scale ── */
+  --space-1:  2px;
+  --space-2:  4px;
+  --space-3:  6px;
+  --space-4:  8px;
+  --space-5:  12px;
+  --space-6:  16px;
+  --space-7:  20px;
+  --space-8:  24px;
+
+  /* ── Motion ── */
+  --transition-fast: 0.12s ease;
+  --transition-base: 0.18s ease;
+
+  /* ── Z-index scale ── */
+  --z-base:           1;     /* minor relative elevation (card badges)   */
+  --z-raised:         10;    /* sticky bars, bottom panel                */
+  --z-editor-overlay: 40;    /* AI mark chips layer                      */
+  --z-dropdown:       100;   /* menus, context menus, popovers           */
+  --z-panel:          200;   /* side panels, toolbars, find bar          */
+  --z-canvas:         500;   /* canvas format panel, tab tooltips        */
+  --z-canvas-top:     800;   /* slide strip, present mode bar            */
+  --z-modal:          1000;  /* blocking dialogs                         */
+  --z-overlay:        1200;  /* full-screen top-level overlays           */
+  --z-top:          100000;  /* must-win overlays: UpdateModal, critical  */
+
+  /* ── Shadow scale (depend on --shadow set per theme below) ── */
+  --shadow-sm: 0 1px 3px var(--shadow);    /* subtle inline elevation    */
+  --shadow-md: 0 4px 16px var(--shadow);   /* floating panels, popovers  */
+  --shadow-lg: 0 24px 64px var(--shadow);  /* modals, full dialogs       */
+}
+
+/* ── Dark theme — default (warm brown + aqua-green) ─────────────────────── */
+:root {
+  /* Backgrounds */
+  --bg:            #1c1610;   /* page / canvas  */
+  --surface:       #231d15;   /* panels, cards  */
+  --surface2:      #2c2519;   /* inset areas, hover bg  */
+  --surface-deep:  #191410;   /* deep inputs, dropdowns  */
+  --surface-code:  #171b1f;   /* code blocks, tool items (neutral-cool) */
+
+  /* Borders */
+  --border:        #2c2519;   /* subtle dividers  */
+  --border2:       #3f3426;   /* visible borders  */
+  --border-code:   #262b32;   /* borders inside code/tool areas  */
+
+  /* Text */
+  --text:          #cdb89f;   /* body text  */
+  --text-bright:   #dcc9ac;   /* headings, strong, highlighted  */
+  --text-muted:    #856e53;   /* secondary text  */
+  --text-dim:      #5e4d38;   /* disabled, placeholders  */
+
+  /* Accent (teal) */
+  --accent:        #4ecfb8;
+  --accent-rgb:    78, 207, 184;
+  --accent-bg:     rgba(var(--accent-rgb), 0.12);
+  --accent-border: rgba(var(--accent-rgb), 0.38);
+
+  /* Semantic colours */
+  --green:         #82cfa5;
+  --green-rgb:     130, 207, 165;
+  --yellow:        #dab26e;
+  --yellow-rgb:    218, 178, 110;
+  --red:           #cf7b76;
+  --red-rgb:       207, 123, 118;
+
+  /* Extended semantic colours */
+  --purple:        #9d7cd8;   /* AI thinking, italic text  */
+  --purple-rgb:    157, 124, 216;
+  --purple-dim:    #7a6e9f;   /* secondary purple  */
+  --purple-bg:     rgba(var(--purple-rgb), 0.1);
+  --blue:          #528bbc;   /* send hover, interactive  */
+  --blue-rgb:      82, 139, 188;
+  --orange:        #e5892a;   /* interrupt, in-progress  */
+  --orange-rgb:    229, 137, 42;
+
+  /* Canvas format panel / active-state */
+  --fmt-bg:          var(--surface-code);            /* panel cell bg  */
+  --fmt-border:      var(--border-code);             /* panel cell border  */
+  --fmt-hover-bg:    rgba(var(--blue-rgb), 0.08);   /* hovered cell  */
+  --fmt-hover-br:    rgba(var(--blue-rgb), 0.28);   /* hovered cell border  */
+  --fmt-on-bg:       rgba(var(--blue-rgb), 0.14);   /* active/on state bg  */
+  --fmt-on-border:   rgba(var(--blue-rgb), 0.52);   /* active/on border  */
+  --fmt-on-text:     rgba(var(--blue-rgb), 0.9);    /* active/on text  */
+  --fmt-green-bg:    rgba(var(--green-rgb), 0.1);   /* make-slide btn  */
+  --fmt-green-br:    rgba(var(--green-rgb), 0.4);   /* make-slide border  */
+  --fmt-green-hbg:   rgba(var(--green-rgb), 0.16);  /* make-slide hover  */
+  --fmt-green-hbr:   rgba(var(--green-rgb), 0.55);  /* make-slide hover border  */
+
+  /* Glass HUD (zoom indicator, hover overlays) */
+  --hud-bg:        rgba(20, 22, 28, 0.88);
+  --hud-border:    rgba(255, 255, 255, 0.10);
+  --hud-text:      #c8ccd3;
+  --hud-text-dim:  var(--text-muted);
+  --hud-text-hi:   #e8eaf0;
+
+  /* Editor */
+  --editor-selection:  #372e22;          /* CM selection bg — dark        */
+  --editor-active-ln:  rgba(255,255,255,0.025);
+
+  /* Shadow */
+  --shadow:        rgba(0, 0, 0, 0.40);
+}
+
+/* ── Light theme (warm cream + aqua-green) ───────────────────────────────── */
+body.theme-light {
+  /* Backgrounds */
+  --bg:            #f5f0e7;
+  --surface:       #fdf8f2;
+  --surface2:      #ece7db;
+  --surface-deep:  #e4ddd2;
+  --surface-code:  #e9e4db;
+
+  /* Borders */
+  --border:        #ddd5c5;
+  --border2:       #c9c0ae;
+  --border-code:   #cdc4b0;
+
+  /* Text */
+  --text:          #382c1c;
+  --text-bright:   #251a0c;
+  --text-muted:    #7a6a52;
+  --text-dim:      #a89880;
+
+  /* Accent (teal) */
+  --accent:        #1f9e8a;
+  --accent-rgb:    31, 158, 138;
+  --accent-bg:     rgba(31, 158, 138, 0.1);
+  --accent-border: rgba(31, 158, 138, 0.35);
+
+  /* Semantic colours */
+  --green:         #2d9e5e;
+  --green-rgb:     45, 158, 94;
+  --yellow:        #a57428;
+  --yellow-rgb:    165, 116, 40;
+  --red:           #bf3c3c;
+  --red-rgb:       191, 60, 60;
+
+  /* Extended semantic colours */
+  --purple:        #7340c8;
+  --purple-rgb:    115, 64, 200;
+  --purple-dim:    #9468d4;
+  --purple-bg:     rgba(var(--purple-rgb), 0.08);
+  --blue:          #2563b0;
+  --blue-rgb:      37, 99, 176;
+  --orange:        #b97820;
+  --orange-rgb:    185, 120, 32;
+
+  /* Canvas format panel / active-state */
+  --fmt-bg:          var(--surface2);                /* panel cell bg  */
+  --fmt-border:      var(--border2);                 /* panel cell border  */
+  --fmt-hover-bg:    rgba(var(--blue-rgb), 0.1);    /* hovered cell  */
+  --fmt-hover-br:    rgba(var(--blue-rgb), 0.4);    /* hovered cell border  */
+  --fmt-on-bg:       rgba(var(--blue-rgb), 0.12);   /* active/on state bg  */
+  --fmt-on-border:   rgba(var(--blue-rgb), 0.45);   /* active/on border  */
+  --fmt-on-text:     var(--blue);                   /* active/on text  */
+  --fmt-green-bg:    rgba(var(--green-rgb), 0.1);   /* make-slide btn  */
+  --fmt-green-br:    rgba(var(--green-rgb), 0.45);  /* make-slide border  */
+  --fmt-green-hbg:   rgba(var(--green-rgb), 0.18);  /* make-slide hover  */
+  --fmt-green-hbr:   rgba(var(--green-rgb), 0.6);   /* make-slide hover border  */
+
+  /* Glass HUD (zoom indicator, hover overlays) */
+  --hud-bg:        rgba(248, 244, 236, 0.92);
+  --hud-border:    rgba(0, 0, 0, 0.14);
+  --hud-text:      #4a3e2e;
+  --hud-text-dim:  #7a6a52;
+  --hud-text-hi:   #251a0c;
+
+  /* Editor */
+  --editor-selection:  rgba(31, 158, 138, 0.13); /* CM selection bg — light  */
+  --editor-active-ln:  rgba(0,0,0,0.03);
+
+  /* Shadow */
+  --shadow:        rgba(35, 22, 8, 0.22);
+}

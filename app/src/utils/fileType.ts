@@ -1,5 +1,5 @@
 /** What kind of file this is — drives which viewer/editor is shown. */
-export type FileKind = 'markdown' | 'pdf' | 'video' | 'audio' | 'image' | 'canvas' | 'code' | 'unknown';
+export type FileKind = 'markdown' | 'pdf' | 'video' | 'audio' | 'image' | 'canvas' | 'html' | 'code' | 'unknown';
 
 export interface FileTypeInfo {
   kind: FileKind;
@@ -80,11 +80,13 @@ export function getFileTypeInfo(filename: string): FileTypeInfo {
   }
 
   if (ext in CODE_EXTENSIONS) {
-    // HTML/HTM files get a browser-like live preview
-    const isWebFile = ext === 'html' || ext === 'htm';
+    // HTML/HTM files get a dedicated live webpage preview
+    if (ext === 'html' || ext === 'htm') {
+      return { kind: 'html', supportsPreview: true, defaultMode: 'preview', language: 'html' };
+    }
     return {
       kind: 'code',
-      supportsPreview: isWebFile,
+      supportsPreview: false,
       defaultMode: 'edit',
       language: CODE_EXTENSIONS[ext],
     };
