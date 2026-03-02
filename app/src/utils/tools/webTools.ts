@@ -1,11 +1,12 @@
 /**
  * Web and system workspace tools: web search, stock image search,
- * URL fetching, and shell command execution.
+ * URL fetching, shell command execution, and Vercel deployment.
  */
 
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
 import { invoke } from '@tauri-apps/api/core';
 import { emitTerminalEntry } from '../../services/terminalBus';
+import { deployToVercel, resolveVercelToken } from '../../services/publishVercel';
 import type { ToolDefinition, DomainExecutor } from './shared';
 
 // ── Tool definitions ─────────────────────────────────────────────────────────
@@ -96,6 +97,54 @@ export const WEB_TOOL_DEFS: ToolDefinition[] = [
           },
         },
         required: ['command'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'publish_vercel',
+      description:
+        'Deploy a folder from this workspace to Vercel and optionally assign a custom domain. ' +
+        'The Vercel API token is read from localStorage key "cafezin-vercel-token" (global) or the token argument. ' +
+        'Use action="deploy" to create or update a deployment. ' +
+        'Use action="assign_domain" to link a custom domain (e.g. santacruz.pmatz.com) to an existing project — ' +
+        'this only adds the domain to the project in Vercel; DNS must be configured separately. ' +
+        'Use action="set_token" to save the Vercel API token for future deploys.',
+      parameters: {
+        type: 'object',
+        properties: {
+          action: {
+            type: 'string',
+            enum: ['deploy', 'assign_domain', 'set_token'],
+            description: 'Operation: deploy files, assign a custom domain to a project, or save the API token.',
+          },
+          token: {
+            type: 'string',
+            description: 'Vercel API token. Optional for deploy/assign_domain (falls back to saved token). Required for set_token.',
+          },
+          projectName: {
+            type: 'string',
+            description: 'Vercel project name, e.g. "santa-cruz-curso". Required for deploy and assign_domain.',
+          },
+          sourceDir: {
+            type: 'string',
+            description: 'Workspace-relative folder to deploy, e.g. "demos" or "dist". Defaults to workspace root.',
+          },
+          teamId: {
+            type: 'string',
+            description: 'Vercel team/org ID. Leave empty for personal accounts.',
+          },
+          production: {
+            type: 'boolean',
+            description: 'Deploy to production (true, default) or preview (false).',
+          },
+          domain: {
+            type: 'string',
+            description: 'Custom domain to assign to the project, e.g. "santacruz.pmatz.com". Used with assign_domain.',
+          },
+        },
+        required: ['action'],
       },
     },
   },
@@ -315,6 +364,80 @@ export const executeWebTools: DomainExecutor = async (name, args, ctx) => {
         return parts.join('\n');
       } catch (e) {
         return `Error running command: ${e}`;
+      }
+    }
+
+    // ── publish_vercel ────────────────────────────────────────────────────
+    case 'publish_vercel': {
+      const action = String(args.action ?? 'deploy');
+
+      if (action === 'set_token') {
+        const tok = String(args.token ?? '').trim();
+        if (!tok) return 'Error: token is required for set_token.';
+        localStorage.setItem('cafezin-vercel-token', tok);
+        return 'Vercel API token saved. Future deploys in this browser will use it automatically.';
+      }
+
+      const token = resolveVercelToken(args.token ? String(args.token) : undefined);
+      if (!token) {
+        return (
+          'No Vercel API token found. ' +
+          'Ask the user to provide their token (create one at vercel.com/account/tokens), then call ' +
+          'publish_vercel with action="set_token" and token="<their-token>".'
+        );
+      }
+      const projectName = String(args.projectName ?? '').trim();
+      if (!projectName) return 'Error: projectName is required.';
+      const teamId = args.teamId ? String(args.teamId).trim() : undefined;
+
+      if (action === 'assign_domain') {
+        const domain = String(args.domain ?? '').trim();
+        if (!domain) return 'Error: domain is required for assign_domain.';
+        const teamParam = teamId ? `?teamId=${encodeURIComponent(teamId)}` : '';
+        try {
+          const res = await tauriFetch(
+            `https://api.vercel.com/v9/projects/${encodeURIComponent(projectName)}/domains${teamParam}`,
+            {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ name: domain }),
+            },
+          );
+          if (!res.ok) {
+            let msg = `Vercel API error: ${res.status}`;
+            try {
+              const body = await res.json() as { error?: { message?: string } };
+              if (body?.error?.message) msg += ` — ${body.error.message}`;
+            } catch { /* ignore */ }
+            return msg;
+          }
+          const data = await res.json() as { name: string; verified?: boolean };
+          const verified = data.verified ? ' (already verified)' : ' (DNS propagation may take a few minutes)';
+          return `Domain "${data.name}" added to project "${projectName}"${verified}.\n\nPoint your DNS:\n  CNAME ${domain} → cname.vercel-dns.com\nor for apex domains:\n  A ${domain} → 76.76.21.21`;
+        } catch (e) {
+          return `Error assigning domain: ${e}`;
+        }
+      }
+
+      // action === 'deploy'
+      const trimmedDir = String(args.sourceDir ?? '').replace(/^\/+|\/+$/g, '');
+      const dirPath = trimmedDir ? `${workspacePath}/${trimmedDir}` : workspacePath;
+      const production = args.production !== false;
+
+      try {
+        const result = await deployToVercel({ token, projectName, teamId, dirPath, production });
+        const lines = [
+          `✓ Deployed "${projectName}" to Vercel`,
+          `  URL: ${result.url}`,
+          `  Deployment ID: ${result.id}`,
+          result.state ? `  State: ${result.state}` : '',
+        ].filter(Boolean);
+        if (args.domain) {
+          lines.push(`\nTo assign domain "${args.domain}", call publish_vercel with action="assign_domain" and the same projectName.`);
+        }
+        return lines.join('\n');
+      } catch (e) {
+        return `Vercel deploy failed: ${e}`;
       }
     }
 
