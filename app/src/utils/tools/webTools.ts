@@ -270,10 +270,11 @@ export const executeWebTools: DomainExecutor = async (name, args, ctx) => {
       }
       const command = String(args.command ?? '').trim();
       if (!command) return 'Error: command is required.';
-      // Guard: block any command that writes to canvas (.tldr.json) files.
-      // Direct writes produce invalid tldraw schema (wrong shape keys, bad sequence
-      // versions, missing required fields) that crash the canvas on load.
+      // Guard: block commands that WRITE CONTENT to canvas (.tldr.json) files.
+      // Direct writes produce invalid tldraw schema that crashes the canvas on load.
       // Canvas content must only be mutated via the canvas_op tool.
+      // NOTE: file-system operations that don't write content (rm, mv, cp between
+      // canvas files, mkdir, etc.) are intentionally NOT blocked.
       if (command.includes('.tldr.json')) {
         const isShellWrite  = />{1,2}\s*[\w."'/-]*\.tldr\.json/.test(command);
         const isPythonWrite = /json\s*\.\s*dump/.test(command) ||
