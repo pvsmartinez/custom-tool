@@ -11,6 +11,9 @@
  *   {"op":"add_note",  "text":"…", "x":100, "y":100, "color":"yellow"}
  *   {"op":"add_text",  "text":"…", "x":100, "y":100, "color":"black"}
  *   {"op":"add_geo",   "text":"…", "geo":"rectangle", "x":100, "y":100, "w":200, "h":120, "color":"blue", "fill":"solid"}
+ *   {"op":"add_image", "url":"https://…", "x":0, "y":0, "w":1280, "h":720, "slide":"frameId", "to_back":true}
+ *   {"op":"set_slide_background", "url":"https://…", "slide":"frameId"}   ← fills whole frame, sends to back, removes old bg
+ *   {"op":"copy_slide_background", "from_slide":"abc1234567", "to_slides":["def1234567"]}
  *   {"op":"update",    "id":"abc123", "text":"New text"}
  *   {"op":"delete",    "id":"abc123"}
  *   {"op":"clear"}
@@ -694,6 +697,161 @@ function runCommand(editor: Editor, cmd: Record<string, unknown>): CommandResult
       } as TLArrowShape['props'],
     }]);
     return { count: 1, shapeId: arrowId };
+  }
+
+  // ── Helper: create an image asset + shape ─────────────────────
+  // Shared by add_image, set_slide_background, copy_slide_background.
+  function _createImageShape(
+    url: string,
+    name: string,
+    sx: number,
+    sy: number,
+    sw: number,
+    sh: number,
+    parentId?: TLShapeId,
+  ): string {
+    const assetId = `asset:${crypto.randomUUID()}` as unknown as ReturnType<typeof createShapeId>;
+    editor.createAssets([{
+      id: assetId,
+      typeName: 'asset',
+      type: 'image',
+      props: {
+        name,
+        src: url,
+        w: sw,
+        h: sh,
+        mimeType: url.match(/\.png(\?|$)/i) ? 'image/png'
+          : url.match(/\.gif(\?|$)/i) ? 'image/gif'
+          : url.match(/\.webp(\?|$)/i) ? 'image/webp'
+          : url.match(/\.svg(\?|$)/i) ? 'image/svg+xml'
+          : 'image/jpeg',
+        isAnimated: false,
+      },
+      meta: {},
+    } as any]);
+    const imgId = createShapeId();
+    editor.createShapes([{
+      id: imgId,
+      type: 'image',
+      x: sx,
+      y: sy,
+      ...(parentId ? { parentId } : {}),
+      props: {
+        assetId,
+        w: sw,
+        h: sh,
+        playing: true,
+        url: '',
+        crop: null,
+        flipX: false,
+        flipY: false,
+        altText: '',
+      } as any,
+    }]);
+    return imgId;
+  }
+
+  // ── add_image ─────────────────────────────────────────────────
+  // Place an image inside a slide (or free page) via canvas_op.
+  // Example: {"op":"add_image","url":"https://…","x":0,"y":0,"w":1280,"h":720,"slide":"frameId","to_back":true}
+  if (op === 'add_image') {
+    const url = String(cmd.url ?? '').trim();
+    if (!url) throw new Error('add_image requires a "url" field.');
+    const imgW = safeCoord(cmd.w, parentFrameId ? SLIDE_W : 800);
+    const imgH = safeCoord(cmd.h, parentFrameId ? SLIDE_H : 600);
+    const imgX = safeCoord(cmd.x, 0);
+    const imgY = safeCoord(cmd.y, 0);
+    const imgName = url.split('/').pop()?.split('?')[0] ?? 'image';
+    const imgId = _createImageShape(url, imgName, imgX, imgY, imgW, imgH, parentFrameId);
+    if (cmd.to_back) {
+      try { editor.sendToBack([imgId as TLShapeId]); } catch { /* older tldraw */ }
+    }
+    return { count: 1, shapeId: imgId };
+  }
+
+  // ── set_slide_background ──────────────────────────────────────
+  // Fill an entire slide (frame) with a background image, sent to back.
+  // Removes any existing full-frame image shapes first so they don't stack.
+  // Example: {"op":"set_slide_background","url":"https://…","slide":"frameId"}
+  if (op === 'set_slide_background') {
+    const url = String(cmd.url ?? '').trim();
+    if (!url) throw new Error('set_slide_background requires a "url" field.');
+    const slideId = String(cmd.slide ?? '').trim();
+    if (!slideId) throw new Error('set_slide_background requires a "slide" field (last-10-char frame ID).');
+    const frame = existing.find((s) => s.type === 'frame' && s.id.endsWith(slideId)) as TLFrameShape | undefined;
+    if (!frame) throw new Error(`Slide not found: "${slideId}". Call list_canvas_shapes to get valid frame IDs.`);
+    const fw = (frame.props as { w: number }).w ?? SLIDE_W;
+    const fh = (frame.props as { h: number }).h ?? SLIDE_H;
+    // Remove existing full-frame background images (covers >80% of frame area)
+    const children = existing.filter((s) => s.parentId === frame.id && s.type === 'image');
+    const bgThreshold = 0.8;
+    const toRemove = children.filter((s) => {
+      const p = s.props as { w?: number; h?: number };
+      return (p.w ?? 0) >= fw * bgThreshold && (p.h ?? 0) >= fh * bgThreshold;
+    });
+    if (toRemove.length > 0) editor.deleteShapes(toRemove.map((s) => s.id as TLShapeId));
+    const imgName = url.split('/').pop()?.split('?')[0] ?? 'bg';
+    const imgId = _createImageShape(url, imgName, 0, 0, fw, fh, frame.id as TLShapeId);
+    try { editor.sendToBack([imgId as TLShapeId]); } catch { /* older tldraw */ }
+    return { count: 1, shapeId: imgId };
+  }
+
+  // ── copy_slide_background ─────────────────────────────────────
+  // Copy background image(s) from one slide to one or more other slides.
+  // Example: {"op":"copy_slide_background","from_slide":"abc1234567","to_slides":["def1234567","ghi1234567"]}
+  if (op === 'copy_slide_background') {
+    const fromId = String(cmd.from_slide ?? '').trim();
+    if (!fromId) throw new Error('copy_slide_background requires a "from_slide" field.');
+    const rawToSlides = Array.isArray(cmd.to_slides) ? cmd.to_slides.map(String) : [];
+    if (rawToSlides.length === 0) throw new Error('copy_slide_background requires a "to_slides" array with at least one frame ID.');
+    const fromFrame = existing.find((s) => s.type === 'frame' && s.id.endsWith(fromId)) as TLFrameShape | undefined;
+    if (!fromFrame) throw new Error(`Source slide not found: "${fromId}"`);
+    const fw = (fromFrame.props as { w: number }).w ?? SLIDE_W;
+    const fh = (fromFrame.props as { h: number }).h ?? SLIDE_H;
+    // Find background images in source slide (images covering >80% frame area)
+    const bgThreshold = 0.8;
+    const srcBgs = existing.filter((s) =>
+      s.parentId === fromFrame.id && s.type === 'image' &&
+      (s.props as { w?: number; h?: number }).w! >= fw * bgThreshold &&
+      (s.props as { w?: number; h?: number }).h! >= fh * bgThreshold,
+    );
+    if (srcBgs.length === 0) throw new Error(`No background images found in source slide "${fromId}". A background image must cover ≥80% of the frame.`);
+
+    let total = 0;
+    let lastId: string | null = null;
+    for (const toSuffix of rawToSlides) {
+      const toFrame = existing.find((s) => s.type === 'frame' && s.id.endsWith(toSuffix)) as TLFrameShape | undefined;
+      if (!toFrame) continue;
+      const tw = (toFrame.props as { w: number }).w ?? SLIDE_W;
+      const th = (toFrame.props as { h: number }).h ?? SLIDE_H;
+      // Remove existing backgrounds in target
+      const tgtBgs = existing.filter((s) =>
+        s.parentId === toFrame.id && s.type === 'image' &&
+        (s.props as { w?: number; h?: number }).w! >= tw * bgThreshold &&
+        (s.props as { w?: number; h?: number }).h! >= th * bgThreshold,
+      );
+      if (tgtBgs.length > 0) editor.deleteShapes(tgtBgs.map((s) => s.id as TLShapeId));
+      // Reproduce all source background shapes in the target frame
+      for (const bg of srcBgs) {
+        const srcProps = bg.props as { assetId?: string; w?: number; h?: number };
+        // Resolve the original URL from the asset store
+        let srcUrl = '';
+        if (srcProps.assetId) {
+          try {
+            const asset = editor.getAsset(srcProps.assetId as any) as { props?: { src?: string } } | undefined;
+            srcUrl = asset?.props?.src ?? '';
+          } catch { /* ignore */ }
+        }
+        if (!srcUrl) continue; // can't reproduce without a URL
+        const imgName = srcUrl.split('/').pop()?.split('?')[0] ?? 'bg';
+        const imgId = _createImageShape(srcUrl, imgName, 0, 0, tw, th, toFrame.id as TLShapeId);
+        try { editor.sendToBack([imgId as TLShapeId]); } catch { /* older tldraw */ }
+        lastId = imgId;
+        total++;
+      }
+    }
+    if (total === 0) throw new Error('No backgrounds were copied. Check that the source slide has full-frame images and the target slide IDs are correct.');
+    return { count: total, shapeId: lastId };
   }
 
   return { count: 0, shapeId: null };
