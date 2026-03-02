@@ -3,7 +3,7 @@ import { Coffee, Folders, Eye, Robot, Microphone, ArrowDown, ArrowClockwise, Sig
 import { readTextFile, remapToCurrentDocDir } from './services/fs';
 import { loadWorkspace } from './services/workspace';
 import { useAuthSession } from './hooks/useAuthSession';
-import { gitClone, gitPull, gitSync, getGitAccountToken } from './services/syncConfig';
+import { gitClone, gitPull, gitSync, getGitAccountToken, setLocalClonedPath } from './services/syncConfig';
 import { CONFIG_DIR } from './services/config';
 import type { Workspace } from './types';
 import MobileFileBrowser from './components/mobile/MobileFileBrowser';
@@ -53,6 +53,8 @@ export default function MobileApp() {
   // gitUrl → 'clone' | 'pull'
   const [gitBusy, setGitBusy] = useState<Record<string, 'clone' | 'pull'>>({});
   const [isSyncing, setIsSyncing] = useState(false);
+  // gitUrl of the currently open workspace — used to find the token in handleSync
+  const [wsGitUrl, setWsGitUrl] = useState<string | null>(null);
 
   const [activeTab, setActiveTab] = useState<Tab>('files');
   const [openFile, setOpenFile] = useState<string | null>(null);
@@ -121,10 +123,16 @@ export default function MobileApp() {
     if (err) toast({ message: err, type: 'error', duration: 6000 });
   }
 
-  async function openWorkspacePath(rawPath: string) {
+  async function openWorkspacePath(rawPath: string, gitUrl?: string) {
     const sanitized = sanitizeWsPath(rawPath);
     // Remap stale container UUID — the UUID changes between TestFlight builds
     const path = await remapToCurrentDocDir(sanitized);
+    // Persist the remapped path for this git repo so handleSync can find it,
+    // and so the next Abrir uses the correct UUID immediately.
+    if (gitUrl) {
+      setLocalClonedPath(gitUrl, path);
+      setWsGitUrl(gitUrl);
+    }
     setLoadingWs(true);
     setWsError(null);
     try {
@@ -168,7 +176,16 @@ export default function MobileApp() {
       toast({ message: msg, type: 'success' });
       void refreshWorkspace();
     } catch (err) {
-      toast({ message: `Erro no pull: ${friendlyGitError(err)}`, type: 'error', duration: null });
+      const errStr = String(err);
+      // If the local repo doesn't exist at all (UUID changed, etc.) clear the stored path
+      // so the picker shows "Clonar" on the next render — allows the user to re-clone.
+      if (/repository not found|could not find repository|not a git/i.test(errStr)) {
+        setLocalClonedPath(gitUrl, '');
+        await loadSyncedList();
+        toast({ message: 'Repositório local não encontrado. Use Clonar para baixar novamente.', type: 'error', duration: null });
+      } else {
+        toast({ message: `Erro no pull: ${friendlyGitError(err)}`, type: 'error', duration: null });
+      }
     } finally {
       setGitBusy(b => { const n = { ...b }; delete n[gitUrl]; return n; });
     }
@@ -182,8 +199,15 @@ export default function MobileApp() {
     if (!workspace) return;
     setIsSyncing(true);
     try {
-      // Find the git account label for this workspace (match by localPath)
-      const ws = syncedWorkspaces.find(w => w.localPath === workspace.path);
+      // Find the git account label for this workspace.
+      // Primary: match by gitUrl stored when the workspace was opened.
+      // Fallback: match by localPath or by repo folder name (handles UUID-remapped paths).
+      const repoName = workspace.path.replace(/\/+$/, '').split('/').pop();
+      const ws = syncedWorkspaces.find(w =>
+        (wsGitUrl && w.gitUrl === wsGitUrl) ||
+        w.localPath === workspace.path ||
+        (w.localPath && w.localPath.replace(/\/+$/, '').split('/').pop() === repoName)
+      );
       const token = ws ? (getGitAccountToken(ws.gitAccountLabel) ?? undefined) : undefined;
       const result = await gitSync(workspace.path, token);
       const msg = result === 'synced' ? 'Sincronizado com sucesso!' : 'Já estava atualizado.';
@@ -399,7 +423,7 @@ export default function MobileApp() {
                           <button
                             className="mb-btn mb-btn-primary"
                             style={{ flex: 1, fontSize: 13, padding: '6px 14px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
-                            onClick={() => openWorkspacePath(ws.localPath!)}
+                            onClick={() => void openWorkspacePath(ws.localPath!, ws.gitUrl)}
                             disabled={!!busy}
                           >
                             <ArrowRight size={14} /> Abrir
@@ -474,6 +498,7 @@ export default function MobileApp() {
             hasGit={workspace!.hasGit}
             onSync={handleSync}
             isSyncing={isSyncing}
+            onBack={() => { setWorkspace(null); setWsGitUrl(null); }}
           />
         );
 

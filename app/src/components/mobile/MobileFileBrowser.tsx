@@ -2,7 +2,7 @@ import { useState } from 'react';
 import {
   FolderSimple, GlobeSimple, FileText, PaintBrush, FilePdf,
   Image, FilmStrip, SpeakerSimpleHigh, FileCode, Paperclip,
-  ArrowClockwise, ArrowsClockwise,
+  ArrowClockwise, ArrowsClockwise, House,
 } from '@phosphor-icons/react';
 import type { FileTreeNode } from '../../types';
 import { getFileTypeInfo } from '../../utils/fileType';
@@ -112,6 +112,8 @@ interface MobileFileBrowserProps {
   isSyncing?: boolean;
   /** Whether the workspace has a git remote. Hides the sync button when false. */
   hasGit?: boolean;
+  /** Called when the user taps the back / home button to return to the workspace picker. */
+  onBack?: () => void;
 }
 
 export default function MobileFileBrowser({
@@ -123,10 +125,21 @@ export default function MobileFileBrowser({
   onSync,
   isSyncing,
   hasGit,
+  onBack,
 }: MobileFileBrowserProps) {
   return (
     <>
       <div className="mb-header">
+        {onBack && (
+          <button
+            className="mb-icon-btn"
+            onClick={onBack}
+            title="Voltar ao seletor de workspaces"
+            style={{ marginRight: 2 }}
+          >
+            <House weight="thin" size={18} />
+          </button>
+        )}
         <span className="mb-filenode-icon" style={{ display: 'flex', color: 'var(--text-muted)' }}>
           <FolderSimple weight="thin" size={20} />
         </span>
@@ -155,7 +168,24 @@ export default function MobileFileBrowser({
           {fileTree.length === 0 ? (
             <div className="mb-empty" style={{ padding: '48px 24px' }}>
               <div className="mb-empty-icon"><FolderSimple weight="thin" size={48} /></div>
-              <div className="mb-empty-desc">Nenhum arquivo neste workspace.</div>
+              {hasGit ? (
+                <div className="mb-empty-desc">Nenhum arquivo neste workspace.</div>
+              ) : (
+                <>
+                  <div className="mb-empty-desc">
+                    Nenhum arquivo encontrado. O repositório pode não estar sincronizado neste dispositivo.
+                  </div>
+                  {onBack && (
+                    <button
+                      className="mb-btn mb-btn-secondary"
+                      style={{ marginTop: 8, fontSize: 14, display: 'flex', alignItems: 'center', gap: 8 }}
+                      onClick={onBack}
+                    >
+                      <House weight="thin" size={16} /> Voltar e sincronizar
+                    </button>
+                  )}
+                </>
+              )}
             </div>
           ) : (
             fileTree.map(node => (

@@ -349,6 +349,11 @@ mod git_native {
         if std::path::Path::new(&path).join(".git").exists() {
             return Ok("already_cloned".into());
         }
+        // If the directory exists but has NO .git (e.g. only a cafezin/ config dir was created
+        // by loadWorkspace after a container-UUID change), remove it so libgit2 can clone fresh.
+        if std::path::Path::new(&path).exists() {
+            std::fs::remove_dir_all(&path).map_err(|e| format!("pre-clone cleanup failed: {}", e))?;
+        }
         let mut callbacks = RemoteCallbacks::new();
         // `tried` prevents the libgit2 credential loop: if called more than once
         // it means the first attempt failed — bail immediately instead of looping.

@@ -96,6 +96,14 @@ html, body, #root {
   flex-shrink: 0;
 }
 
+/* When the header is the first element inside mb-screen it must "absorb" the
+   safe-area padding that mb-screen adds, so the header background visually
+   fills the status-bar area instead of leaving a transparent gap. */
+.mb-screen > .mb-header:first-child {
+  margin-top: calc(-1 * var(--mb-safe-t));
+  padding-top: calc(var(--mb-safe-t) + 12px);
+}
+
 .mb-header-title {
   flex: 1;
   font-size: 17px;

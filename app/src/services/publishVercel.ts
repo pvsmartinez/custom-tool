@@ -135,3 +135,36 @@ export async function deployToVercel(opts: VercelDeployOptions): Promise<VercelD
 export function resolveVercelToken(workspaceToken?: string): string {
   return workspaceToken?.trim() || localStorage.getItem('cafezin-vercel-token') || '';
 }
+
+// ── Demo Hub ─────────────────────────────────────────────────────────────────
+
+export interface DemoHubDeployOptions {
+  /** Vercel API token (resolved already) */
+  token: string;
+  /** Vercel project name, e.g. "meu-curso" */
+  projectName: string;
+  /** Optional team/org ID */
+  teamId?: string;
+  /** Absolute path to the workspace root */
+  workspacePath: string;
+  /**
+   * Workspace-relative source directory whose sub-folders are the demos.
+   * e.g. "demos"  →  workspace/demos/aula1/ becomes /aula1
+   * Defaults to workspace root ("").
+   */
+  sourceDir?: string;
+}
+
+/**
+ * Deploy all files inside `sourceDir` as a single Vercel project, so each
+ * subfolder becomes a sub-path: demos/aula1/index.html → /aula1.
+ *
+ * Vercel preserves the full directory tree of the deployed folder, so no
+ * custom routing config (vercel.json) is needed for basic HTML demos.
+ */
+export async function deployDemoHub(opts: DemoHubDeployOptions): Promise<VercelDeployResult> {
+  const { token, projectName, teamId, workspacePath, sourceDir } = opts;
+  const trimmedDir = (sourceDir ?? '').replace(/^\/+|\/+$/g, '');
+  const dirPath = trimmedDir ? `${workspacePath}/${trimmedDir}` : workspacePath;
+  return deployToVercel({ token, projectName, teamId, dirPath, production: true });
+}

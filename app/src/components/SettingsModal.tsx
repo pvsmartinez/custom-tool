@@ -169,6 +169,8 @@ export default function SettingsModal({
   const [wsGitBranch, setWsGitBranch] = useState('');
   const [wsVercelToken, setWsVercelToken] = useState('');
   const [wsVercelTeamId, setWsVercelTeamId] = useState('');
+  const [wsVercelDemoHubProject, setWsVercelDemoHubProject] = useState('');
+  const [wsVercelDemoHubSourceDir, setWsVercelDemoHubSourceDir] = useState('');
   const [wsSaving, setWsSaving] = useState(false);
   const [wsSaved, setWsSaved] = useState(false);
 
@@ -199,6 +201,8 @@ export default function SettingsModal({
     setWsGitBranch(workspace.config.gitBranch ?? '');
     setWsVercelToken(workspace.config.vercelConfig?.token ?? '');
     setWsVercelTeamId(workspace.config.vercelConfig?.teamId ?? '');
+    setWsVercelDemoHubProject(workspace.config.vercelConfig?.demoHub?.projectName ?? '');
+    setWsVercelDemoHubSourceDir(workspace.config.vercelConfig?.demoHub?.sourceDir ?? '');
     setWsSaved(false);
   }, [open, workspace]);
 
@@ -222,10 +226,16 @@ export default function SettingsModal({
           sidebarButtons: wsSidebarButtons.length > 0 ? wsSidebarButtons : undefined,
           inboxFile: wsInboxFile.trim() || undefined,
           gitBranch: wsGitBranch.trim() || undefined,
-          vercelConfig: (wsVercelToken.trim() || wsVercelTeamId.trim())
+          vercelConfig: (wsVercelToken.trim() || wsVercelTeamId.trim() || wsVercelDemoHubProject.trim())
             ? {
                 token: wsVercelToken.trim() || undefined,
                 teamId: wsVercelTeamId.trim() || undefined,
+                demoHub: wsVercelDemoHubProject.trim()
+                  ? {
+                      projectName: wsVercelDemoHubProject.trim(),
+                      sourceDir: wsVercelDemoHubSourceDir.trim() || undefined,
+                    }
+                  : undefined,
               } as VercelWorkspaceConfig
             : undefined,
         },
@@ -621,6 +631,39 @@ export default function SettingsModal({
                     placeholder="team_abc123 (deixe vazio para conta pessoal)"
                   />
                 </div>
+
+                <p className="sm-section-desc" style={{ marginTop: 16 }}>
+                  <strong>Demo Hub</strong> — publica várias demos HTML como sub-caminhos de um único projeto Vercel.
+                  Ex: <code>demos/aula1/</code> fica em <code>projeto.vercel.app/aula1</code>.
+                </p>
+
+                <div className="sm-row sm-row--col">
+                  <label className="sm-label">
+                    Projeto Vercel do Demo Hub
+                    <span className="sm-row-desc"> — nome do projeto Vercel (ex: meu-curso)</span>
+                  </label>
+                  <input
+                    className="sm-input"
+                    value={wsVercelDemoHubProject}
+                    onChange={(e) => setWsVercelDemoHubProject(e.target.value)}
+                    placeholder="meu-curso (deixe vazio para desativar)"
+                  />
+                </div>
+
+                {wsVercelDemoHubProject.trim() && (
+                  <div className="sm-row sm-row--col">
+                    <label className="sm-label">
+                      Pasta das demos
+                      <span className="sm-row-desc"> — caminho relativo à raiz do workspace (deixe vazio = raiz)</span>
+                    </label>
+                    <input
+                      className="sm-input"
+                      value={wsVercelDemoHubSourceDir}
+                      onChange={(e) => setWsVercelDemoHubSourceDir(e.target.value)}
+                      placeholder="demos  (ex: demos, projetos/web)"
+                    />
+                  </div>
+                )}
               </section>
 
               <section className="sm-section">

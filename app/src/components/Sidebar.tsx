@@ -337,6 +337,8 @@ interface SidebarProps {
   onOpenTerminalAt?: (relDir: string) => void;
   /** Called when user clicks a custom workspace button */
   onRunButtonCommand?: (command: string, label: string) => void;
+  /** Called when user clicks "Publicar Demos" — only shown when demoHub is configured */
+  onPublishDemoHub?: () => void;
   /** If provided, assigned to startCreating('','file') so parent can trigger new-file via ⌘T/⌘N */
   newFileRef?: { current: (() => void) | null };
 }
@@ -366,6 +368,7 @@ export default function Sidebar({
   onSidebarModeChange,
   onOpenTerminalAt,
   onRunButtonCommand,
+  onPublishDemoHub,
   newFileRef,
 }: SidebarProps) {
   // ── Creator state ──────────────────────────────────────────────────────────
@@ -1038,6 +1041,16 @@ export default function Sidebar({
             {btn.label}
           </button>
         ))}
+        {/* Demo Hub publish button — only when project name is configured */}
+        {workspace.config.vercelConfig?.demoHub?.projectName && (
+          <button
+            className="sidebar-btn sidebar-btn-custom"
+            title={`Publicar demos em ${workspace.config.vercelConfig.demoHub.projectName}.vercel.app`}
+            onClick={onPublishDemoHub}
+          >
+            ⇗ Publicar Demos
+          </button>
+        )}
         <button className="sidebar-btn sidebar-btn-images" onClick={onImageSearch}>
           ⊡ Images
         </button>

@@ -31,6 +31,7 @@ import TabBar from './components/TabBar';
 import BottomPanel, { type FileMeta } from './components/BottomPanel';
 import { useDragResize } from './hooks/useDragResize';
 import { syncSecretsFromCloud } from './services/apiSecrets';
+import { deployDemoHub, resolveVercelToken } from './services/publishVercel';
 import { useTabManager } from './hooks/useTabManager';
 import { useAutosave } from './hooks/useAutosave';
 import { useFileWatcher } from './hooks/useFileWatcher';
@@ -211,8 +212,44 @@ export default function App() {
   // Visual "Saved ✓" toast
   const [savedToast, setSavedToast] = useState(false);
   const savedToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Demo Hub publish status toast
+  const [demoHubToast, setDemoHubToast] = useState<{ msg: string; ok: boolean } | null>(null);
+  const demoHubToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Save error — set on any failed write, cleared on next successful write
   const [saveError, setSaveError] = useState<string | null>(null);
+
+  // ── Demo Hub publish ───────────────────────────────────────────────────────
+  const handlePublishDemoHub = useCallback(async () => {
+    if (!workspace) return;
+    const demoHub = workspace.config.vercelConfig?.demoHub;
+    if (!demoHub?.projectName) return;
+    const token = resolveVercelToken(workspace.config.vercelConfig?.token);
+    if (!token) {
+      setDemoHubToast({ msg: 'Sem token Vercel. Configure em Settings → API Keys.', ok: false });
+      if (demoHubToastTimerRef.current) clearTimeout(demoHubToastTimerRef.current);
+      demoHubToastTimerRef.current = setTimeout(() => setDemoHubToast(null), 5000);
+      return;
+    }
+    setDemoHubToast({ msg: 'Publicando demos…', ok: true });
+    try {
+      const result = await deployDemoHub({
+        token,
+        projectName: demoHub.projectName,
+        teamId: workspace.config.vercelConfig?.teamId,
+        workspacePath: workspace.path,
+        sourceDir: demoHub.sourceDir,
+      });
+      const url = result.url.replace(/^\/\//, 'https://');
+      setDemoHubToast({ msg: `Publicado ✔ ${url}`, ok: true });
+      if (demoHubToastTimerRef.current) clearTimeout(demoHubToastTimerRef.current);
+      demoHubToastTimerRef.current = setTimeout(() => setDemoHubToast(null), 8000);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setDemoHubToast({ msg: `Erro: ${msg}`, ok: false });
+      if (demoHubToastTimerRef.current) clearTimeout(demoHubToastTimerRef.current);
+      demoHubToastTimerRef.current = setTimeout(() => setDemoHubToast(null), 8000);
+    }
+  }, [workspace]);
   // Pandoc PDF export
   const [pandocBusy, setPandocBusy] = useState(false);
   const [pandocError, setPandocError] = useState<string | null>(null);
@@ -1225,6 +1262,16 @@ export default function App() {
             ) : null
           )}
           {savedToast && <span className="app-saved-toast">Saved ✓</span>}
+          {demoHubToast && (
+            <span
+              className={demoHubToast.ok ? 'app-saved-toast' : 'app-save-error'}
+              style={{ maxWidth: 360, cursor: 'pointer' }}
+              title={demoHubToast.msg}
+              onClick={() => setDemoHubToast(null)}
+            >
+              {demoHubToast.msg.length > 55 ? demoHubToast.msg.slice(0, 55) + '…' : demoHubToast.msg}
+            </span>
+          )}
           {pandocError && (
             <span
               className="app-save-error"
@@ -1319,6 +1366,7 @@ export default function App() {
                 setTerminalOpen(true);
                 setTerminalRequestRun(command + '|' + Date.now());
               }}
+              onPublishDemoHub={handlePublishDemoHub}
             />
             {/* Sidebar resize handle */}
             <div className="resize-divider" onMouseDown={startSidebarDrag} />

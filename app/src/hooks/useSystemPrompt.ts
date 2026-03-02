@@ -173,6 +173,14 @@ grey=neutral/connector  white=background panel  black=title/header text
       activeFile && (activeFile.endsWith('.html') || activeFile.endsWith('.htm'))
         ? `\n── HTML / INTERACTIVE DEMO GUIDANCE ──────────────────────────────────────────────────\nThe active file is an HTML document rendered live in the preview pane (~900px wide).\n\nLayout & spacing principles:\n• Prefer relative units: %, rem, vw/vh, clamp() — avoid px for spacing and font sizes\n• Use CSS custom properties (--gap, --radius, --color-accent) for consistency\n• Flexbox or CSS Grid for all multi-element layouts; avoid float / position: absolute for flow\n• Comfortable reading width: max-width: 800px; margin: 0 auto; padding: 2rem\n• Interactive demos: always style :hover and :focus states; add transition: 0.2s ease\n• Buttons/inputs: min-height: 2.5rem; padding: 0.5rem 1.25rem; border-radius: 0.375rem\n• Section gaps: use row-gap / column-gap on flex/grid containers, never margin hacks\n• Color contrast: body text on background must be AA-compliant (4.5:1 ratio minimum)\n\nVisual verification workflow:\n1. Write or patch the HTML/CSS file.\n2. Immediately call screenshot_preview to see the rendered result.\n3. Identify any spacing, overflow, alignment, or readability issues.\n4. Call patch_workspace_file to fix them.\n5. Call screenshot_preview again to confirm.\nNever report the demo as done without at least one screenshot_preview call.`
         : '',
+
+      // ── Demo Hub context ──────────────────────────────────────
+      (() => {
+        const demoHub = workspace?.config?.vercelConfig?.demoHub;
+        if (!demoHub?.projectName) return '';
+        const src = demoHub.sourceDir ? `"${demoHub.sourceDir}/"` : 'the workspace root';
+        return `\n── DEMO HUB ─────────────────────────────────────────────────────────────────────────\nThis workspace has the Demo Hub feature configured.\nVercel project: "${demoHub.projectName}" → published at https://${demoHub.projectName}.vercel.app\nSource folder: ${src} — each sub-folder becomes a route, e.g. demos/aula1/ → /${demoHub.projectName}.vercel.app/aula1\n\nWhen the user asks to create a new demo/exercise:\n1. Create a sub-folder inside the source folder (e.g. ${demoHub.sourceDir ? demoHub.sourceDir + '/' : ''}aula3/)\n2. Write an index.html (and any .css/.js) files inside it — fully self-contained, no dev server needed\n3. Remind the user they can publish with the "↗ Publicar Demos" button in the sidebar\n\nFile naming convention: demos use kebab-case folder names (ex: aula-01-html-basico, ex-01-flexbox).`;
+      })(),
     ].filter(Boolean).join('\n\n'),
-  }), [hasTools, model, workspaceFileList, memoryContent, agentContext, documentContext, activeFile]);
+  }), [hasTools, model, workspaceFileList, memoryContent, agentContext, documentContext, activeFile, workspace?.config?.vercelConfig?.demoHub]);
 }

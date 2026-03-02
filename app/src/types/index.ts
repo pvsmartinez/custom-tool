@@ -168,6 +168,21 @@ export interface VercelWorkspaceConfig {
   token?: string;
   /** Vercel team/org ID — leave empty for personal accounts */
   teamId?: string;
+  /**
+   * Demo Hub: deploy multiple HTML demo projects as sub-paths of a single
+   * Vercel project.  Each immediate subfolder under `sourceDir` becomes a
+   * route, e.g. demos/aula1/ → project.vercel.app/aula1
+   */
+  demoHub?: {
+    /** Vercel project name, e.g. "meu-curso" → deploys to meu-curso.vercel.app */
+    projectName: string;
+    /**
+     * Workspace-relative path of the folder whose sub-directories are the
+     * individual demos.  Defaults to workspace root ("") when omitted.
+     * Example: "demos" means workspace/demos/aula1 → /aula1
+     */
+    sourceDir?: string;
+  };
 }
 
 /** A custom action button shown at the bottom of the sidebar. */
