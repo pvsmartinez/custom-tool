@@ -17,7 +17,6 @@
  * because they are device-specific and must never leave the device.
  */
 
-import { fetch } from '@tauri-apps/plugin-http'
 import { invoke } from '@tauri-apps/api/core'
 import { documentDir } from '@tauri-apps/api/path'
 import type { Session, User } from '@supabase/supabase-js'
