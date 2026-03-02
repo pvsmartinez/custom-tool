@@ -76,6 +76,45 @@ export interface VercelDeployResult {
   state?: string;
 }
 
+/** Poll a deployment until it reaches READY or ERROR (max ~90 s). */
+export async function pollDeployment(
+  token: string,
+  deploymentId: string,
+  teamId?: string,
+): Promise<{ state: string; url?: string; readyAt?: string; errorMessage?: string }> {
+  const teamParam = teamId ? `?teamId=${encodeURIComponent(teamId)}` : '';
+  const TERMINAL = new Set(['READY', 'ERROR', 'CANCELED']);
+  const INTERVAL_MS = 3000;
+  const MAX_ATTEMPTS = 30; // 30 × 3s = 90s
+
+  for (let i = 0; i < MAX_ATTEMPTS; i++) {
+    await new Promise((r) => setTimeout(r, INTERVAL_MS));
+    try {
+      const res = await fetch(
+        `${VERCEL_API}/v13/deployments/${encodeURIComponent(deploymentId)}${teamParam}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      if (!res.ok) continue; // transient error — keep polling
+      const data = await res.json() as {
+        state?: string;
+        url?: string;
+        readyAt?: string;
+        errorMessage?: string;
+      };
+      const state = (data.state ?? 'UNKNOWN').toUpperCase();
+      if (TERMINAL.has(state)) {
+        return {
+          state,
+          url: data.url?.startsWith('http') ? data.url : data.url ? `https://${data.url}` : undefined,
+          readyAt: data.readyAt,
+          errorMessage: data.errorMessage,
+        };
+      }
+    } catch { /* transient — keep polling */ }
+  }
+  return { state: 'TIMEOUT' };
+}
+
 export async function deployToVercel(opts: VercelDeployOptions): Promise<VercelDeployResult> {
   const { token, projectName, teamId, dirPath, production = true } = opts;
 
@@ -123,11 +162,17 @@ export async function deployToVercel(opts: VercelDeployOptions): Promise<VercelD
     state?: string;
   };
 
+  const deploymentId = data.id;
+  const initialUrl   = data.url?.startsWith('http') ? data.url : `https://${data.url}`;
+
+  // 3. Poll until READY or ERROR (max 90 s)
+  const poll = await pollDeployment(token, deploymentId, teamId);
+
   return {
-    id:      data.id,
-    url:     data.url?.startsWith('http') ? data.url : `https://${data.url}`,
-    readyAt: data.readyAt,
-    state:   data.state,
+    id:      deploymentId,
+    url:     poll.url ?? initialUrl,
+    readyAt: poll.readyAt,
+    state:   poll.state,
   };
 }
 

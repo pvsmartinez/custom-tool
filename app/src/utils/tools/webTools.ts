@@ -6,7 +6,7 @@
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
 import { invoke } from '@tauri-apps/api/core';
 import { emitTerminalEntry } from '../../services/terminalBus';
-import { deployToVercel, resolveVercelToken } from '../../services/publishVercel';
+import { deployToVercel, pollDeployment, resolveVercelToken } from '../../services/publishVercel';
 import type { ToolDefinition, DomainExecutor } from './shared';
 
 // ── Tool definitions ─────────────────────────────────────────────────────────
@@ -111,7 +111,8 @@ export const WEB_TOOL_DEFS: ToolDefinition[] = [
         'When the user asks to publish or deploy to Vercel, ALWAYS use this tool with action="deploy". ' +
         'NEVER use run_command to call the vercel CLI — the CLI requires committed git history and will fail on uncommitted changes. ' +
         'The Vercel API token is read from localStorage key "cafezin-vercel-token" (global) or the token argument. ' +
-        'Use action="deploy" to create or update a deployment. ' +
+        'Use action="deploy" to create or update a deployment (waits until READY or ERROR, max ~90s). ' +
+        'Use action="check" to get the current state of a deployment by ID — use this if deploy timed out or to verify a past deploy. ' +
         'Use action="assign_domain" to link a custom domain (e.g. santacruz.pmatz.com) to an existing project — ' +
         'this only adds the domain to the project in Vercel; DNS must be configured separately. ' +
         'Use action="set_token" to save the Vercel API token for future deploys.',
@@ -120,16 +121,20 @@ export const WEB_TOOL_DEFS: ToolDefinition[] = [
         properties: {
           action: {
             type: 'string',
-            enum: ['deploy', 'assign_domain', 'set_token'],
-            description: 'Operation: deploy files, assign a custom domain to a project, or save the API token.',
+            enum: ['deploy', 'check', 'assign_domain', 'set_token'],
+            description: 'Operation: deploy files (waits for READY), check deployment state, assign a custom domain, or save the API token.',
           },
           token: {
             type: 'string',
-            description: 'Vercel API token. Optional for deploy/assign_domain (falls back to saved token). Required for set_token.',
+            description: 'Vercel API token. Optional for deploy/check/assign_domain (falls back to saved token). Required for set_token.',
           },
           projectName: {
             type: 'string',
             description: 'Vercel project name, e.g. "santa-cruz-curso". Required for deploy and assign_domain.',
+          },
+          deploymentId: {
+            type: 'string',
+            description: 'Vercel deployment ID returned by a previous deploy call. Required for action="check".',
           },
           sourceDir: {
             type: 'string',
@@ -399,6 +404,24 @@ export const executeWebTools: DomainExecutor = async (name, args, ctx) => {
           'publish_vercel with action="set_token" and token="<their-token>".'
         );
       }
+
+      if (action === 'check') {
+        const deploymentId = String(args.deploymentId ?? '').trim();
+        if (!deploymentId) return 'Error: deploymentId is required for check.';
+        const teamId = args.teamId ? String(args.teamId).trim() : undefined;
+        try {
+          const poll = await pollDeployment(token, deploymentId, teamId);
+          const parts = [`Deployment ${deploymentId}`, `  State: ${poll.state}`];
+          if (poll.url)          parts.push(`  URL: ${poll.url}`);
+          if (poll.readyAt)      parts.push(`  Ready at: ${poll.readyAt}`);
+          if (poll.errorMessage) parts.push(`  Error: ${poll.errorMessage}`);
+          if (poll.state === 'TIMEOUT') parts.push('  (still building — check again in a moment)');
+          return parts.join('\n');
+        } catch (e) {
+          return `Error checking deployment: ${e}`;
+        }
+      }
+
       const projectName = String(args.projectName ?? '').trim();
       if (!projectName) return 'Error: projectName is required.';
       const teamId = args.teamId ? String(args.teamId).trim() : undefined;
@@ -439,11 +462,18 @@ export const executeWebTools: DomainExecutor = async (name, args, ctx) => {
 
       try {
         const result = await deployToVercel({ token, projectName, teamId, dirPath, production });
+        const stateLabel = result.state === 'READY'   ? '✓ READY'
+                         : result.state === 'ERROR'   ? '✗ ERROR'
+                         : result.state === 'TIMEOUT' ? '⏳ still building (timed out waiting)'
+                         : (result.state ?? 'unknown');
         const lines = [
-          `✓ Deployed "${projectName}" to Vercel`,
+          `Deployed "${projectName}" to Vercel — ${stateLabel}`,
           `  URL: ${result.url}`,
           `  Deployment ID: ${result.id}`,
-          result.state ? `  State: ${result.state}` : '',
+          result.readyAt ? `  Ready at: ${result.readyAt}` : '',
+          result.state === 'TIMEOUT'
+            ? `  To check when ready: publish_vercel({ action: "check", deploymentId: "${result.id}" })`
+            : '',
         ].filter(Boolean);
         if (args.domain) {
           lines.push(`\nTo assign domain "${args.domain}", call publish_vercel with action="assign_domain" and the same projectName.`);
