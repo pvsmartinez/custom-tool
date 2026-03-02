@@ -200,6 +200,12 @@ export interface WorkspaceConfig {
   name: string;
   lastOpenedFile?: string;
   preferredModel?: string;
+  /**
+   * Language tag for AI responses in this workspace.
+   * E.g. "pt-BR" (default), "en-US", "es", "fr".
+   * When set, overrides the app-level default in the Copilot system prompt.
+   */
+  preferredLanguage?: string;
   /** Up to 5 most-recently opened files (relative paths) */
   recentFiles?: string[];
   /** ISO timestamp of the last auto-save */

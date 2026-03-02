@@ -27,17 +27,17 @@ interface SettingsModalProps {
 type Tab = 'general' | 'workspace' | 'sync';
 
 const FONT_OPTIONS = [
-  { label: 'Small (13px)', value: 13 },
-  { label: 'Medium (14px)', value: 14 },
-  { label: 'Large (15px)', value: 15 },
-  { label: 'X-Large (16px)', value: 16 },
+  { label: 'Pequena (13px)', value: 13 },
+  { label: 'Média (14px)', value: 14 },
+  { label: 'Grande (15px)', value: 15 },
+  { label: 'Extra grande (16px)', value: 16 },
 ];
 
 const AUTOSAVE_OPTIONS = [
-  { label: 'Quick (500ms)', value: 500 },
+  { label: 'Rápido (500ms)', value: 500 },
   { label: 'Normal (1s)', value: 1000 },
-  { label: 'Slow (2s)', value: 2000 },
-  { label: 'Manual (off)', value: 0 },
+  { label: 'Lento (2s)', value: 2000 },
+  { label: 'Manual (desligado)', value: 0 },
 ];
 
 export default function SettingsModal({
@@ -163,6 +163,7 @@ export default function SettingsModal({
   // Local draft of workspace editable fields
   const [wsName, setWsName] = useState('');
   const [wsModel, setWsModel] = useState('');
+  const [wsLanguage, setWsLanguage] = useState('pt-BR');
   const [wsAgent, setWsAgent] = useState('');
   const [wsSidebarButtons, setWsSidebarButtons] = useState<SidebarButton[]>([]);
   const [wsInboxFile, setWsInboxFile] = useState('');
@@ -195,6 +196,7 @@ export default function SettingsModal({
     if (!open || !workspace) return;
     setWsName(workspace.config.name ?? '');
     setWsModel(workspace.config.preferredModel ?? '');
+    setWsLanguage(workspace.config.preferredLanguage ?? 'pt-BR');
     setWsAgent(workspace.agentContext ?? '');
     setWsSidebarButtons(workspace.config.sidebarButtons ?? []);
     setWsInboxFile(workspace.config.inboxFile ?? '');
@@ -223,6 +225,7 @@ export default function SettingsModal({
           ...workspace.config,
           name: wsName,
           preferredModel: wsModel || undefined,
+          preferredLanguage: wsLanguage !== 'pt-BR' ? wsLanguage : undefined,
           sidebarButtons: wsSidebarButtons.length > 0 ? wsSidebarButtons : undefined,
           inboxFile: wsInboxFile.trim() || undefined,
           gitBranch: wsGitBranch.trim() || undefined,
@@ -265,8 +268,8 @@ export default function SettingsModal({
 
         {/* Header */}
         <div className="sm-header">
-          <span className="sm-title">⚙ Settings</span>
-          <button className="sm-close" onClick={onClose} title="Close">✕</button>
+          <span className="sm-title">⚙ Configurações</span>
+          <button className="sm-close" onClick={onClose} title="Fechar">✕</button>
         </div>
 
         {/* Tabs */}
@@ -274,7 +277,7 @@ export default function SettingsModal({
           <button
             className={`sm-tab ${tab === 'general' ? 'active' : ''}`}
             onClick={() => setTab('general')}
-          >General</button>
+          >Geral</button>
           <button
             className={`sm-tab ${tab === 'workspace' ? 'active' : ''}`}
             onClick={() => setTab('workspace')}
@@ -294,33 +297,33 @@ export default function SettingsModal({
             <div className="sm-section-list">
 
               <section className="sm-section">
-                <h3 className="sm-section-title">Appearance</h3>
+                <h3 className="sm-section-title">Aparência</h3>
 
                 <div className="sm-row">
                   <div className="sm-row-label">
-                    <span>Theme</span>
-                    <span className="sm-row-desc">Toggle between dark and light interface</span>
+                    <span>Tema</span>
+                    <span className="sm-row-desc">Alternar entre modo escuro e claro</span>
                   </div>
                   <div className="sm-theme-toggle">
                     <button
                       className={`sm-theme-btn ${appSettings.theme === 'dark' ? 'active' : ''}`}
                       onClick={() => setApp('theme', 'dark')}
                     >
-                      🌙 Dark
+                      🌙 Escuro
                     </button>
                     <button
                       className={`sm-theme-btn ${appSettings.theme === 'light' ? 'active' : ''}`}
                       onClick={() => setApp('theme', 'light')}
                     >
-                      ☀ Light
+                      ☀ Claro
                     </button>
                   </div>
                 </div>
 
                 <div className="sm-row">
                   <div className="sm-row-label">
-                    <span>Editor font size</span>
-                    <span className="sm-row-desc">Text size in the code/markdown editor</span>
+                    <span>Tamanho da fonte</span>
+                    <span className="sm-row-desc">Tamanho do texto no editor de markdown</span>
                   </div>
                   <select
                     className="sm-select"
@@ -339,8 +342,8 @@ export default function SettingsModal({
 
                 <div className="sm-row">
                   <div className="sm-row-label">
-                    <span>Autosave delay</span>
-                    <span className="sm-row-desc">How long after typing before auto-saving</span>
+                    <span>Intervalo de salvamento automático</span>
+                    <span className="sm-row-desc">Tempo de espera antes de salvar automaticamente</span>
                   </div>
                   <select
                     className="sm-select"
@@ -355,8 +358,8 @@ export default function SettingsModal({
 
                 <div className="sm-row">
                   <div className="sm-row-label">
-                    <span>Show word count</span>
-                    <span className="sm-row-desc">Display word count in the header bar</span>
+                    <span>Mostrar contagem de palavras</span>
+                    <span className="sm-row-desc">Exibir contagem de palavras na barra superior</span>
                   </div>
                   <label className="sm-toggle">
                     <input
@@ -370,12 +373,12 @@ export default function SettingsModal({
               </section>
 
               <section className="sm-section">
-                <h3 className="sm-section-title">AI</h3>
+                <h3 className="sm-section-title">IA</h3>
 
                 <div className="sm-row">
                   <div className="sm-row-label">
-                    <span>AI highlights on by default</span>
-                    <span className="sm-row-desc">Highlight AI-inserted text when a file opens</span>
+                    <span>Destaques da IA ativados por padrão</span>
+                    <span className="sm-row-desc">Realçar texto inserido pela IA ao abrir arquivos</span>
                   </div>
                   <label className="sm-toggle">
                     <input
@@ -393,8 +396,8 @@ export default function SettingsModal({
 
                 <div className="sm-row">
                   <div className="sm-row-label">
-                    <span>Sidebar open on startup</span>
-                    <span className="sm-row-desc">Show the file sidebar when a workspace loads</span>
+                    <span>Barra lateral aberta ao iniciar</span>
+                    <span className="sm-row-desc">Exibir a barra lateral quando um workspace é aberto</span>
                   </div>
                   <label className="sm-toggle">
                     <input
@@ -407,8 +410,8 @@ export default function SettingsModal({
                 </div>
                 <div className="sm-row">
                   <div className="sm-row-label">
-                    <span>Format on save</span>
-                    <span className="sm-row-desc">Run Prettier on ⌘S for JS / TS / JSON / CSS / HTML</span>
+                    <span>Formatar ao salvar</span>
+                    <span className="sm-row-desc">Executar Prettier no ⌘S para JS / TS / JSON / CSS / HTML</span>
                   </div>
                   <label className="sm-toggle">
                     <input
@@ -422,7 +425,7 @@ export default function SettingsModal({
               </section>
 
               <section className="sm-section">
-                <h3 className="sm-section-title">API Keys</h3>
+                <h3 className="sm-section-title">Chaves de API</h3>
                 <p className="sm-section-desc">
                   Chaves globais — aplicam-se a todos os workspaces. Podem ser sobrescritas por workspace em Workspace &gt; Vercel Publish.
                   Armazenadas localmente e sincronizadas encriptadas na nuvem.
@@ -453,29 +456,29 @@ export default function SettingsModal({
               </section>
 
               <section className="sm-section">
-                <h3 className="sm-section-title">Keyboard Shortcuts</h3>
+                <h3 className="sm-section-title">Atalhos de teclado</h3>
                 <table className="sm-shortcuts">
                   <tbody>
-                    <tr className="sm-shortcuts-group"><td colSpan={2}>Files &amp; Tabs</td></tr>
-                    <tr><td><kbd>⌘</kbd><kbd>S</kbd></td><td>Save file (+ format on save)</td></tr>
-                    <tr><td><kbd>⌘</kbd><kbd>W</kbd></td><td>Close current tab</td></tr>
-                    <tr><td><kbd>⌘</kbd><kbd>⇧</kbd><kbd>R</kbd></td><td>Reload / revert file from disk</td></tr>
-                    <tr><td><kbd>⌃</kbd><kbd>Tab</kbd></td><td>Next tab</td></tr>
-                    <tr><td><kbd>⌃</kbd><kbd>⇧</kbd><kbd>Tab</kbd></td><td>Previous tab</td></tr>
-                    <tr className="sm-shortcuts-group"><td colSpan={2}>Navigation &amp; Search</td></tr>
-                    <tr><td><kbd>⌘</kbd><kbd>F</kbd></td><td>Find &amp; replace in file</td></tr>
-                    <tr><td><kbd>⌘</kbd><kbd>⇧</kbd><kbd>F</kbd></td><td>Project-wide search</td></tr>
-                    <tr><td><kbd>⌘</kbd><kbd>⇧</kbd><kbd>P</kbd></td><td>Toggle Edit / Preview (markdown &amp; HTML)</td></tr>
-                    <tr><td><kbd>⌘</kbd><kbd>B</kbd></td><td>Toggle sidebar</td></tr>
-                    <tr><td><kbd>⌘</kbd><kbd>J</kbd></td><td>Toggle terminal panel</td></tr>
-                    <tr className="sm-shortcuts-group"><td colSpan={2}>AI &amp; Copilot</td></tr>
-                    <tr><td><kbd>⌘</kbd><kbd>K</kbd></td><td>Open Copilot panel</td></tr>
-                    <tr><td><kbd>⌘</kbd><kbd>K</kbd> <span className="sm-shortcut-note">(with selection)</span></td><td>Ask Copilot about selection</td></tr>
-                    <tr><td><kbd>Esc</kbd></td><td>Close Copilot panel</td></tr>
+                    <tr className="sm-shortcuts-group"><td colSpan={2}>Arquivos &amp; Abas</td></tr>
+                    <tr><td><kbd>⌘</kbd><kbd>S</kbd></td><td>Salvar arquivo (+ formatar ao salvar)</td></tr>
+                    <tr><td><kbd>⌘</kbd><kbd>W</kbd></td><td>Fechar aba atual</td></tr>
+                    <tr><td><kbd>⌘</kbd><kbd>⇧</kbd><kbd>R</kbd></td><td>Recarregar / reverter arquivo do disco</td></tr>
+                    <tr><td><kbd>⌃</kbd><kbd>Tab</kbd></td><td>Próxima aba</td></tr>
+                    <tr><td><kbd>⌃</kbd><kbd>⇧</kbd><kbd>Tab</kbd></td><td>Aba anterior</td></tr>
+                    <tr className="sm-shortcuts-group"><td colSpan={2}>Navegação &amp; Busca</td></tr>
+                    <tr><td><kbd>⌘</kbd><kbd>F</kbd></td><td>Localizar &amp; substituir no arquivo</td></tr>
+                    <tr><td><kbd>⌘</kbd><kbd>⇧</kbd><kbd>F</kbd></td><td>Busca em todo o projeto</td></tr>
+                    <tr><td><kbd>⌘</kbd><kbd>⇧</kbd><kbd>P</kbd></td><td>Alternar Edição / Pré-visualização (markdown &amp; HTML)</td></tr>
+                    <tr><td><kbd>⌘</kbd><kbd>B</kbd></td><td>Mostrar/ocultar barra lateral</td></tr>
+                    <tr><td><kbd>⌘</kbd><kbd>J</kbd></td><td>Mostrar/ocultar painel do terminal</td></tr>
+                    <tr className="sm-shortcuts-group"><td colSpan={2}>IA &amp; Copilot</td></tr>
+                    <tr><td><kbd>⌘</kbd><kbd>K</kbd></td><td>Abrir painel do Copilot</td></tr>
+                    <tr><td><kbd>⌘</kbd><kbd>K</kbd> <span className="sm-shortcut-note">(com seleção)</span></td><td>Perguntar ao Copilot sobre a seleção</td></tr>
+                    <tr><td><kbd>Esc</kbd></td><td>Fechar painel do Copilot</td></tr>
                     <tr className="sm-shortcuts-group"><td colSpan={2}>App</td></tr>
-                    <tr><td><kbd>⌘</kbd><kbd>,</kbd></td><td>Open settings</td></tr>
-                    <tr><td><kbd>⌘</kbd><kbd>Click</kbd> <span className="sm-shortcut-note">(sidebar)</span></td><td>Multi-select files</td></tr>
-                    <tr><td><kbd>Double-click</kbd> <span className="sm-shortcut-note">(tab/file)</span></td><td>Rename file</td></tr>
+                    <tr><td><kbd>⌘</kbd><kbd>,</kbd></td><td>Abrir configurações</td></tr>
+                    <tr><td><kbd>⌘</kbd><kbd>Click</kbd> <span className="sm-shortcut-note">(barra lateral)</span></td><td>Selecionar múltiplos arquivos</td></tr>
+                    <tr><td><kbd>Duplo clique</kbd> <span className="sm-shortcut-note">(aba/arquivo)</span></td><td>Renomear arquivo</td></tr>
                   </tbody>
                 </table>
               </section>
@@ -488,22 +491,22 @@ export default function SettingsModal({
             <div className="sm-section-list">
 
               <section className="sm-section">
-                <h3 className="sm-section-title">Identity</h3>
+                <h3 className="sm-section-title">Identificação</h3>
 
                 <div className="sm-row sm-row--col">
-                  <label className="sm-label">Workspace name</label>
+                  <label className="sm-label">Nome do workspace</label>
                   <input
                     className="sm-input"
                     value={wsName}
                     onChange={(e) => setWsName(e.target.value)}
-                    placeholder="My workspace"
+                    placeholder="Meu workspace"
                   />
                 </div>
 
                 <div className="sm-row sm-row--col">
                   <label className="sm-label">
-                    Path
-                    <span className="sm-row-desc" style={{ marginLeft: 8 }}>(read-only)</span>
+                    Caminho
+                    <span className="sm-row-desc" style={{ marginLeft: 8 }}>(somente leitura)</span>
                   </label>
                   <input
                     className="sm-input sm-input--readonly"
@@ -519,37 +522,58 @@ export default function SettingsModal({
 
                 <div className="sm-row sm-row--col">
                   <label className="sm-label">
-                    Preferred model
-                    <span className="sm-row-desc"> — overrides the global AI panel default for this workspace</span>
+                    Modelo preferido
+                    <span className="sm-row-desc"> — substitui o padrão global do painel de IA para este workspace</span>
                   </label>
                   <input
                     className="sm-input"
                     value={wsModel}
                     onChange={(e) => setWsModel(e.target.value)}
-                    placeholder="e.g. claude-sonnet-4-5 (leave blank to use panel default)"
+                    placeholder="ex: claude-sonnet-4-5 (deixe em branco para usar o padrão do painel)"
                   />
                 </div>
 
                 <div className="sm-row sm-row--col">
                   <label className="sm-label">
-                    Agent instructions (AGENT.md)
-                    <span className="sm-row-desc"> — system prompt injected into every Copilot session</span>
+                    Idioma da IA
+                    <span className="sm-row-desc"> — idioma padrão nas respostas do assistente neste workspace</span>
+                  </label>
+                  <select
+                    className="sm-select"
+                    value={wsLanguage}
+                    onChange={(e) => setWsLanguage(e.target.value)}
+                  >
+                    <option value="pt-BR">Português (Brasil)</option>
+                    <option value="en-US">English (US)</option>
+                    <option value="es">Español</option>
+                    <option value="fr">Français</option>
+                    <option value="de">Deutsch</option>
+                    <option value="it">Italiano</option>
+                    <option value="ja">日本語</option>
+                    <option value="zh-CN">中文 (简体)</option>
+                  </select>
+                </div>
+
+                <div className="sm-row sm-row--col">
+                  <label className="sm-label">
+                    Instruções do agente (AGENT.md)
+                    <span className="sm-row-desc"> — prompt de sistema injetado em cada sessão do Copilot</span>
                   </label>
                   <textarea
                     className="sm-textarea"
                     value={wsAgent}
                     onChange={(e) => setWsAgent(e.target.value)}
-                    placeholder="Describe the project, coding style, or any context the AI should know…"
+                    placeholder="Descreva o projeto, estilo de código ou qualquer contexto que a IA deva conhecer…"
                     rows={10}
                   />
                 </div>
               </section>
 
               <section className="sm-section">
-                <h3 className="sm-section-title">Sidebar shortcuts</h3>
+                <h3 className="sm-section-title">Atalhos da barra lateral</h3>
                 <p className="sm-section-desc">
-                  Custom buttons that appear in the sidebar and run a shell command in the terminal.
-                  Great for workspace-specific scripts like export or sync.
+                  Botões personalizados que aparecem na barra lateral e executam um comando no terminal.
+                  Ideal para scripts específicos do workspace como exportação ou sincronização.
                 </p>
                 {wsSidebarButtons.map((btn) => (
                   <div key={btn.id} className="sm-sidebar-btn-row">
@@ -558,26 +582,26 @@ export default function SettingsModal({
                     <button
                       className="sm-sidebar-btn-delete"
                       onClick={() => setWsSidebarButtons((prev) => prev.filter((b) => b.id !== btn.id))}
-                      title="Remove button"
+                      title="Remover botão"
                     >✕</button>
                   </div>
                 ))}
                 <div className="sm-sidebar-btn-form">
                   <input
                     className="sm-input"
-                    placeholder="Label (e.g. ⊡ Export)"
+                    placeholder="Rótulo (ex: ⊡ Exportar)"
                     value={newBtnLabel}
                     onChange={(e) => setNewBtnLabel(e.target.value)}
                   />
                   <input
                     className="sm-input"
-                    placeholder="Command (e.g. bash scripts/export_book.sh)"
+                    placeholder="Comando (ex: bash scripts/export_book.sh)"
                     value={newBtnCmd}
                     onChange={(e) => setNewBtnCmd(e.target.value)}
                   />
                   <input
                     className="sm-input"
-                    placeholder="Tooltip description (optional)"
+                    placeholder="Descrição/tooltip (opcional)"
                     value={newBtnDesc}
                     onChange={(e) => setNewBtnDesc(e.target.value)}
                   />
@@ -594,7 +618,7 @@ export default function SettingsModal({
                       }]);
                       setNewBtnLabel(''); setNewBtnCmd(''); setNewBtnDesc('');
                     }}
-                  >+ Add button</button>
+                  >+ Adicionar botão</button>
                 </div>
               </section>
 
@@ -683,11 +707,11 @@ export default function SettingsModal({
               </section>
 
               <section className="sm-section">
-                <h3 className="sm-section-title">Voice dump inbox</h3>
+                <h3 className="sm-section-title">Pasta de entrada de voz</h3>
                 <div className="sm-row sm-row--col">
                   <label className="sm-label">
-                    Inbox file path
-                    <span className="sm-row-desc"> — voice transcripts are appended here (relative to workspace root)</span>
+                    Caminho do arquivo de entrada
+                    <span className="sm-row-desc"> — transcrições de voz são adicionadas aqui (relativo à raiz do workspace)</span>
                   </label>
                   <input
                     className="sm-input"
@@ -704,7 +728,7 @@ export default function SettingsModal({
                   onClick={handleWsSave}
                   disabled={wsSaving}
                 >
-                  {wsSaving ? 'Saving…' : wsSaved ? '✓ Saved' : 'Save workspace settings'}
+                  {wsSaving ? 'Salvando…' : wsSaved ? '✓ Salvo' : 'Salvar configurações do workspace'}
                 </button>
               </div>
 
@@ -797,9 +821,9 @@ export default function SettingsModal({
 
               {syncStatus === 'connected' && (
                 <section className="sm-section">
-                  <h3 className="sm-section-title">Synced Workspaces</h3>
+                  <h3 className="sm-section-title">Workspaces sincronizados</h3>
                   {syncWorkspaces.length === 0 ? (
-                    <p className="sm-sync-empty">No workspaces registered yet.</p>
+                    <p className="sm-sync-empty">Nenhum workspace registrado ainda.</p>
                   ) : (
                     <ul className="sm-sync-ws-list">
                       {syncWorkspaces.map((ws) => (
@@ -811,7 +835,7 @@ export default function SettingsModal({
                           </div>
                           <button
                             className="sm-sync-ws-remove"
-                            title="Remove from sync"
+                            title="Remover do sync"
                             onClick={() => handleUnregister(ws.gitUrl)}
                           >✕</button>
                         </li>
@@ -823,17 +847,17 @@ export default function SettingsModal({
 
               {syncStatus === 'connected' && workspace && (
                 <section className="sm-section">
-                  <h3 className="sm-section-title">Register This Workspace</h3>
+                  <h3 className="sm-section-title">Registrar este workspace</h3>
                   <p className="sm-section-desc">
-                    Tag which git account this workspace belongs to (e.g. "personal" or "work").
-                    Mobile uses this label to know which credentials to use when cloning.
+                    Indique a qual conta git este workspace pertence (ex: "pessoal" ou "trabalho").
+                    O app mobile usa esse rótulo para saber quais credenciais usar ao clonar.
                   </p>
                   <div className="sm-sync-register">
                     <input
                       className="sm-input"
                       value={regLabel}
                       onChange={(e) => setRegLabel(e.target.value)}
-                      placeholder='e.g. personal, work…'
+                      placeholder='ex: pessoal, trabalho…'
                       list="sm-git-account-labels"
                     />
                     <datalist id="sm-git-account-labels">
@@ -844,7 +868,7 @@ export default function SettingsModal({
                       onClick={handleRegister}
                       disabled={regState === 'busy' || !regLabel.trim()}
                     >
-                      {regState === 'busy' ? 'Registering…' : regState === 'done' ? '✓ Registered' : 'Register'}
+                      {regState === 'busy' ? 'Registrando…' : regState === 'done' ? '✓ Registrado' : 'Registrar'}
                     </button>
                   </div>
                   {regState === 'error' && <p className="sm-sync-error" style={{ marginTop: 8 }}>{regError}</p>}
@@ -853,9 +877,9 @@ export default function SettingsModal({
 
               {syncStatus === 'connected' && (
                 <section className="sm-section">
-                  <h3 className="sm-section-title">Git Accounts</h3>
+                  <h3 className="sm-section-title">Contas Git</h3>
                   <p className="sm-section-desc">
-                    Authenticate each named git account so mobile can clone and sync those repos.
+                    Autentique cada conta git pelo nome para que o mobile possa clonar e sincronizar esses repositórios.
                   </p>
                   {gitAccounts.length > 0 && (
                     <ul className="sm-sync-ws-list" style={{ marginBottom: 12 }}>
@@ -863,7 +887,7 @@ export default function SettingsModal({
                         <li key={l} className="sm-sync-ws-item">
                           <span className="sm-sync-dot" />
                           <span className="sm-sync-ws-name" style={{ marginLeft: 8 }}>{l}</span>
-                          <span className="sm-sync-ws-label" style={{ marginLeft: 'auto' }}>authenticated</span>
+                          <span className="sm-sync-ws-label" style={{ marginLeft: 'auto' }}>autenticado</span>
                         </li>
                       ))}
                     </ul>
@@ -874,14 +898,14 @@ export default function SettingsModal({
                         className="sm-input"
                         value={gitLabel}
                         onChange={(e) => setGitLabel(e.target.value)}
-                        placeholder="Account label (e.g. personal, work)"
+                        placeholder="Rótulo da conta (ex: pessoal, trabalho)"
                       />
                       <button
                         className="sm-save-btn"
                         onClick={handleConnectGitAccount}
                         disabled={gitFlowBusy || !gitLabel.trim()}
                       >
-                        {gitFlowBusy ? 'Waiting…' : 'Connect'}
+                        {gitFlowBusy ? 'Aguardando…' : 'Conectar'}
                       </button>
                     </div>
                   )}

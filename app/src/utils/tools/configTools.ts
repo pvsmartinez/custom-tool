@@ -136,15 +136,15 @@ export const CONFIG_TOOL_DEFS: ToolDefinition[] = [
     function: {
       name: 'configure_workspace',
       description:
-        'Read or update workspace-level settings: preferred AI model, voice-dump inbox file, ' +
+        'Read or update workspace-level settings: preferred AI model, preferred AI language, voice-dump inbox file, ' +
         'and custom sidebar quick-action buttons. ' +
-        'Actions: list | set_model | set_inbox | add_button | update_button | remove_button.',
+        'Actions: list | set_model | set_language | set_inbox | add_button | update_button | remove_button.',
       parameters: {
         type: 'object',
         properties: {
           action: {
             type: 'string',
-            enum: ['list', 'set_model', 'set_inbox', 'add_button', 'update_button', 'remove_button'],
+            enum: ['list', 'set_model', 'set_language', 'set_inbox', 'add_button', 'update_button', 'remove_button'],
             description: 'Operation to perform.',
           },
           model: {
@@ -152,6 +152,12 @@ export const CONFIG_TOOL_DEFS: ToolDefinition[] = [
             description:
               'AI model identifier (for set_model). E.g. "gpt-4o", "o3", "claude-opus-4-5". ' +
               'Sets the workspace preferred model — overrides the global default for this workspace.',
+          },
+          language: {
+            type: 'string',
+            description:
+              'BCP-47 language tag (for set_language). E.g. "pt-BR" (default), "en-US", "es", "fr". ' +
+              'Sets the language the AI will use by default in this workspace.',
           },
           inboxFile: {
             type: 'string',
@@ -443,6 +449,7 @@ export const executeConfigTools: DomainExecutor = async (name, args, ctx) => {
       if (action === 'list') {
         return JSON.stringify({
           preferredModel: workspaceConfig?.preferredModel ?? null,
+          preferredLanguage: workspaceConfig?.preferredLanguage ?? 'pt-BR',
           inboxFile: workspaceConfig?.inboxFile ?? '00_Inbox/raw_transcripts.md',
           sidebarButtons: currentButtons,
         }, null, 2);
@@ -457,6 +464,13 @@ export const executeConfigTools: DomainExecutor = async (name, args, ctx) => {
         if (!model) return 'Error: model is required for set_model.';
         onWorkspaceConfigChange({ preferredModel: model });
         return `Preferred model set to "${model}".`;
+      }
+
+      if (action === 'set_language') {
+        const language = args.language ? String(args.language).trim() : '';
+        if (!language) return 'Error: language is required for set_language (e.g. "pt-BR", "en-US").';
+        onWorkspaceConfigChange({ preferredLanguage: language });
+        return `Preferred language set to "${language}". The AI will now default to this language in this workspace.`;
       }
 
       if (action === 'set_inbox') {
@@ -507,7 +521,7 @@ export const executeConfigTools: DomainExecutor = async (name, args, ctx) => {
         return `Removed sidebar button "${match.label}".`;
       }
 
-      return `Unknown action: ${action}. Use list, set_model, set_inbox, add_button, update_button, or remove_button.`;
+      return `Unknown action: ${action}. Use list, set_model, set_language, set_inbox, add_button, update_button, or remove_button.`;
     }
 
     // ── save_desktop_task ──────────────────────────────────────────────────
