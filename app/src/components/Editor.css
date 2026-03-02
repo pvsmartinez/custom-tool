@@ -63,10 +63,17 @@ body.theme-light .editor-md-toolbar-btn:hover {
   font-style: italic;
 }
 
-/* While Copilot is writing this file: dim and block pointer events */
+/* While Copilot is writing this file: visible animated border + dim */
+@keyframes editor-lock-pulse {
+  0%, 100% { border-color: rgba(var(--accent-rgb), 0.35); }
+  50%       { border-color: rgba(var(--accent-rgb), 0.85); }
+}
 .editor-wrapper[data-locked] {
   pointer-events: none;
-  opacity: 0.65;
+  opacity: 0.80;
+  border: 1.5px solid rgba(var(--accent-rgb), 0.35);
+  border-radius: 4px;
+  animation: editor-lock-pulse 1.4s ease-in-out infinite;
 }
 
 /* @uiw/react-codemirror creates an unstyled wrapper div between .editor-wrapper

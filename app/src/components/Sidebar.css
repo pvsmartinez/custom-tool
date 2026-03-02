@@ -1121,13 +1121,22 @@
   background-image: linear-gradient(
     90deg,
     transparent 0%,
-    rgba(var(--accent-rgb), 0.18) 40%,
-    rgba(var(--green-rgb, 126,200,160), 0.12) 60%,
+    rgba(var(--accent-rgb), 0.40) 45%,
+    rgba(var(--accent-rgb), 0.15) 55%,
     transparent 100%
   );
   background-size: 200% 100%;
-  animation: copilot-sweep 1.4s ease-in-out infinite;
-  color: var(--text);
+  animation: copilot-sweep 1.2s ease-in-out infinite;
+  color: var(--accent);
+  outline: 1px solid rgba(var(--accent-rgb), 0.30);
+  outline-offset: -1px;
+}
+
+/* ── File being dragged from sidebar ─────────────────────────────── */
+.sidebar-tree-file[data-dragging] {
+  opacity: 0.45;
+  outline: 1px dashed var(--accent);
+  outline-offset: -2px;
 }
 /* ── Multi-select ─────────────────────────────── */
 .sidebar-tree-file.multi-selected {

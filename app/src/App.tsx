@@ -138,11 +138,31 @@ export default function App() {
   const dumpRecorderRef = useRef<MediaRecorder | null>(null);
   const dumpChunksRef = useRef<Blob[]>([]);
   const [lockedFiles, setLockedFiles] = useState<Set<string>>(() => getLockedFiles());
+  const prevLockedRef = useRef<Set<string>>(getLockedFiles());
 
-  // Subscribe to Copilot file-lock changes
+  // Subscribe to Copilot file-lock changes; auto-reload files the agent just finished writing
   useEffect(() => {
-    const unsub = onLockedFilesChange((locked) => setLockedFiles(locked));
+    const unsub = onLockedFilesChange(async (locked) => {
+      const prev = prevLockedRef.current;
+      const justUnlocked = [...prev].filter((p) => !locked.has(p));
+      prevLockedRef.current = new Set(locked);
+      setLockedFiles(locked);
+      for (const filePath of justUnlocked) {
+        const ws = workspaceRef.current;
+        if (!ws) continue;
+        if (!tabsRef.current.includes(filePath)) continue;
+        const kind = getFileTypeInfo(filePath).kind;
+        if (['pdf', 'video', 'audio', 'image', 'canvas'].includes(kind)) continue;
+        try {
+          const freshText = await readFile(ws, filePath);
+          savedContentRef.current.set(filePath, freshText);
+          tabContentsRef.current.set(filePath, freshText);
+          if (filePath === activeTabIdRef.current) setContent(freshText);
+        } catch { /* file may have been deleted — ignore */ }
+      }
+    });
     return unsub;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   // Stable refs declared early (before hooks that reference them)
   const editorRef = useRef<EditorHandle>(null);

@@ -20,7 +20,7 @@ import { getMimeType, IMAGE_EXTS } from '../utils/mime';
 
 import { ModelPicker } from './ai/AIModelPicker';
 import { CodeBlock, parseSegments } from './ai/AICodeBlock';
-import { CollapsibleProcess, ToolItem, useSessionStats } from './ai/AIToolProcess';
+import { ToolItem, useSessionStats } from './ai/AIToolProcess';
 
 import { useAISession, contentToString, fmtRelative } from '../hooks/useAISession';
 import { useVoiceInput } from '../hooks/useVoiceInput';
@@ -243,6 +243,18 @@ const AgentSession = forwardRef<AgentSessionHandle, AgentSessionProps>(function 
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [session.messages, stream.liveItems]);
 
+  // Flash the panel when streaming finishes
+  const prevStreamingRef = useRef(false);
+  const [justDone, setJustDone] = useState(false);
+  useEffect(() => {
+    if (prevStreamingRef.current && !stream.isStreaming) {
+      setJustDone(true);
+      const t = setTimeout(() => setJustDone(false), 1800);
+      return () => clearTimeout(t);
+    }
+    prevStreamingRef.current = stream.isStreaming;
+  }, [stream.isStreaming]);
+
   // ── Keyboard ─────────────────────────────────────────────────────────────
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
@@ -373,7 +385,7 @@ const AgentSession = forwardRef<AgentSessionHandle, AgentSessionProps>(function 
       )}
 
       {/* Messages */}
-      <div className="ai-messages">
+      <div className={`ai-messages${justDone ? ' ai-messages--done' : ''}`}>
         {/* Session stats bar */}
         {(sessionStats.filesCount > 0 || sessionStats.canvasOps > 0) && (
           <div className="ai-session-stats">
@@ -418,7 +430,20 @@ const AgentSession = forwardRef<AgentSessionHandle, AgentSessionProps>(function 
           <div key={i} className={`ai-message ai-message--${msg.role}`}>
             <div className="ai-message-label">{msg.role === 'user' ? 'You' : `✶ ${agentLabel}`}</div>
             <div className="ai-message-content">
-              {msg.role === 'assistant'
+              {msg.role === 'assistant' && msg.items && msg.items.length > 0
+                ? <>
+                    {msg.items.map((item: MessageItem, si: number) =>
+                      item.type === 'text'
+                        ? parseSegments(item.content).map((seg, ssi) =>
+                            seg.type === 'code'
+                              ? <CodeBlock key={`${si}-${ssi}`} lang={seg.lang} code={seg.code} workspacePath={workspacePath} />
+                              : <span key={`${si}-${ssi}`} style={{ whiteSpace: 'pre-wrap' }}>{seg.content}</span>
+                          )
+                        : <ToolItem key={item.activity.callId} activity={item.activity} />
+                    )}
+                    <div className="ai-done-marker">❆</div>
+                  </>
+                : msg.role === 'assistant'
                 ? parseSegments(contentToString(msg.content)).map((seg, si) =>
                     seg.type === 'code'
                       ? <CodeBlock key={si} lang={seg.lang} code={seg.code} workspacePath={workspacePath} />
@@ -439,7 +464,6 @@ const AgentSession = forwardRef<AgentSessionHandle, AgentSessionProps>(function 
             {msg.role === 'user' && msg.activeFile && (
               <div className="ai-message-file-tag">📄 {msg.activeFile.split('/').pop()}</div>
             )}
-            {msg.role === 'assistant' && msg.items && <CollapsibleProcess items={msg.items} />}
             {msg.role === 'assistant' && msg.content && (
               <div className="ai-msg-actions">
                 {onInsert && (

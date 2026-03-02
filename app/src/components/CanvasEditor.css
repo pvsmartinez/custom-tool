@@ -83,8 +83,14 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(var(--accent-rgb), 0.08);
+  background: rgba(var(--accent-rgb), 0.14);
   pointer-events: none;
+  animation: canvas-drop-bg-pulse 1s ease-in-out infinite alternate;
+}
+
+@keyframes canvas-drop-bg-pulse {
+  from { background: rgba(var(--accent-rgb), 0.10); }
+  to   { background: rgba(var(--accent-rgb), 0.20); }
 }
 
 .canvas-drop-hint-inner {

@@ -140,6 +140,35 @@ export default function MobileApp() {
       setWorkspace(ws);
       // Persist the remapped path so next boot uses the correct UUID
       localStorage.setItem(LAST_WS_KEY, path);
+
+      // If the workspace opened but is empty AND has a git remote, auto-pull.
+      // This happens when the container UUID changes between builds and the local
+      // repo needs a fast-forward pull to restore any files that are "missing"
+      // (or when the SSH remote needs to be normalized to HTTPS first).
+      if (ws.fileTree.length === 0 && ws.hasGit) {
+        toast({ message: 'Workspace vazio — tentando sincronizar automaticamente…', type: 'info', duration: 4000 });
+        try {
+          // Find the token — use wsGitUrl or gitUrl param
+          const urlForToken = gitUrl ?? wsGitUrl ?? null;
+          const wsEntry = urlForToken
+            ? syncedWorkspaces.find(w => w.gitUrl === urlForToken)
+            : syncedWorkspaces.find(w => {
+                const n = path.replace(/\/+$/, '').split('/').pop();
+                return w.localPath?.replace(/\/+$/, '').split('/').pop() === n;
+              });
+          const token = wsEntry ? (getGitAccountToken(wsEntry.gitAccountLabel) ?? undefined) : undefined;
+          await gitPull(path, token);
+          const refreshed = await loadWorkspace(path);
+          setWorkspace(refreshed);
+          if (refreshed.fileTree.length > 0) {
+            toast({ message: 'Arquivos sincronizados!', type: 'success' });
+          } else {
+            toast({ message: `Workspace ainda vazio após pull. Caminho: ${path.split('/').slice(-3).join('/')}`, type: 'error', duration: null });
+          }
+        } catch (pullErr) {
+          toast({ message: `Auto-pull falhou: ${friendlyGitError(pullErr)}`, type: 'error', duration: null });
+        }
+      }
     } catch (err) {
       setWsError(`Could not open workspace: ${err}`);
     } finally {

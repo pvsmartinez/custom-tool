@@ -99,7 +99,7 @@ mod git_cli {
         Ok(serde_json::json!({ "files": files, "diff": diff }))
     }
 
-    pub fn git_sync(path: String, message: String) -> Result<String, String> {
+    pub fn git_sync(path: String, message: String, _token: Option<String>) -> Result<String, String> {
         let run = |args: &[&str]| -> Result<(), String> {
             let out = Command::new("git").args(args).current_dir(&path)
                 .output().map_err(|e| e.to_string())?;
@@ -208,6 +208,35 @@ mod git_native {
     use git2::{build::CheckoutBuilder, IndexAddOption, PushOptions,
                RemoteCallbacks, Repository, RepositoryInitOptions, Signature};
 
+    /// Convert SSH remote URL to HTTPS so PAT auth works on iOS (no SSH agent).
+    /// git@github.com:user/repo.git  →  https://github.com/user/repo.git
+    fn normalize_url(url: &str) -> String {
+        if let Some(rest) = url.strip_prefix("git@") {
+            if let Some(colon_pos) = rest.find(':') {
+                let host = &rest[..colon_pos];
+                let path = &rest[colon_pos + 1..];
+                return format!("https://{}/{}", host, path);
+            }
+        }
+        url.to_string()
+    }
+
+    /// Ensure the stored "origin" remote URL is HTTPS.
+    /// Called before every network operation so SSH remotes are transparently
+    /// upgraded to HTTPS (which works with PAT tokens on iOS).
+    fn ensure_https_remote(repo: &Repository) {
+        let orig = repo
+            .find_remote("origin")
+            .ok()
+            .and_then(|r| r.url().map(String::from))
+            .unwrap_or_default();
+        let normed = normalize_url(&orig);
+        if normed != orig && !normed.is_empty() {
+            let _ = repo.remote_delete("origin");
+            let _ = repo.remote("origin", &normed);
+        }
+    }
+
     pub fn git_init(path: String) -> Result<String, String> {
         if std::path::Path::new(&path).join(".git").exists() {
             return Ok("already_initialized".into());
@@ -273,8 +302,11 @@ mod git_native {
         Ok(serde_json::json!({ "files": files, "diff": diff_text }))
     }
 
-    pub fn git_sync(path: String, message: String) -> Result<String, String> {
+    pub fn git_sync(path: String, message: String, token: Option<String>) -> Result<String, String> {
         let repo = Repository::open(&path).map_err(|e| e.to_string())?;
+
+        // Normalize SSH → HTTPS so PAT auth works; updates .git/config permanently
+        ensure_https_remote(&repo);
 
         // Stage all changes
         let mut index = repo.index().map_err(|e| e.to_string())?;
@@ -295,27 +327,37 @@ mod git_native {
         repo.commit(Some("HEAD"), &sig, &sig, &message, &tree, &parents)
             .map_err(|e| e.to_string())?;
 
-        // Push best-effort (uses SSH agent / system credential helper)
+        // Push with token (HTTPS) when available, otherwise best-effort
         if let Ok(mut remote) = repo.find_remote("origin") {
             let mut callbacks = RemoteCallbacks::new();
-            let mut tried = false;
-            callbacks.credentials(move |_url, username, allowed| {
-                if tried { return Err(git2::Error::from_str("authentication failed")); }
-                tried = true;
-                if allowed.contains(git2::CredentialType::SSH_KEY) {
-                    git2::Cred::ssh_key_from_agent(username.unwrap_or("git"))
-                } else if allowed.contains(git2::CredentialType::DEFAULT) {
-                    git2::Cred::default()
-                } else {
-                    Err(git2::Error::from_str("no credential method available"))
-                }
-            });
+            if let Some(tok) = token {
+                let mut tried = false;
+                callbacks.credentials(move |_url, _username, allowed| {
+                    if tried { return Err(git2::Error::from_str("authentication failed")); }
+                    tried = true;
+                    if allowed.contains(git2::CredentialType::USER_PASS_PLAINTEXT) {
+                        git2::Cred::userpass_plaintext("oauth2", &tok)
+                    } else {
+                        git2::Cred::default()
+                    }
+                });
+            } else {
+                let mut tried = false;
+                callbacks.credentials(move |_url, username, allowed| {
+                    if tried { return Err(git2::Error::from_str("authentication failed")); }
+                    tried = true;
+                    if allowed.contains(git2::CredentialType::SSH_KEY) {
+                        git2::Cred::ssh_key_from_agent(username.unwrap_or("git"))
+                    } else {
+                        git2::Cred::default()
+                    }
+                });
+            }
             callbacks.certificate_check(|_cert, _valid| {
                 Ok(git2::CertificateCheckStatus::CertificateOk)
             });
             let mut push_opts = PushOptions::new();
             push_opts.remote_callbacks(callbacks);
-            // Detect current branch name
             let branch = repo
                 .head()
                 .ok()
@@ -349,11 +391,12 @@ mod git_native {
         if std::path::Path::new(&path).join(".git").exists() {
             return Ok("already_cloned".into());
         }
-        // If the directory exists but has NO .git (e.g. only a cafezin/ config dir was created
-        // by loadWorkspace after a container-UUID change), remove it so libgit2 can clone fresh.
+        // If the directory exists but has NO .git, remove it so libgit2 can clone fresh.
         if std::path::Path::new(&path).exists() {
             std::fs::remove_dir_all(&path).map_err(|e| format!("pre-clone cleanup failed: {}", e))?;
         }
+        // Normalize SSH → HTTPS so PAT token auth works on iOS
+        let url = normalize_url(&url);
         let mut callbacks = RemoteCallbacks::new();
         // `tried` prevents the libgit2 credential loop: if called more than once
         // it means the first attempt failed — bail immediately instead of looping.
@@ -398,6 +441,9 @@ mod git_native {
 
     pub fn git_pull(path: String, token: Option<String>) -> Result<String, String> {
         let repo = Repository::open(&path).map_err(|e| e.to_string())?;
+
+        // Normalize SSH → HTTPS so PAT auth works; updates .git/config permanently
+        ensure_https_remote(&repo);
 
         // Guard: detached HEAD or unborn branch (empty repo) — nothing to pull
         let head = match repo.head() {
@@ -475,6 +521,9 @@ mod git_native {
 
     pub fn git_checkout_branch(path: String, branch: String, token: Option<String>) -> Result<String, String> {
         let repo = Repository::open(&path).map_err(|e| e.to_string())?;
+
+        // Normalize SSH → HTTPS so PAT auth works
+        ensure_https_remote(&repo);
 
         // Fetch the branch from origin first
         let mut remote = repo.find_remote("origin").map_err(|e| e.to_string())?;
@@ -563,7 +612,11 @@ fn git_init(path: String) -> Result<String, String> { git::git_init(path) }
 #[tauri::command]
 fn git_diff(path: String) -> Result<serde_json::Value, String> { git::git_diff(path) }
 #[tauri::command]
-fn git_sync(path: String, message: String) -> Result<String, String> { git::git_sync(path, message) }
+async fn git_sync(path: String, message: String, token: Option<String>) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || git::git_sync(path, message, token))
+        .await
+        .map_err(|e| e.to_string())?
+}
 #[tauri::command]
 fn git_get_remote(path: String) -> Result<String, String> { git::git_get_remote(path) }
 #[tauri::command]

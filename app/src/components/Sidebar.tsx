@@ -216,12 +216,17 @@ function TreeNodeItem({
   function handleDragStart(e: React.DragEvent) {
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/x-workspace-file', node.path);
+    (e.currentTarget as HTMLButtonElement).dataset.dragging = '1';
     const ghost = document.createElement('div');
     ghost.textContent = node.name;
     ghost.style.cssText = 'position:fixed;top:-200px;background:#261f16;color:#c4b49a;font-size:12px;padding:4px 10px;border-radius:6px;border:1px solid #3b3026;pointer-events:none';
     document.body.appendChild(ghost);
     e.dataTransfer.setDragImage(ghost, 0, 0);
     requestAnimationFrame(() => document.body.removeChild(ghost));
+  }
+
+  function handleDragEnd(e: React.DragEvent) {
+    delete (e.currentTarget as HTMLButtonElement).dataset.dragging;
   }
 
   const { icon: fileIconNode, cls: fileIconCls } = fileIconInfo(node.name);
@@ -232,6 +237,7 @@ function TreeNodeItem({
       style={{ paddingLeft: indent + 16 }}
       draggable={!isRenaming}
       onDragStart={!isRenaming ? handleDragStart : undefined}
+      onDragEnd={!isRenaming ? handleDragEnd : undefined}
       onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
       onDragEnter={(e) => onDirDragEnter(e, parentDir)}
       onDragLeave={(e) => onDirDragLeave(e, parentDir)}

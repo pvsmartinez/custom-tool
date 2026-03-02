@@ -190,6 +190,18 @@ export function repoNameFromUrl(gitUrl: string): string {
 }
 
 /**
+ * Convert SSH remote URLs to HTTPS so PAT token auth works on iOS (no SSH agent).
+ * git@github.com:user/repo.git  →  https://github.com/user/repo.git
+ * HTTPS URLs are returned unchanged.
+ */
+export function normalizeToHttps(url: string): string {
+  // Match git@host:path format
+  const m = url.match(/^git@([^:]+):(.+)$/)
+  if (m) return `https://${m[1]}/${m[2]}`
+  return url
+}
+
+/**
  * Clone a git repo into the device Documents folder.
  * If the destination already exists and is a valid git repo, skips the clone
  * and just records the path (idempotent — safe to call twice).
@@ -202,8 +214,10 @@ export async function gitClone(gitUrl: string, token?: string, branch?: string):
   const docs = (await documentDir()).replace(/\/+$/, '')
   const name = repoNameFromUrl(gitUrl)
   const dest = `${docs}/${name}`
+  // Normalize SSH → HTTPS so PAT token auth works on iOS (no SSH agent available)
+  const httpsUrl = normalizeToHttps(gitUrl)
   const result = await invoke<string>('git_clone', {
-    url: gitUrl,
+    url: httpsUrl,
     path: dest,
     token: token ?? null,
     branch: branch ?? null,
@@ -268,8 +282,8 @@ export async function gitSync(
   } catch {
     // Pull failed (e.g. conflicts) — still try to push local changes
   }
-  // 2. Commit + push via existing git_sync Rust command
-  return invoke<string>('git_sync', { path: localPath, message: msg })
+  // 2. Commit + push via Rust git_sync (token enables HTTPS push, URL normalized in Rust)
+  return invoke<string>('git_sync', { path: localPath, message: msg, token: token ?? null })
 }
 
 /**
