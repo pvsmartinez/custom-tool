@@ -2,6 +2,12 @@ import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { marked } from 'marked';
 import {
+  FileText, PencilSimple, Wrench, FolderOpen, MagnifyingGlass,
+  ArrowsLeftRight, Trash, Stack, CheckCircle, Globe, Link,
+  Image, FloppyDisk, Package, GearSix, Flag, Camera, Desktop,
+  Lightning, X, Check, Key,
+} from '@phosphor-icons/react';
+import {
   streamCopilotChat,
   runCopilotAgent,
   startDeviceFlow,
@@ -73,29 +79,30 @@ function MobileMdMessage({ content }: { content: string }) {
 }
 
 // ── Tool activity chip ────────────────────────────────────────────────────────
-const TOOL_ICONS: Record<string, string> = {
-  read_workspace_file:      '📖',
-  write_workspace_file:     '✏️',
-  patch_workspace_file:     '🔧',
-  list_workspace_files:     '📂',
-  search_workspace:         '🔍',
-  rename_workspace_file:    '↔️',
-  delete_workspace_file:    '🗑️',
-  scaffold_workspace:       '🏗️',
-  check_file:               '✅',
-  web_search:               '🌐',
-  fetch_url:                '🔗',
-  search_stock_images:      '🖼',
-  remember:                 '💾',
-  export_workspace:         '📦',
-  configure_export_targets: '⚙️',
-  mark_for_review:          '🚩',
-  screenshot_preview:       '📷',
-  save_desktop_task:        '🖥️',
+const S = 14; // default icon size for tool chips
+const TOOL_ICONS: Record<string, React.ReactNode> = {
+  read_workspace_file:      <FileText      size={S} />,
+  write_workspace_file:     <PencilSimple  size={S} />,
+  patch_workspace_file:     <Wrench        size={S} />,
+  list_workspace_files:     <FolderOpen    size={S} />,
+  search_workspace:         <MagnifyingGlass size={S} />,
+  rename_workspace_file:    <ArrowsLeftRight size={S} />,
+  delete_workspace_file:    <Trash         size={S} />,
+  scaffold_workspace:       <Stack         size={S} />,
+  check_file:               <CheckCircle   size={S} />,
+  web_search:               <Globe         size={S} />,
+  fetch_url:                <Link          size={S} />,
+  search_stock_images:      <Image         size={S} />,
+  remember:                 <FloppyDisk    size={S} />,
+  export_workspace:         <Package       size={S} />,
+  configure_export_targets: <GearSix       size={S} />,
+  mark_for_review:          <Flag          size={S} />,
+  screenshot_preview:       <Camera        size={S} />,
+  save_desktop_task:        <Desktop       size={S} />,
 };
 
 function ToolChip({ activity }: { activity: ToolActivity }) {
-  const icon = TOOL_ICONS[activity.name] ?? '⚡';
+  const icon = TOOL_ICONS[activity.name] ?? <Lightning size={S} />;
   const label = activity.name.replace(/_/g, ' ');
   const isDone = activity.result !== undefined || activity.error !== undefined;
   const isError = !!activity.error;
@@ -113,7 +120,7 @@ function ToolChip({ activity }: { activity: ToolActivity }) {
       <span className="mb-tool-label">{label}</span>
       {argHint && <span className="mb-tool-hint">{argHint}</span>}
       <span className="mb-tool-status">
-        {!isDone ? <span className="mb-tool-spinner" /> : isError ? '✗' : '✓'}
+        {!isDone ? <span className="mb-tool-spinner" /> : isError ? <X size={12} /> : <Check size={12} />}
       </span>
     </div>
   );
@@ -385,7 +392,7 @@ export default function MobileCopilot({
         <div className="mb-chat-auth">
           {authStatus === 'connecting' && deviceFlow ? (
             <>
-              <div className="mb-empty-icon">🔑</div>
+              <div className="mb-empty-icon"><Key size={32} weight="light" /></div>
               <div className="mb-chat-auth-title">Sign in to GitHub</div>
               <div className="mb-chat-auth-desc">
                 Go to the URL below and enter the code to authorize.

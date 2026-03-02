@@ -8,7 +8,11 @@
   --mb-safe-t: env(safe-area-inset-top, 0px);
 }
 
-*, *::before, *::after { box-sizing: border-box; }
+*, *::before, *::after {
+  box-sizing: border-box;
+  /* Prevent double-tap zoom on all elements; still allows single-tap and pinch */
+  touch-action: manipulation;
+}
 
 html, body, #root {
   height: 100%;
@@ -21,6 +25,27 @@ html, body, #root {
   font-size: 15px;
   -webkit-text-size-adjust: 100%;
   overscroll-behavior: none;
+  /* No text-selection callout on long-press (iOS Safari) */
+  -webkit-touch-callout: none;
+}
+
+/* Disable selection in all UI chrome */
+.mb-shell {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Re-enable selection only where users need to copy text */
+.mb-shell textarea,
+.mb-shell input,
+.mb-shell [contenteditable],
+.mb-shell .mb-msg-md-body,
+.mb-shell .mb-memo-transcript,
+.mb-shell .mb-chat-error,
+.mb-shell .mb-device-flow-code,
+.mb-shell .mb-device-flow-url {
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 /* ── Shell layout ─────────────────────────────────────────────────────────── */

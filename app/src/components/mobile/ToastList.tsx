@@ -1,3 +1,4 @@
+import { Check, X, Info } from '@phosphor-icons/react';
 import type { Toast } from '../../hooks/useToast';
 import './Toast.css';
 
@@ -6,10 +7,10 @@ interface ToastListProps {
   onDismiss: (id: number) => void;
 }
 
-const ICONS: Record<string, string> = {
-  success: '✓',
-  error: '✕',
-  info: 'ℹ',
+const ICONS: Record<string, React.ReactNode> = {
+  success: <Check size={14} weight="bold" />,
+  error:   <X     size={14} weight="bold" />,
+  info:    <Info  size={14} />,
 };
 
 export default function ToastList({ toasts, onDismiss }: ToastListProps) {
@@ -32,7 +33,7 @@ export default function ToastList({ toasts, onDismiss }: ToastListProps) {
               className="toast-close"
               onClick={(e) => { e.stopPropagation(); onDismiss(t.id); }}
               aria-label="Fechar"
-            >✕</button>
+            ><X size={14} weight="bold" /></button>
           )}
         </div>
       ))}

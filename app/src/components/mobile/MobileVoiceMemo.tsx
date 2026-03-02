@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { CaretUp, CaretDown, Key, GearSix } from '@phosphor-icons/react';
 import { saveApiSecret } from '../../services/apiSecrets';
 import { invoke } from '@tauri-apps/api/core';
 import {
@@ -97,7 +98,7 @@ function VoiceMemoItem({ memo, onDelete }: { memo: MemoRecord; onDelete: () => v
           <span className="mb-memo-date">{dateStr}</span>
           <span className="mb-memo-time">{timeStr}</span>
         </div>
-        <span className="mb-memo-chevron">{expanded ? '▲' : '▼'}</span>
+        <span className="mb-memo-chevron">{expanded ? <CaretUp size={14} /> : <CaretDown size={14} />}</span>
       </button>
 
       {expanded && (
@@ -302,7 +303,7 @@ export default function MobileVoiceMemo({ workspacePath }: MobileVoiceMemoProps)
           onClick={() => setShowKeySetup(v => !v)}
           title="Groq API key settings"
         >
-          {groqKey ? '🔑' : '⚙️'}
+          {groqKey ? <Key size={18} /> : <GearSix size={18} />}
         </button>
       </div>
 
