@@ -22,7 +22,7 @@
  */
 
 import type { Editor, TLRichText, TLShapeId, TLEditorSnapshot } from 'tldraw';
-import { createShapeId, renderPlaintextFromRichText, toRichText, createTLSchema } from 'tldraw';
+import { createShapeId, renderPlaintextFromRichText, toRichText } from 'tldraw';
 import type { TLNoteShape, TLGeoShape, TLTextShape, TLGeoShapeGeoStyle, TLArrowShape, TLFrameShape } from '@tldraw/tlschema';
 
 // ── Slide layout constants — keep in sync with CanvasEditor.tsx ─────────────
@@ -63,37 +63,52 @@ export function mapColor(raw: unknown, fallback: TLColor = 'yellow'): TLColor {
  * doesn't throw ValidationErrors or migration-errors when loading older or
  * AI-generated canvas files.
  *
- * Fixes applied:
- *  1. Replace `schema` with the current tldraw schema → prevents "migration-error"
- *     caused by AI-generated snapshots having stale/wrong schema sequence versions.
- *  2. geo/note shapes missing `scale` or with non-numeric `scale` → coerced to 1.
- *  3. Arrow/line shapes missing `scale` → coerced to 1 (same issue in v4.4).
+ * Strategy: Rather than replacing the schema (which would prevent tldraw's own
+ * migrations from running), we manually apply the same repairs that tldraw's
+ * migrations would apply.  This way files persisted with an old schema get fixed
+ * in-memory before tldraw sees them, so migrateStoreSnapshot → put → validateRecord
+ * sees only valid records and never throws.
+ *
+ * Repairs applied per shape type:
+ *  geo / note / arrow / text (`richTextTypes`):
+ *    • `props.text` (string, pre-richText era) → converted to `props.richText` object
+ *    • `props.richText` missing              → created from `props.text ?? ""`
+ *    • `props.richText` malformed            → re-created via toRichText()
+ *    • `props.richText.attrs`                → stripped (rejected by validator)
+ *  geo / note / arrow / line (`scaleTypes`):
+ *    • `props.scale` missing / non-finite    → set to 1
  *
  * Returns the same object (mutates inline — the caller owns the freshly-parsed value).
  */
 
-// Compute the current tldraw schema once (singleton — same tldraw instance for the whole app).
-let _currentSchemaSerialized: unknown = null;
-function getCurrentSchemaSerialized(): unknown {
-  if (!_currentSchemaSerialized) {
-    try { _currentSchemaSerialized = createTLSchema().serialize(); } catch { /**/ }
-  }
-  return _currentSchemaSerialized;
+/** Minimal richText shape: `{ type: string, content: unknown[] }` */
+function isValidRichText(v: unknown): boolean {
+  if (!v || typeof v !== 'object') return false;
+  const rt = v as Record<string, unknown>;
+  return typeof rt['type'] === 'string' && Array.isArray(rt['content']);
 }
+
+const RICH_TEXT_SHAPE_TYPES = new Set(['geo', 'note', 'arrow', 'text']);
+const SCALE_SHAPE_TYPES      = new Set(['geo', 'note', 'arrow', 'line']);
 
 export function sanitizeSnapshot(raw: unknown): TLEditorSnapshot {
   if (!raw || typeof raw !== 'object') return raw as TLEditorSnapshot;
   const snap = raw as Record<string, unknown>;
-  const store = snap.store;
-  if (!store || typeof store !== 'object') return raw as TLEditorSnapshot;
 
-  // ── Fix 1: Replace schema with current → skips all migration logic ────────
-  const currentSchema = getCurrentSchemaSerialized();
-  if (currentSchema) snap['schema'] = currentSchema;
+  // Support both legacy TLStoreSnapshot ({ schema, store }) and new TLEditorSnapshot
+  // ({ document: { schema, store } }).  Walk whichever store object is present.
+  const storeObj =
+    (snap.store && typeof snap.store === 'object')
+      ? snap.store as Record<string, unknown>
+      : (snap.document && typeof snap.document === 'object')
+          ? ((snap.document as Record<string, unknown>).store as Record<string, unknown> | undefined)
+          : undefined;
 
-  // ── Fix 2/3: Walk shape records and coerce missing/invalid props ──────────
+  if (!storeObj) return raw as TLEditorSnapshot;
+
   let patchCount = 0;
-  for (const record of Object.values(store as Record<string, unknown>)) {
+
+  for (const record of Object.values(storeObj)) {
     if (!record || typeof record !== 'object') continue;
     const r = record as Record<string, unknown>;
     if (r.typeName !== 'shape') continue;
@@ -102,9 +117,26 @@ export function sanitizeSnapshot(raw: unknown): TLEditorSnapshot {
     if (!props || typeof props !== 'object') continue;
     const p = props as Record<string, unknown>;
 
-    // geo, note, arrow shapes have a `scale` prop in tldraw v4.4+ that must be a number.
-    if (r.type === 'geo' || r.type === 'note' || r.type === 'arrow' || r.type === 'line') {
-      if (typeof p.scale !== 'number' || !Number.isFinite(p.scale as number)) {
+    // ── richText repair ───────────────────────────────────────────────────
+    if (RICH_TEXT_SHAPE_TYPES.has(r.type as string)) {
+      if (!isValidRichText(p.richText)) {
+        // Old format: `text` was a plain string.
+        const plainText = typeof p.text === 'string' ? p.text : '';
+        p.richText = toRichText(plainText);
+        patchCount++;
+      }
+      // Strip `attrs` from richText root — tldraw v4.4 validator rejects it.
+      if (p.richText && typeof p.richText === 'object') {
+        const rt = p.richText as Record<string, unknown>;
+        if ('attrs' in rt) { delete rt['attrs']; patchCount++; }
+      }
+      // Remove legacy `text` prop if richText is now present (avoids unknown-prop errors).
+      if ('text' in p && isValidRichText(p.richText)) { delete p['text']; }
+    }
+
+    // ── scale repair ─────────────────────────────────────────────────────
+    if (SCALE_SHAPE_TYPES.has(r.type as string)) {
+      if (typeof p.scale !== 'number' || !Number.isFinite(p.scale as number) || p.scale === 0) {
         p.scale = 1;
         patchCount++;
       }
@@ -113,7 +145,7 @@ export function sanitizeSnapshot(raw: unknown): TLEditorSnapshot {
 
   if (patchCount > 0) {
     // eslint-disable-next-line no-console
-    console.warn(`[canvasAI] sanitizeSnapshot: repaired ${patchCount} shape(s)`);
+    console.warn(`[canvasAI] sanitizeSnapshot: repaired ${patchCount} prop(s) in snapshot`);
   }
   return raw as TLEditorSnapshot;
 }
