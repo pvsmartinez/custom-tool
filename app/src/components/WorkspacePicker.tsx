@@ -79,7 +79,7 @@ interface WorkspacePickerProps {
 export default function WorkspacePicker({ onOpen }: WorkspacePickerProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const recents: RecentWorkspace[] = getRecents();
+  const [recents, setRecents] = useState<RecentWorkspace[]>(getRecents);
   const [uncommitted, setUncommitted] = useState<Record<string, number | null>>({});
 
   // ── Auth ──────────────────────────────────────────────────────────────────
@@ -159,6 +159,33 @@ export default function WorkspacePicker({ onOpen }: WorkspacePickerProps) {
           .then((res) => setUncommitted((prev) => ({ ...prev, [r.path]: res.files.length })))
           .catch(() => setUncommitted((prev) => ({ ...prev, [r.path]: 0 })));
       });
+
+      // Backfill gitRemote for old entries that were saved before remote detection existed
+      const needsRemote = recents.filter((r) => r.gitRemote === undefined);
+      if (needsRemote.length > 0) {
+        Promise.allSettled(
+          needsRemote.map((r) =>
+            invoke<string>('git_get_remote', { path: r.path })
+              .then((remote) => ({ path: r.path, remote: remote?.trim() || undefined }))
+              .catch(() => ({ path: r.path, remote: undefined as string | undefined }))
+          )
+        ).then((results) => {
+          const updates: Record<string, string | undefined> = {};
+          results.forEach((res) => {
+            if (res.status === 'fulfilled') updates[res.value.path] = res.value.remote;
+          });
+          setRecents((prev) => {
+            const next = prev.map((r) =>
+              r.path in updates
+                ? { ...r, gitRemote: updates[r.path], hasGit: !!updates[r.path] }
+                : r
+            );
+            // Persist backfilled data to localStorage
+            localStorage.setItem('cafezin-recent-workspaces', JSON.stringify(next));
+            return next;
+          });
+        });
+      }
     }
 
     return () => window.removeEventListener('cafezin:auth-updated', onAuthUpdated as EventListener);
@@ -237,6 +264,7 @@ export default function WorkspacePicker({ onOpen }: WorkspacePickerProps) {
     } catch (err) {
       setError(`Could not open "${recent.name}": ${err}`);
       removeRecent(recent.path);
+      setRecents(getRecents());
       setLoading(false);
     }
   }

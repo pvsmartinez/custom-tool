@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Coffee, Folders, Eye, Robot, Microphone, ArrowDown, ArrowClockwise, SignOut, ArrowRight } from '@phosphor-icons/react';
-import { readTextFile } from './services/fs';
+import { readTextFile, remapToCurrentDocDir } from './services/fs';
 import { loadWorkspace } from './services/workspace';
 import { useAuthSession } from './hooks/useAuthSession';
 import { gitClone, gitPull, gitSync, getGitAccountToken } from './services/syncConfig';
@@ -122,15 +122,15 @@ export default function MobileApp() {
   }
 
   async function openWorkspacePath(rawPath: string) {
-    const path = sanitizeWsPath(rawPath);
+    const sanitized = sanitizeWsPath(rawPath);
+    // Remap stale container UUID — the UUID changes between TestFlight builds
+    const path = await remapToCurrentDocDir(sanitized);
     setLoadingWs(true);
     setWsError(null);
     try {
       const ws = await loadWorkspace(path);
       setWorkspace(ws);
-      // After a successful open, re-save with the sanitized path so that old
-      // /private/var/... entries (from builds that called canonicalize_path) are
-      // replaced with a clean value on the next boot.
+      // Persist the remapped path so next boot uses the correct UUID
       localStorage.setItem(LAST_WS_KEY, path);
     } catch (err) {
       setWsError(`Could not open workspace: ${err}`);

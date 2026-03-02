@@ -171,7 +171,9 @@ const AIPanel = forwardRef<AIPanelHandle, AIPanelProps>(function AIPanel({
     const el = inputRef.current;
     if (!el) return;
     el.style.height = 'auto';
+    const capped = el.scrollHeight > 200;
     el.style.height = Math.min(el.scrollHeight, 200) + 'px';
+    el.style.overflowY = capped ? 'auto' : 'hidden';
   }, [input]);
 
   // ── Domain hooks ──────────────────────────────────────────────────────────

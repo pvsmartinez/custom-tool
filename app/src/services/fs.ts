@@ -44,6 +44,32 @@ async function getDocDir(): Promise<string | null> {
   }
 }
 
+/**
+ * Remap an absolute iOS app-container path to the CURRENT container.
+ *
+ * The app container UUID changes with every TestFlight build update/reinstall.
+ * A path like:
+ *   /var/mobile/Containers/Data/Application/<OLD_UUID>/Documents/book
+ * becomes:
+ *   /var/mobile/Containers/Data/Application/<NEW_UUID>/Documents/book
+ *
+ * We extract the relative portion after "Documents" and prepend the current
+ * documentDir().  Non-iOS paths (desktop) are returned unchanged.
+ */
+export async function remapToCurrentDocDir(absPath: string): Promise<string> {
+  const doc = await getDocDir();
+  if (!doc) return absPath;
+  // Match any iOS sandbox Documents path (handles /private prefix too)
+  const m = absPath.match(
+    /^(?:\/private)?\/var\/mobile\/Containers\/Data\/Application\/[^/]+\/Documents(\/.*)?$/
+  );
+  if (m) {
+    const rel = m[1] ?? ''; // e.g. "/book"
+    return doc + rel;
+  }
+  return absPath;
+}
+
 interface FsPath {
   path: string;
   baseDir?: BaseDirectory;
