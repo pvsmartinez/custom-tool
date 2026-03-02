@@ -230,7 +230,7 @@ mod git_native {
     /// Keep inject_token as an alias for clean_url — the token is intentionally
     /// NOT embedded in the URL (see clean_url doc). Only the callback carries it.
     fn inject_token(url: &str, _token: &str) -> String {
-        Self::clean_url(url)
+        clean_url(url)
     }
 
     /// Build RemoteCallbacks that supply the OAuth token when libgit2 asks for
