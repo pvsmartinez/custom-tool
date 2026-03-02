@@ -753,14 +753,15 @@ pub struct DeviceFlowPollResult {
 }
 
 /// Step 1: Request a user_code / device_code pair from GitHub.
-/// The client_id stays in Rust — the renderer receives only the display data.
+/// The client_id and client_secret stay in Rust — the renderer only receives display data.
+/// `scope` examples: "copilot" (Copilot API access), "repo" (git clone/push private repos).
 #[tauri::command]
-async fn github_device_flow_init() -> Result<DeviceFlowInit, String> {
+async fn github_device_flow_init(scope: String) -> Result<DeviceFlowInit, String> {
     let client = reqwest::Client::new();
     let res = client
         .post("https://github.com/login/device/code")
         .header("Accept", "application/json")
-        .json(&serde_json::json!({ "client_id": GITHUB_CLIENT_ID, "scope": "copilot" }))
+        .json(&serde_json::json!({ "client_id": GITHUB_CLIENT_ID, "scope": scope }))
         .send()
         .await
         .map_err(|e| format!("device flow init request failed: {e}"))?;

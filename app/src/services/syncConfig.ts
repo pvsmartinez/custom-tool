@@ -430,10 +430,11 @@ export async function startGitAccountFlow(
   return token
 }
 
-// ── GitHub device flow (git accounts only) ─────────────────────────────────────
-
-const GIT_CLIENT_ID = 'Iv1.b507a08c87ecfe98'
-
+// ── GitHub device flow — routed through Rust so client_id/secret never touch the renderer ──
+//
+// The Rust commands github_device_flow_init(scope) and github_device_flow_poll(device_code)
+// hold the OAuth App credentials. The frontend only receives display data (user_code, URL)
+// and the final access_token.
 
 function waitOrResume(ms: number): Promise<void> {
   return new Promise<void>((resolve) => {
@@ -449,54 +450,36 @@ function waitOrResume(ms: number): Promise<void> {
   })
 }
 
-async function pollLoop(deviceCode: string, deadline: number, intervalMs: number): Promise<string> {
-  while (Date.now() < deadline) {
+async function runDeviceFlow(
+  scope: string,
+  onState: (state: SyncDeviceFlowState) => void,
+): Promise<string> {
+  // Step 1: init — credentials stay in Rust
+  const d = await invoke<{
+    device_code: string
+    user_code: string
+    verification_uri: string
+    expires_in: number
+    interval: number
+  }>('github_device_flow_init', { scope })
+
+  const intervalMs = (d.interval + 1) * 1000
+  const expiresAt = Date.now() + d.expires_in * 1000
+  onState({ userCode: d.user_code, verificationUri: d.verification_uri, expiresIn: d.expires_in })
+
+  // Step 2: poll until authorized or timed out
+  while (Date.now() < expiresAt) {
     await waitOrResume(intervalMs)
-    const res = await fetch('https://github.com/login/oauth/access_token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify({
-        client_id: GIT_CLIENT_ID,
-        device_code: deviceCode,
-        grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
-      }),
-    })
-    const poll = await res.json() as {
+    const poll = await invoke<{
       access_token?: string
       error?: string
       error_description?: string
-    }
+    }>('github_device_flow_poll', { deviceCode: d.device_code })
     if (poll.access_token) return poll.access_token
     if (poll.error === 'slow_down') { await waitOrResume(3000); continue }
     if (poll.error === 'authorization_pending') continue
     throw new Error(poll.error_description ?? poll.error ?? 'Authorization failed')
   }
   throw new Error('Device flow timed out — please try again')
-}
-
-async function runDeviceFlow(
-  scope: string,
-  onState: (state: SyncDeviceFlowState) => void,
-): Promise<string> {
-  const deviceRes = await fetch('https://github.com/login/device/code', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify({ client_id: GIT_CLIENT_ID, scope }),
-  })
-  if (!deviceRes.ok) throw new Error(`Device flow init failed: ${deviceRes.status}`)
-
-  const d = await deviceRes.json() as {
-    device_code: string
-    user_code: string
-    verification_uri: string
-    expires_in: number
-    interval: number
-  }
-
-  const intervalMs = (d.interval + 1) * 1000
-  const expiresAt = Date.now() + d.expires_in * 1000
-
-  onState({ userCode: d.user_code, verificationUri: d.verification_uri, expiresIn: d.expires_in })
-  return await pollLoop(d.device_code, expiresAt, intervalMs)
 }
 
