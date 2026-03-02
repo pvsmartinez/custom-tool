@@ -180,8 +180,8 @@ export default function WorkspacePicker({ onOpen }: WorkspacePickerProps) {
                 ? { ...r, gitRemote: updates[r.path], hasGit: !!updates[r.path] }
                 : r
             );
-            // Persist backfilled data to localStorage
-            localStorage.setItem('cafezin-recent-workspaces', JSON.stringify(next));
+            // Persist backfilled data to localStorage — slice to cap size
+            localStorage.setItem('cafezin-recent-workspaces', JSON.stringify(next.slice(0, 20)));
             return next;
           });
         });

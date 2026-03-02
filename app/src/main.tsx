@@ -11,10 +11,15 @@ import './tokens.css';                         /* Design tokens — compartilhad
 import App from "./App";
 import MobileApp from "./MobileApp";
 
-// Detect mobile: running in a narrow viewport (iOS/Android simulator or device)
-// `VITE_TAURI_MOBILE=true` can also be set explicitly in the tauri ios/android
-// build pipeline for an unambiguous signal.
+// Detect mobile platform.
+// Primary: TAURI_ENV_PLATFORM is automatically injected by Tauri for every build
+// (ios / android / darwin / linux / windows) — no manual export needed.
+// Secondary: VITE_TAURI_MOBILE=true from the build script.
+// Fallback: narrow + touch viewport (unreliable, kept as last resort).
+const platform = import.meta.env.TAURI_ENV_PLATFORM as string | undefined;
 const isMobile =
+  platform === 'ios' ||
+  platform === 'android' ||
   import.meta.env.VITE_TAURI_MOBILE === 'true' ||
   (typeof window !== 'undefined' && window.innerWidth <= 600 && 'ontouchstart' in window);
 

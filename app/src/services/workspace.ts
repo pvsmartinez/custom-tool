@@ -491,7 +491,17 @@ export async function refreshWorkspaceFiles(
 // ── Recents ──────────────────────────────────────────────────
 export function getRecents(): RecentWorkspace[] {
   try {
-    return JSON.parse(localStorage.getItem(RECENTS_KEY) ?? '[]');
+    const raw: RecentWorkspace[] = JSON.parse(localStorage.getItem(RECENTS_KEY) ?? '[]');
+    // Deduplicate by folder name (last path segment) — keeps newest entry per name.
+    // This cleans up accumulated path variants caused by iOS container UUID changes.
+    const seen = new Set<string>();
+    const deduped = raw.filter((r) => {
+      const name = r.path.replace(/\/+$/, '').split('/').pop() ?? r.path;
+      if (seen.has(name)) return false;
+      seen.add(name);
+      return true;
+    }).slice(0, 20);
+    return deduped;
   } catch {
     return [];
   }
