@@ -22,7 +22,7 @@
  */
 
 import type { Editor, TLRichText, TLShapeId, TLEditorSnapshot } from 'tldraw';
-import { createShapeId, renderPlaintextFromRichText, toRichText } from 'tldraw';
+import { createShapeId, renderPlaintextFromRichText, toRichText, createTLSchema } from 'tldraw';
 import type { TLNoteShape, TLGeoShape, TLTextShape, TLGeoShapeGeoStyle, TLArrowShape, TLFrameShape } from '@tldraw/tlschema';
 
 // ── Slide layout constants — keep in sync with CanvasEditor.tsx ─────────────
@@ -60,21 +60,38 @@ export function mapColor(raw: unknown, fallback: TLColor = 'yellow'): TLColor {
 // ── Snapshot sanitizer ───────────────────────────────────────────────────────
 /**
  * Repairs known schema violations in a raw tldraw snapshot so tldraw v4.4+
- * doesn't throw ValidationErrors when loading older or AI-corrupted canvas files.
+ * doesn't throw ValidationErrors or migration-errors when loading older or
+ * AI-generated canvas files.
  *
- * Currently fixed:
- *  - geo shapes missing `scale` or with non-numeric `scale` → coerced to 1
- *  - note shapes missing `scale` → coerced to 1 (tldraw v4.4 added scale to notes too)
+ * Fixes applied:
+ *  1. Replace `schema` with the current tldraw schema → prevents "migration-error"
+ *     caused by AI-generated snapshots having stale/wrong schema sequence versions.
+ *  2. geo/note shapes missing `scale` or with non-numeric `scale` → coerced to 1.
+ *  3. Arrow/line shapes missing `scale` → coerced to 1 (same issue in v4.4).
  *
- * Returns the same object (mutates inline for performance — the caller already
- * owns the freshly-parsed value).
+ * Returns the same object (mutates inline — the caller owns the freshly-parsed value).
  */
+
+// Compute the current tldraw schema once (singleton — same tldraw instance for the whole app).
+let _currentSchemaSerialized: unknown = null;
+function getCurrentSchemaSerialized(): unknown {
+  if (!_currentSchemaSerialized) {
+    try { _currentSchemaSerialized = createTLSchema().serialize(); } catch { /**/ }
+  }
+  return _currentSchemaSerialized;
+}
+
 export function sanitizeSnapshot(raw: unknown): TLEditorSnapshot {
   if (!raw || typeof raw !== 'object') return raw as TLEditorSnapshot;
   const snap = raw as Record<string, unknown>;
   const store = snap.store;
   if (!store || typeof store !== 'object') return raw as TLEditorSnapshot;
 
+  // ── Fix 1: Replace schema with current → skips all migration logic ────────
+  const currentSchema = getCurrentSchemaSerialized();
+  if (currentSchema) snap['schema'] = currentSchema;
+
+  // ── Fix 2/3: Walk shape records and coerce missing/invalid props ──────────
   let patchCount = 0;
   for (const record of Object.values(store as Record<string, unknown>)) {
     if (!record || typeof record !== 'object') continue;
@@ -85,8 +102,8 @@ export function sanitizeSnapshot(raw: unknown): TLEditorSnapshot {
     if (!props || typeof props !== 'object') continue;
     const p = props as Record<string, unknown>;
 
-    // geo and note shapes have a `scale` prop in tldraw v4.4+ that must be a number.
-    if (r.type === 'geo' || r.type === 'note') {
+    // geo, note, arrow shapes have a `scale` prop in tldraw v4.4+ that must be a number.
+    if (r.type === 'geo' || r.type === 'note' || r.type === 'arrow' || r.type === 'line') {
       if (typeof p.scale !== 'number' || !Number.isFinite(p.scale as number)) {
         p.scale = 1;
         patchCount++;
@@ -96,7 +113,7 @@ export function sanitizeSnapshot(raw: unknown): TLEditorSnapshot {
 
   if (patchCount > 0) {
     // eslint-disable-next-line no-console
-    console.warn(`[canvasAI] sanitizeSnapshot: repaired ${patchCount} shape(s) with invalid props`);
+    console.warn(`[canvasAI] sanitizeSnapshot: repaired ${patchCount} shape(s)`);
   }
   return raw as TLEditorSnapshot;
 }
