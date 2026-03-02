@@ -24,7 +24,7 @@ export const CANVAS_TOOL_DEFS: ToolDefinition[] = [
     function: {
       name: 'list_canvas_shapes',
       description:
-        "List all shapes currently on the open canvas. Returns each shape's short ID (last 10 chars), type, position, size, color, fill, and text content. Arrow shapes include their start/end coordinates. Call this before update, move, or delete operations to get valid shape IDs.",
+        "List all shapes currently on the open canvas. Returns the canvas filename first (so you can verify you are editing the correct file), then each shape's short ID (last 10 chars), type, position, size, color, fill, and text content. Arrow shapes include their start/end coordinates. Call this before update, move, or delete operations to get valid shape IDs.",
       parameters: { type: 'object', properties: {}, required: [] },
     },
   },
@@ -33,7 +33,7 @@ export const CANVAS_TOOL_DEFS: ToolDefinition[] = [
     function: {
       name: 'canvas_op',
       description:
-        'Create, update, move, or delete shapes on the currently open canvas (.tldr.json file). Only call this when the user is looking at a canvas. Call list_canvas_shapes first if the user wants to modify existing shapes — you need the IDs.',
+        'Create, update, move, or delete shapes on the currently open canvas (.tldr.json file). Only operates on the file that is currently open in the editor tab — if you need to edit a different file, tell the user to open it first. Only call this when the user is looking at a canvas. Call list_canvas_shapes first if the user wants to modify existing shapes — you need the IDs.',
       parameters: {
         type: 'object',
         properties: {
@@ -132,7 +132,10 @@ export const executeCanvasTools: DomainExecutor = async (name, args, ctx) => {
     case 'list_canvas_shapes': {
       const editor = canvasEditor.current;
       if (!editor) return 'No canvas is currently open. Ask the user to open a .tldr.json canvas file first.';
-      return summarizeCanvas(editor);
+      // Always prefix with the open file so the AI can verify it is editing the right file.
+      const fileHeader = activeFile ? `Canvas file: ${activeFile}` : '';
+      const summary = summarizeCanvas(editor);
+      return fileHeader ? `${fileHeader}\n${summary}` : summary;
     }
 
     // ── canvas_op ───────────────────────────────────────────────────────
@@ -161,7 +164,8 @@ export const executeCanvasTools: DomainExecutor = async (name, args, ctx) => {
         return `No commands were executed. Check the command syntax.`;
       }
       onCanvasModified?.(shapeIds);
-      return `Executed ${count} canvas operation(s) successfully.`;
+      const fileTag = activeFile ? ` on ${activeFile.split('/').pop()}` : '';
+      return `Executed ${count} canvas operation(s) successfully${fileTag}.`;
     }
 
     // ── canvas_screenshot ───────────────────────────────────────────────
