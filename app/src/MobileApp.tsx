@@ -128,7 +128,9 @@ export default function MobileApp() {
     try {
       const ws = await loadWorkspace(path);
       setWorkspace(ws);
-      // Store the sanitized raw path (not ws.path which may be canonical /private/var/...)
+      // After a successful open, re-save with the sanitized path so that old
+      // /private/var/... entries (from builds that called canonicalize_path) are
+      // replaced with a clean value on the next boot.
       localStorage.setItem(LAST_WS_KEY, path);
     } catch (err) {
       setWsError(`Could not open workspace: ${err}`);

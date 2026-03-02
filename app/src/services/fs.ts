@@ -55,13 +55,22 @@ interface FsPath {
  * - If the path lives inside the Documents directory → strip the prefix and
  *   return `{ path: relPath, baseDir: BaseDirectory.Document }`.
  * - Otherwise (desktop paths, app bundle, etc.) → return unchanged.
+ *
+ * iOS quirk: `documentDir()` returns `/var/mobile/...` but paths stored in
+ * localStorage from older builds (that called Rust `canonicalize_path`) may
+ * have the `/private/var/...` symlink-resolved form.  We normalise both sides
+ * by stripping a leading `/private` before comparing so both forms match.
  */
 async function toFsPath(absPath: string): Promise<FsPath> {
   const doc = await getDocDir();
   if (doc) {
-    if (absPath === doc) return { path: '.', baseDir: BaseDirectory.Document };
-    if (absPath.startsWith(doc + '/')) {
-      return { path: absPath.slice(doc.length + 1), baseDir: BaseDirectory.Document };
+    // Strip leading /private so /private/var/... and /var/... compare equal.
+    const norm = (p: string) => p.startsWith('/private/') ? p.slice('/private'.length) : p;
+    const normPath = norm(absPath);
+    const normDoc  = norm(doc);
+    if (normPath === normDoc) return { path: '.', baseDir: BaseDirectory.Document };
+    if (normPath.startsWith(normDoc + '/')) {
+      return { path: normPath.slice(normDoc.length + 1), baseDir: BaseDirectory.Document };
     }
   }
   return { path: absPath };
