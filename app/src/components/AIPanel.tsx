@@ -62,9 +62,12 @@ export interface AIPanelHandle {
   receiveFinderFiles(paths: string[]): void;
 }
 
+type AgentStatus = 'idle' | 'thinking' | 'error';
+
 interface AgentTab {
   id: string;
   label: string;
+  status: AgentStatus;
 }
 
 // ── Main panel ────────────────────────────────────────────────────────────────
@@ -150,14 +153,14 @@ const AIPanel = forwardRef<AIPanelHandle, AIPanelProps>(function AIPanel({
   }, [isOpen, authStatus]);
 
   // ── Tabs ──────────────────────────────────────────────────────────────────
-  const [tabs, setTabs] = useState<AgentTab[]>([{ id: 'agent-1', label: 'Agente 1' }]);
+  const [tabs, setTabs] = useState<AgentTab[]>([{ id: 'agent-1', label: 'Agente 1', status: 'idle' }]);
   const [activeTabId, setActiveTabId] = useState('agent-1');
 
   function addTab() {
     const n = tabs.length + 1;
     const id = `agent-${n}-${Date.now()}`;
     const label = `Agente ${n}`;
-    setTabs((prev) => [...prev, { id, label }]);
+    setTabs((prev) => [...prev, { id, label, status: 'idle' }]);
     setActiveTabId(id);
   }
 
@@ -202,12 +205,16 @@ const AIPanel = forwardRef<AIPanelHandle, AIPanelProps>(function AIPanel({
       {/* Tab bar */}
       <div className="ai-tab-bar">
         {tabs.map((tab) => (
-          <div key={tab.id} className={`ai-tab${activeTabId === tab.id ? ' ai-tab--active' : ''}`}>
+          <div key={tab.id} className={`ai-tab${activeTabId === tab.id ? ' ai-tab--active' : ''} ai-tab--${tab.status}`}>
             <button
               className="ai-tab-label"
               onClick={() => setActiveTabId(tab.id)}
               title={tab.label}
             >
+              <span
+                className={`ai-tab-dot ai-tab-dot--${tab.status}`}
+                aria-label={tab.status === 'thinking' ? 'a trabalhar' : tab.status === 'error' ? 'erro' : 'pronto'}
+              />
               {tab.label}
             </button>
             {tabs.length > 1 && (
@@ -261,6 +268,9 @@ const AIPanel = forwardRef<AIPanelHandle, AIPanelProps>(function AIPanel({
           workspaceExportConfig={workspaceExportConfig}
           onExportConfigChange={onExportConfigChange}
           onStreamingChange={onStreamingChange}
+          onStatusChange={(status) =>
+            setTabs((prev) => prev.map((t) => t.id === tab.id ? { ...t, status } : t))
+          }
           screenshotTargetRef={screenshotTargetRef}
           webPreviewRef={webPreviewRef}
           getActiveHtml={getActiveHtml}

@@ -71,6 +71,8 @@ export interface AgentSessionProps {
   workspaceExportConfig?: WorkspaceExportConfig;
   onExportConfigChange?: (config: WorkspaceExportConfig) => void;
   onStreamingChange?: (streaming: boolean) => void;
+  /** Called when the agent's observable status changes (for tab indicators). */
+  onStatusChange?: (status: 'idle' | 'thinking' | 'error') => void;
   screenshotTargetRef?: React.RefObject<HTMLElement | null>;
   webPreviewRef?: React.RefObject<{ getScreenshot: () => Promise<string | null> } | null>;
   getActiveHtml?: () => { html: string; absPath: string } | null;
@@ -117,6 +119,7 @@ const AgentSession = forwardRef<AgentSessionHandle, AgentSessionProps>(function 
   workspaceConfig,
   onWorkspaceConfigChange,
   onStreamingChange,
+  onStatusChange,
   screenshotTargetRef,
   webPreviewRef,
   getActiveHtml,
@@ -254,6 +257,14 @@ const AgentSession = forwardRef<AgentSessionHandle, AgentSessionProps>(function 
     }
     prevStreamingRef.current = stream.isStreaming;
   }, [stream.isStreaming]);
+
+  // Notify parent of status changes for tab indicators
+  useEffect(() => {
+    if (stream.error) { onStatusChange?.('error'); }
+    else if (stream.isStreaming) { onStatusChange?.('thinking'); }
+    else { onStatusChange?.('idle'); }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stream.isStreaming, stream.error]);
 
   // ── Keyboard ─────────────────────────────────────────────────────────────
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
