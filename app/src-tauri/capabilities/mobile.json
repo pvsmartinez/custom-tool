@@ -23,6 +23,13 @@
         { "url": "https://api.groq.com/**" }
       ]
     },
+    { "identifier": "http:allow-fetch-read-body", "allow": [
+        { "url": "https://api.githubcopilot.com/**" },
+        { "url": "https://api.github.com/**" },
+        { "url": "https://github.com/**" },
+        { "url": "https://api.groq.com/**" }
+      ]
+    },
     { "identifier": "fs:allow-read-text-file",  "allow": [{ "path": "$APP/**" }, { "path": "$APP_LOCAL_DATA/**" }, { "path": "$DOCUMENT/**" }] },
     { "identifier": "fs:allow-read-file",        "allow": [{ "path": "$APP/**" }, { "path": "$APP_LOCAL_DATA/**" }, { "path": "$DOCUMENT/**" }] },
     { "identifier": "fs:allow-write-text-file", "allow": [{ "path": "$APP/**" }, { "path": "$APP_LOCAL_DATA/**" }, { "path": "$DOCUMENT/**" }] },

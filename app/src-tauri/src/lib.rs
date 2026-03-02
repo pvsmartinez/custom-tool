@@ -520,8 +520,8 @@ mod git_native {
         let head = match repo.head() {
             Ok(h) => h,
             Err(e) => {
-                eprintln!("[git_pull] no HEAD (empty/unborn): {}", e);
-                return Ok("up_to_date".into());
+                eprintln!("[git_pull] no HEAD (empty/unborn repo — needs re-clone): {}", e);
+                return Err("no_commits".into());
             }
         };
         if !head.is_branch() {

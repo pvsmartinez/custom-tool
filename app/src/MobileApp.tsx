@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Coffee, Folders, Eye, Robot, Microphone, ArrowDown, ArrowClockwise, SignOut, ArrowRight } from '@phosphor-icons/react';
+import { Coffee, Folders, Eye, Robot, Microphone, ArrowDown, ArrowClockwise, SignOut, ArrowRight, GithubLogo, Copy, CheckCircle, Warning } from '@phosphor-icons/react';
 import { readTextFile, remapToCurrentDocDir } from './services/fs';
 import { loadWorkspace } from './services/workspace';
 import { useAuthSession } from './hooks/useAuthSession';
-import { gitClone, gitPull, gitSync, getGitAccountToken, setLocalClonedPath } from './services/syncConfig';
+import { gitClone, gitPull, gitSync, getGitAccountToken, setLocalClonedPath, startGitAccountFlow, type SyncDeviceFlowState } from './services/syncConfig';
 import { CONFIG_DIR } from './services/config';
 import type { Workspace } from './types';
 import MobileFileBrowser from './components/mobile/MobileFileBrowser';
@@ -12,6 +12,7 @@ import MobileCopilot from './components/mobile/MobileCopilot';
 import MobileVoiceMemo from './components/mobile/MobileVoiceMemo';
 import ToastList from './components/mobile/ToastList';
 import { useToast } from './hooks/useToast';
+import { openUrl } from '@tauri-apps/plugin-opener';
 import './mobile.css';
 
 type Tab = 'files' | 'preview' | 'copilot' | 'voice'
@@ -55,6 +56,11 @@ export default function MobileApp() {
   const [isSyncing, setIsSyncing] = useState(false);
   // gitUrl of the currently open workspace — used to find the token in handleSync
   const [wsGitUrl, setWsGitUrl] = useState<string | null>(null);
+
+  // GitHub device flow state
+  const [gitAuthBusy, setGitAuthBusy] = useState<string | null>(null); // account label currently authenticating
+  const [gitAuthModal, setGitAuthModal] = useState<{ label: string; userCode: string; verificationUri: string } | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const [activeTab, setActiveTab] = useState<Tab>('files');
   const [openFile, setOpenFile] = useState<string | null>(null);
@@ -127,10 +133,21 @@ export default function MobileApp() {
     const sanitized = sanitizeWsPath(rawPath);
     // Remap stale container UUID — the UUID changes between TestFlight builds
     const path = await remapToCurrentDocDir(sanitized);
-    // Persist the remapped path for this git repo so handleSync can find it,
-    // and so the next Abrir uses the correct UUID immediately.
-    if (gitUrl) {
-      setLocalClonedPath(gitUrl, path);
+
+    // Resolve gitUrl even when not passed (e.g. bootstrap from LAST_WS_KEY).
+    // Match by exact localPath first, then by folder name as fallback.
+    const repoFolderName = path.replace(/\/+$/, '').split('/').pop() ?? '';
+    const resolvedGitUrl = gitUrl
+      ?? syncedWorkspaces.find(w => w.localPath === sanitized || w.localPath === path)?.gitUrl
+      ?? syncedWorkspaces.find(w => w.localPath?.replace(/\/+$/, '').split('/').pop() === repoFolderName)?.gitUrl
+      ?? null;
+
+    // Persist the remapped path for this git repo so handleSync / handlePull can
+    // find it, and so the next Abrir/bootstrap uses the correct UUID immediately.
+    if (resolvedGitUrl) {
+      setLocalClonedPath(resolvedGitUrl, path);
+      setWsGitUrl(resolvedGitUrl);
+    } else if (gitUrl) {
       setWsGitUrl(gitUrl);
     }
     setLoadingWs(true);
@@ -141,6 +158,19 @@ export default function MobileApp() {
       // Persist the remapped path so next boot uses the correct UUID
       localStorage.setItem(LAST_WS_KEY, path);
 
+      // If the workspace has no git remote but we know the gitUrl, the repo was
+      // re-init'd empty (UUID change + fresh install / data not migrated by iOS).
+      // Clear localClonedPath so the picker shows "Clonar" instead of keeping the
+      // user stuck in an empty workspace.
+      if (ws.fileTree.length === 0 && !ws.hasGit && resolvedGitUrl) {
+        setLocalClonedPath(resolvedGitUrl, '');
+        await loadSyncedList();
+        setWorkspace(null);
+        localStorage.removeItem(LAST_WS_KEY);
+        toast({ message: 'Repositório local não encontrado. Use Clonar para baixar novamente.', type: 'error', duration: null });
+        return;
+      }
+
       // If the workspace opened but is empty AND has a git remote, auto-pull.
       // This happens when the container UUID changes between builds and the local
       // repo needs a fast-forward pull to restore any files that are "missing"
@@ -148,8 +178,9 @@ export default function MobileApp() {
       if (ws.fileTree.length === 0 && ws.hasGit) {
         toast({ message: 'Workspace vazio — tentando sincronizar automaticamente…', type: 'info', duration: 4000 });
         try {
-          // Find the token — use wsGitUrl or gitUrl param
-          const urlForToken = gitUrl ?? wsGitUrl ?? null;
+          // Find the token via resolvedGitUrl (set above, better than wsGitUrl state
+          // which may not be updated yet since setState is async).
+          const urlForToken = resolvedGitUrl ?? wsGitUrl;
           const wsEntry = urlForToken
             ? syncedWorkspaces.find(w => w.gitUrl === urlForToken)
             : syncedWorkspaces.find(w => {
@@ -166,7 +197,19 @@ export default function MobileApp() {
             toast({ message: `Workspace ainda vazio após pull. Caminho: ${path.split('/').slice(-3).join('/')}`, type: 'error', duration: null });
           }
         } catch (pullErr) {
-          toast({ message: `Auto-pull falhou: ${friendlyGitError(pullErr)}`, type: 'error', duration: null });
+          const pullErrStr = String(pullErr);
+          if (/no_commits/i.test(pullErrStr)) {
+            // Empty repo — re-init'd after UUID change or fresh install. Force re-clone.
+            if (resolvedGitUrl) {
+              setLocalClonedPath(resolvedGitUrl, '');
+              await loadSyncedList();
+            }
+            setWorkspace(null);
+            localStorage.removeItem(LAST_WS_KEY);
+            toast({ message: 'Repositório local está vazio. Use Clonar para baixar novamente.', type: 'error', duration: null });
+          } else {
+            toast({ message: `Auto-pull falhou: ${friendlyGitError(pullErr)}`, type: 'error', duration: null });
+          }
         }
       }
     } catch (err) {
@@ -174,6 +217,32 @@ export default function MobileApp() {
     } finally {
       setLoadingWs(false);
     }
+  }
+
+  /** GitHub Device Flow: authenticate a git account label and store the token on device. */
+  async function handleGitAuth(label: string) {
+    setGitAuthBusy(label);
+    setGitAuthModal(null);
+    try {
+      await startGitAccountFlow(label, (state: SyncDeviceFlowState) => {
+        setGitAuthModal({ label, userCode: state.userCode, verificationUri: state.verificationUri });
+      });
+      setGitAuthModal(null);
+      toast({ message: `Conta GitHub "${label}" conectada com sucesso!`, type: 'success' });
+      await loadSyncedList();
+    } catch (err) {
+      setGitAuthModal(null);
+      toast({ message: `Erro ao conectar GitHub: ${String(err).split('\n')[0]}`, type: 'error', duration: 8000 });
+    } finally {
+      setGitAuthBusy(null);
+    }
+  }
+
+  function handleCopyCode(code: string) {
+    void navigator.clipboard.writeText(code).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
   }
 
   async function handleClone(gitUrl: string, accountLabel: string, branch?: string) {
@@ -196,8 +265,11 @@ export default function MobileApp() {
     }
   }
 
-  async function handlePull(gitUrl: string, localPath: string, accountLabel: string) {
+  async function handlePull(gitUrl: string, rawLocalPath: string, accountLabel: string) {
     setGitBusy(b => ({ ...b, [gitUrl]: 'pull' }));
+    // Remap stale /private/var/... or old-UUID paths before doing any git work
+    const localPath = await remapToCurrentDocDir(rawLocalPath).catch(() => rawLocalPath);
+    if (localPath !== rawLocalPath) setLocalClonedPath(gitUrl, localPath);
     try {
       const token = getGitAccountToken(accountLabel) ?? undefined;
       const result = await gitPull(localPath, token);
@@ -208,10 +280,10 @@ export default function MobileApp() {
       const errStr = String(err);
       // If the local repo doesn't exist at all (UUID changed, etc.) clear the stored path
       // so the picker shows "Clonar" on the next render — allows the user to re-clone.
-      if (/repository not found|could not find repository|not a git/i.test(errStr)) {
+      if (/repository not found|could not find repository|not a git|no_commits/i.test(errStr)) {
         setLocalClonedPath(gitUrl, '');
         await loadSyncedList();
-        toast({ message: 'Repositório local não encontrado. Use Clonar para baixar novamente.', type: 'error', duration: null });
+        toast({ message: 'Repositório local não encontrado ou vazio. Use Clonar para baixar novamente.', type: 'error', duration: null });
       } else {
         toast({ message: `Erro no pull: ${friendlyGitError(err)}`, type: 'error', duration: null });
       }
@@ -235,7 +307,12 @@ export default function MobileApp() {
       const ws = syncedWorkspaces.find(w =>
         (wsGitUrl && w.gitUrl === wsGitUrl) ||
         w.localPath === workspace.path ||
-        (w.localPath && w.localPath.replace(/\/+$/, '').split('/').pop() === repoName)
+        (w.localPath && w.localPath.replace(/\/+$/, '').split('/').pop() === repoName) ||
+        // Also match against stale UUID paths (before remap is stored back)
+        (w.localPath && (() => {
+          const m = w.localPath.match(/\/Documents\/(.+)$/);
+          return m && workspace.path.endsWith(`/Documents/${m[1]}`);
+        })())
       );
       const token = ws ? (getGitAccountToken(ws.gitAccountLabel) ?? undefined) : undefined;
       const result = await gitSync(workspace.path, token);
@@ -400,9 +477,75 @@ export default function MobileApp() {
     }
 
     // ── Signed in — show workspace list ───────────────────────────────────
+    // Collect unique account labels that need a token
+    const uniqueLabels = [...new Set(syncedWorkspaces.map(w => w.gitAccountLabel))];
+    const labelsNeedingAuth = uniqueLabels.filter(l => !getGitAccountToken(l));
+
     return (
       <div className="mb-shell">
         <ToastList toasts={toasts} onDismiss={dismiss} />
+
+        {/* ── GitHub Device Flow modal ── */}
+        {gitAuthModal && (
+          <div style={{
+            position: 'fixed', inset: 0, zIndex: 999,
+            background: 'rgba(0,0,0,0.85)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: '0 24px',
+          }}>
+            <div style={{
+              background: 'var(--surface)',
+              border: '1px solid var(--border)',
+              borderRadius: 16,
+              padding: '28px 24px',
+              maxWidth: 360,
+              width: '100%',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 16,
+              alignItems: 'center',
+            }}>
+              <GithubLogo size={40} weight="thin" style={{ opacity: 0.8 }} />
+              <div style={{ fontSize: 18, fontWeight: 700, textAlign: 'center' }}>
+                Conectar GitHub
+              </div>
+              <div style={{ fontSize: 13, color: 'var(--text-muted)', textAlign: 'center' }}>
+                Acesse <strong style={{ color: 'var(--text)' }}>github.com/login/device</strong> e insira o código abaixo:
+              </div>
+              <div style={{
+                fontFamily: 'monospace', fontSize: 32, fontWeight: 700,
+                letterSpacing: '0.25em', color: 'var(--accent)',
+                padding: '12px 20px',
+                background: 'rgba(255,255,255,0.06)',
+                borderRadius: 10,
+                border: '1px solid rgba(255,255,255,0.12)',
+              }}>
+                {gitAuthModal.userCode}
+              </div>
+              <div style={{ display: 'flex', gap: 8, width: '100%' }}>
+                <button
+                  className="mb-btn mb-btn-primary"
+                  style={{ flex: 1, fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+                  onClick={() => void openUrl(gitAuthModal.verificationUri)}
+                >
+                  <GithubLogo size={16} /> Abrir GitHub
+                </button>
+                <button
+                  className="mb-btn mb-btn-secondary"
+                  style={{ fontSize: 14, padding: '0 14px', display: 'flex', alignItems: 'center', gap: 6 }}
+                  onClick={() => handleCopyCode(gitAuthModal.userCode)}
+                >
+                  {copied ? <CheckCircle size={16} /> : <Copy size={16} />}
+                </button>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-muted)', fontSize: 12 }}>
+                <div className="mb-spinner" style={{ width: 12, height: 12, borderWidth: 2 }} />
+                Aguardando autorização…
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="mb-screen">
           <div className="mb-empty" style={{ flex: 1 }}>
             <div className="mb-empty-icon"><Folders weight="thin" size={48} /></div>
@@ -427,17 +570,45 @@ export default function MobileApp() {
               </div>
             )}
 
+            {/* ── GitHub accounts that need authentication ── */}
+            {!loadingSynced && labelsNeedingAuth.length > 0 && (
+              <div style={{ width: '100%', maxWidth: 360, background: 'rgba(255,165,0,0.08)', border: '1px solid rgba(255,165,0,0.25)', borderRadius: 12, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600 }}>
+                  <Warning size={16} color="var(--mb-warning, #e8a020)" />
+                  Conta GitHub não conectada
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                  Para clonar e sincronizar repositórios privados, conecte sua conta GitHub a este dispositivo.
+                </div>
+                {labelsNeedingAuth.map(label => (
+                  <button
+                    key={label}
+                    className="mb-btn mb-btn-secondary"
+                    style={{ fontSize: 13, padding: '7px 14px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+                    onClick={() => void handleGitAuth(label)}
+                    disabled={gitAuthBusy !== null}
+                  >
+                    {gitAuthBusy === label
+                      ? <><div className="mb-spinner" style={{ width: 14, height: 14, borderWidth: 2 }} /> Aguarde…</>
+                      : <><GithubLogo size={16} /> Conectar conta "{label}"</>
+                    }
+                  </button>
+                ))}
+              </div>
+            )}
+
             {!loadingSynced && syncedWorkspaces.length > 0 && (
               <div style={{ width: '100%', maxWidth: 360, display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {syncedWorkspaces.map(ws => {
                   const canOpen = !!ws.localPath;
                   const busy = gitBusy[ws.gitUrl];
+                  const hasToken = !!getGitAccountToken(ws.gitAccountLabel);
                   return (
                     <div
                       key={ws.gitUrl}
                       style={{
                         background: 'rgba(255,255,255,0.05)',
-                        border: '1px solid rgba(255,255,255,0.1)',
+                        border: `1px solid ${!hasToken ? 'rgba(255,165,0,0.3)' : 'rgba(255,255,255,0.1)'}`,
                         borderRadius: 12,
                         padding: '12px 14px',
                         display: 'flex',
@@ -447,6 +618,11 @@ export default function MobileApp() {
                     >
                       <div style={{ fontWeight: 600, fontSize: 15 }}>{ws.name}</div>
                       <div style={{ fontSize: 11, color: 'var(--mb-muted)', wordBreak: 'break-all' }}>{ws.gitUrl}</div>
+                      {!hasToken && (
+                        <div style={{ fontSize: 11, color: 'var(--mb-warning, #e8a020)', display: 'flex', alignItems: 'center', gap: 4, marginTop: 2 }}>
+                          <Warning size={12} /> Token GitHub não configurado — conecte a conta acima
+                        </div>
+                      )}
                       {canOpen ? (
                         <div style={{ marginTop: 6, display: 'flex', gap: 8 }}>
                           <button
@@ -474,7 +650,7 @@ export default function MobileApp() {
                           className="mb-btn mb-btn-secondary"
                           style={{ marginTop: 6, fontSize: 13, padding: '6px 14px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
                           onClick={() => void handleClone(ws.gitUrl, ws.gitAccountLabel, ws.branch)}
-                          disabled={!!busy}
+                          disabled={!!busy || !hasToken}
                         >
                           {busy === 'clone'
                             ? <><div className="mb-spinner" style={{ width: 12, height: 12, borderWidth: 2 }} /> Clonando…</>
