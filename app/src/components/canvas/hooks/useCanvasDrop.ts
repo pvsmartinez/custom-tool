@@ -47,8 +47,9 @@ export function useCanvasDrop({
     try {
       await new Promise<void>((resolve) => {
         const img = new Image();
-        img.onload = () => { natW = img.naturalWidth || 800; natH = img.naturalHeight || 600; resolve(); };
-        img.onerror = () => resolve();
+        const timeout = setTimeout(resolve, 10_000); // 10s guard — prevents hanging on unreachable URLs
+        img.onload = () => { clearTimeout(timeout); natW = img.naturalWidth || 800; natH = img.naturalHeight || 600; resolve(); };
+        img.onerror = () => { clearTimeout(timeout); resolve(); };
         img.src = url;
       });
     } catch { /* use defaults */ }
@@ -69,7 +70,16 @@ export function useCanvasDrop({
       const mimeType = getMimeType(ext, 'image/png');
       const imagesDir = `${workspacePath}/images`;
       if (!(await exists(imagesDir))) await mkdir(imagesDir, { recursive: true });
-      const filename = slugFile(file.name);
+      const baseSlug = slugFile(file.name);
+      // Avoid silent overwrites: if the slug is already taken, append -1, -2, …
+      const ext = baseSlug.includes('.') ? `.${baseSlug.split('.').pop()}` : '';
+      const stem = ext ? baseSlug.slice(0, baseSlug.length - ext.length) : baseSlug;
+      let filename = baseSlug;
+      let counter = 0;
+      while (await exists(`${imagesDir}/${filename}`)) {
+        counter++;
+        filename = `${stem}-${counter}${ext}`;
+      }
       const absPath = `${imagesDir}/${filename}`;
       const buf = await file.arrayBuffer();
       await writeFile(absPath, new Uint8Array(buf));

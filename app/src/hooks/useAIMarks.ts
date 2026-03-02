@@ -255,14 +255,20 @@ export function useAIMarks({
     setAiNavIndex(idx);
     const mark = activeFileMarks[idx];
     if (mark.canvasShapeIds?.length && canvasEditorRef.current) {
-      const bounds = canvasEditorRef.current.getShapePageBounds(
-        mark.canvasShapeIds[0] as TLShapeId,
-      );
-      if (bounds)
-        canvasEditorRef.current.zoomToBounds(bounds, {
-          animation: { duration: 300 },
-          inset: 60,
-        });
+      // Try each shape ID in order — the first one might have been deleted by the user.
+      let zoomed = false;
+      for (const sid of mark.canvasShapeIds) {
+        const bounds = canvasEditorRef.current.getShapePageBounds(sid as TLShapeId);
+        if (bounds) {
+          canvasEditorRef.current.zoomToBounds(bounds, { animation: { duration: 300 }, inset: 60 });
+          zoomed = true;
+          break;
+        }
+      }
+      if (!zoomed) {
+        // eslint-disable-next-line no-console
+        console.warn('[useAIMarks] All shapes in canvas mark have been deleted — skipping zoom');
+      }
     } else {
       editorRef.current?.jumpToText(mark.text);
     }
@@ -274,14 +280,20 @@ export function useAIMarks({
     setAiNavIndex(idx);
     const mark = activeFileMarks[idx];
     if (mark.canvasShapeIds?.length && canvasEditorRef.current) {
-      const bounds = canvasEditorRef.current.getShapePageBounds(
-        mark.canvasShapeIds[0] as TLShapeId,
-      );
-      if (bounds)
-        canvasEditorRef.current.zoomToBounds(bounds, {
-          animation: { duration: 300 },
-          inset: 60,
-        });
+      // Try each shape ID in order — the first one might have been deleted by the user.
+      let zoomed = false;
+      for (const sid of mark.canvasShapeIds) {
+        const bounds = canvasEditorRef.current.getShapePageBounds(sid as TLShapeId);
+        if (bounds) {
+          canvasEditorRef.current.zoomToBounds(bounds, { animation: { duration: 300 }, inset: 60 });
+          zoomed = true;
+          break;
+        }
+      }
+      if (!zoomed) {
+        // eslint-disable-next-line no-console
+        console.warn('[useAIMarks] All shapes in canvas mark have been deleted — skipping zoom');
+      }
     } else {
       editorRef.current?.jumpToText(mark.text);
     }

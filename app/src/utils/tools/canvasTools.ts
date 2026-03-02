@@ -218,8 +218,9 @@ export const executeCanvasTools: DomainExecutor = async (name, args, ctx) => {
       try {
         await new Promise<void>((resolve) => {
           const img = new Image();
-          img.onload = () => { natW = img.naturalWidth || 800; natH = img.naturalHeight || 600; resolve(); };
-          img.onerror = () => resolve();
+          const timeout = setTimeout(resolve, 10_000); // 10s timeout — unreachable URLs hang forever otherwise
+          img.onload = () => { clearTimeout(timeout); natW = img.naturalWidth || 800; natH = img.naturalHeight || 600; resolve(); };
+          img.onerror = () => { clearTimeout(timeout); resolve(); };
           img.src = imgUrl;
         });
       } catch { /* use defaults */ }

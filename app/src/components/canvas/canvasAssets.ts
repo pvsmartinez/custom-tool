@@ -9,8 +9,20 @@
  */
 import { readFile } from '../../services/fs';
 
-// Cache persists for the app lifetime (same path → same bytes → same blob URL).
+// Cache persists across multiple opens of the same file (same path → same bytes → same blob URL).
+// Call clearAssetBlobCache() when a canvas file is closed to prevent unbounded growth.
 const _assetBlobCache = new Map<string, string>();
+
+/**
+ * Revoke all cached blob URLs and clear the cache.
+ * Call this when a CanvasEditor unmounts to prevent memory leaks.
+ */
+export function clearAssetBlobCache() {
+  for (const blobUrl of _assetBlobCache.values()) {
+    try { URL.revokeObjectURL(blobUrl); } catch { /* ignore */ }
+  }
+  _assetBlobCache.clear();
+}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const tauriAssetsStore: any = {

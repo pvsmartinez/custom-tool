@@ -45,7 +45,14 @@ export function loadThemeFromDoc(editor: Editor): CanvasTheme {
 
 export function persistTheme(editor: Editor, theme: CanvasTheme) {
   const existing = editor.getDocumentSettings().meta as Record<string, unknown>;
-  editor.updateDocumentSettings({ meta: { ...existing, theme: theme as unknown as ReturnType<typeof editor.getDocumentSettings>['meta'][string] } });
+  // Strip data: URLs from slideBgImage before persisting — they can be several MB
+  // and are already captured in the tldraw asset store via the bg image shape.
+  // HTTP/asset:// URL strings are short and safe to persist.
+  const persistable: CanvasTheme = {
+    ...theme,
+    slideBgImage: theme.slideBgImage?.startsWith('data:') ? '' : (theme.slideBgImage ?? ''),
+  };
+  editor.updateDocumentSettings({ meta: { ...existing, theme: persistable as unknown as ReturnType<typeof editor.getDocumentSettings>['meta'][string] } });
 }
 
 export function applyThemeToSlides(editor: Editor, theme: CanvasTheme) {

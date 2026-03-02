@@ -25,7 +25,7 @@ import {
   loadThemeFromDoc, applyThemeToSlides, enforceBgAtBack,
   SLIDE_LAYOUT_OPTIONS, applySlideLayout,
 } from './canvas/canvasTheme';
-import { tauriAssetsStore } from './canvas/canvasAssets';
+import { tauriAssetsStore, clearAssetBlobCache } from './canvas/canvasAssets';
 import { loadFontOverrides, applyFontOverridesToContainer } from './canvas/canvasFontOverrides';
 import { CanvasOverlays } from './canvas/CanvasOverlays';
 
@@ -185,6 +185,12 @@ export default function CanvasEditor({
 
   const { shapeCtxMenu, setShapeCtxMenu, lockPill, setLockPill, lockFlash } =
     useCanvasLockUI({ editorRef, mainDivRef });
+
+  // ── Clear blob URL cache when this canvas instance unmounts ─────────────────
+  useEffect(() => {
+    return () => { clearAssetBlobCache(); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── Load workspace images when theme panel opens ───────────────────────────
   useEffect(() => {
