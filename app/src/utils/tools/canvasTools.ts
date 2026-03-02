@@ -196,7 +196,8 @@ export const executeCanvasTools: DomainExecutor = async (name, args, ctx) => {
       if (!editor) return 'No canvas is currently open. Ask the user to open a .tldr.json canvas file first.';
       const url = await canvasToDataUrl(editor, 0.5);
       if (!url) return 'Canvas is empty — nothing to screenshot.';
-      const compressed = await compressDataUrl(url, 512, 0.65);
+      // 320px wide, 0.55 quality — keeps a photographic canvas background under ~50 KB
+      const compressed = await compressDataUrl(url, 320, 0.55);
       return `__CANVAS_PNG__:${compressed}`;
     }
 
@@ -212,7 +213,7 @@ export const executeCanvasTools: DomainExecutor = async (name, args, ctx) => {
         }
         const offscreenUrl = await renderHtmlOffscreen(freshHtml, activeHtml.absPath);
         if (offscreenUrl) {
-          const compressed = await compressDataUrl(offscreenUrl, 512, 0.65);
+          const compressed = await compressDataUrl(offscreenUrl, 320, 0.55);
           return `__PREVIEW_PNG__:${compressed}`;
         }
       }
@@ -220,7 +221,7 @@ export const executeCanvasTools: DomainExecutor = async (name, args, ctx) => {
       if (webPreviewRef?.current) {
         const url = await webPreviewRef.current.getScreenshot();
         if (url) {
-          const compressed = await compressDataUrl(url, 512, 0.65);
+          const compressed = await compressDataUrl(url, 320, 0.55);
           return `__PREVIEW_PNG__:${compressed}`;
         }
       }

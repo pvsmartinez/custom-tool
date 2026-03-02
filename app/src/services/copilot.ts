@@ -440,7 +440,7 @@ export async function startDeviceFlow(
     verification_uri: string;
     expires_in: number;
     interval: number;
-  }>('github_device_flow_init');
+  }>('github_device_flow_init', { scope: 'copilot' });
 
   onState({ userCode: d.user_code, verificationUri: d.verification_uri, expiresIn: d.expires_in });
 
@@ -1108,25 +1108,52 @@ export async function runCopilotAgent(
       // Retry up to 3 times for transient 5xx errors with exponential backoff
       let res: Awaited<ReturnType<typeof fetch>> | null = null;
       let lastFetchError: Error | null = null;
+      // loopForRequest may be stripped of its trailing vision user message on
+      // a 400 retry — we never mutate `loop` itself here so the vision message
+      // stays in context for the next round's screenshot injection to re-evaluate.
+      let loopForRequest = loop as typeof loop;
       for (let attempt = 0; attempt < 3; attempt++) {
         if (signal?.aborted) return;
         if (attempt > 0) await new Promise((r) => setTimeout(r, 1000 * 2 ** (attempt - 1)));
         // Update the diagnostic dump before every attempt so it reflects the live request.
-        _lastRequestDump = buildRequestDump(loop, model, tools);
+        _lastRequestDump = buildRequestDump(loopForRequest, model, tools);
         const r = await fetch(COPILOT_API_URL, {
           method: 'POST',
           headers,
           signal,
           body: JSON.stringify({
             model,
-            messages: loop,
+            messages: loopForRequest,
             tools,
             tool_choice: 'auto',
             stream: true,
             ...modelApiParams(model, 0.3, 16000),
           }),
         });
-        if (r.ok || r.status < 500) { res = r; break; }
+        if (r.ok) { res = r; break; }
+        if (r.status === 400) {
+          // 400 can mean the vision user message (base64 image) is too large or
+          // unsupported by the API for this model. Strip the image and retry once.
+          const lastMsg = loopForRequest[loopForRequest.length - 1];
+          const hasTrailingVision =
+            lastMsg?.role === 'user' &&
+            Array.isArray(lastMsg.content) &&
+            (lastMsg.content as any[]).some((p: any) => p.type === 'image_url');
+          if (hasTrailingVision && attempt === 0) {
+            // Replace the vision message with a plain-text fallback so the model
+            // knows a screenshot was taken but can't be shown.
+            const label = (lastMsg.content as any[]).find((p: any) => p.type === 'text')?.text ?? 'Canvas screenshot taken';
+            loopForRequest = [
+              ...loopForRequest.slice(0, -1),
+              { role: 'user' as const, content: `${label} (image omitted — too large for API)` },
+            ];
+            console.warn('[agent] 400 with vision message — retrying without image');
+            continue; // retry immediately, no backoff
+          }
+          // Non-vision 400 or second attempt — don't retry, surface the error.
+          res = r; break;
+        }
+        if (r.status < 500) { res = r; break; }
         const errText = await r.text();
         const cleanMsg = errText.trim().startsWith('<')
           ? `GitHub returned a ${r.status} (server error) — please retry in a moment`
@@ -1138,7 +1165,7 @@ export async function runCopilotAgent(
       if (!res.ok) {
         const errText = await res.text();
         // Update the dump with the error response so the user gets actionable diagnostics.
-        _lastRequestDump = buildRequestDump(loop, model, tools, res.status, errText);
+        _lastRequestDump = buildRequestDump(loopForRequest, model, tools, res.status, errText);
         console.error('[agent] API error diagnostic:\n' + _lastRequestDump);
         let cleanMsg: string;
         if (errText.trim().startsWith('<')) {
