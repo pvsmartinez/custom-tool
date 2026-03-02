@@ -68,6 +68,9 @@ const COLOR_MAP: Record<string, TLColor> = {
 };
 
 type TLFill = 'none' | 'semi' | 'solid' | 'pattern';
+type TLSize = 's' | 'm' | 'l' | 'xl';
+type TLFont = 'draw' | 'sans' | 'serif' | 'mono';
+type TLAlign = 'start' | 'middle' | 'end';
 
 export function mapFill(raw: unknown): TLFill {
   const s = String(raw ?? '').toLowerCase();
@@ -77,6 +80,30 @@ export function mapFill(raw: unknown): TLFill {
 
 export function mapColor(raw: unknown, fallback: TLColor = 'yellow'): TLColor {
   return COLOR_MAP[String(raw ?? '').toLowerCase()] ?? fallback;
+}
+
+export function mapSize(raw: unknown, fallback: TLSize = 'm'): TLSize {
+  const s = String(raw ?? '').toLowerCase();
+  if (s === 's' || s === 'm' || s === 'l' || s === 'xl') return s as TLSize;
+  // Accept aliases: small/large/xlarge
+  if (s === 'small') return 's';
+  if (s === 'large') return 'l';
+  if (s === 'xlarge' || s === 'x-large' || s === 'title') return 'xl';
+  return fallback;
+}
+
+export function mapFont(raw: unknown, fallback: TLFont = 'sans'): TLFont {
+  const s = String(raw ?? '').toLowerCase();
+  if (s === 'draw' || s === 'sans' || s === 'serif' || s === 'mono') return s as TLFont;
+  return fallback;
+}
+
+export function mapAlign(raw: unknown, fallback: TLAlign = 'start'): TLAlign {
+  const s = String(raw ?? '').toLowerCase();
+  if (s === 'start' || s === 'left') return 'start';
+  if (s === 'middle' || s === 'center') return 'middle';
+  if (s === 'end' || s === 'right') return 'end';
+  return fallback;
 }
 
 // ── Snapshot sanitizer ───────────────────────────────────────────────────────
@@ -253,6 +280,9 @@ function describeShape(
   const attrs: string[] = [];
   if (props.color) attrs.push(`color:${props.color}`);
   if (props.fill && props.fill !== 'none') attrs.push(`fill:${props.fill}`);
+  const anyProps = props as Record<string, unknown>;
+  if (anyProps.size) attrs.push(`size:${anyProps.size}`);
+  if (anyProps.font && anyProps.font !== 'sans') attrs.push(`font:${anyProps.font}`);
   const attrStr = attrs.length ? ` [${attrs.join(', ')}]` : '';
   if (shape.type === 'arrow') {
     const ap = props as unknown as { start: { x: number; y: number }; end: { x: number; y: number } };
@@ -602,7 +632,8 @@ function runCommand(editor: Editor, cmd: Record<string, unknown>): CommandResult
     const target = existing.find((s) => s.id.endsWith(suffix));
     if (!target) throw new Error(`Shape not found: "${suffix}" — call list_canvas_shapes to get valid IDs.`);
     // Require at least one updatable field — avoids silent no-ops
-    if (cmd.text === undefined && cmd.color === undefined && cmd.fill === undefined)
+    if (cmd.text === undefined && cmd.color === undefined && cmd.fill === undefined &&
+        cmd.size === undefined && cmd.font === undefined && cmd.align === undefined)
       return { count: 0, shapeId: null };
 
     // Shape-type aware update — prevents writing richText into shapes that don't
@@ -620,6 +651,13 @@ function runCommand(editor: Editor, cmd: Record<string, unknown>): CommandResult
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       if (cmd.color !== undefined) patch.color = mapColor(cmd.color, (target.props as any).color);
       if (cmd.fill  !== undefined) patch.fill  = mapFill(cmd.fill);
+      if (cmd.size  !== undefined) patch.size  = mapSize(cmd.size);
+      if (cmd.font  !== undefined) patch.font  = mapFont(cmd.font);
+      if (cmd.align !== undefined) {
+        // text shapes use 'textAlign'; note/geo/arrow use 'align'
+        if (target.type === 'text') patch.textAlign = mapAlign(cmd.align);
+        else patch.align = mapAlign(cmd.align);
+      }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       editor.updateShapes([{ id: target.id, type: target.type, props: patch } as any]);
     } else {
@@ -671,6 +709,9 @@ function runCommand(editor: Editor, cmd: Record<string, unknown>): CommandResult
       props: {
         richText: toRichText(String(cmd.text ?? '')),
         color: mapColor(cmd.color, 'yellow'),
+        size: mapSize(cmd.size, 'm'),
+        font: mapFont(cmd.font, 'sans'),
+        align: mapAlign(cmd.align, 'middle'),
       },
     }]);
     return { count: 1, shapeId: noteId };
@@ -688,6 +729,9 @@ function runCommand(editor: Editor, cmd: Record<string, unknown>): CommandResult
       props: {
         richText: toRichText(String(cmd.text ?? '')),
         color: mapColor(cmd.color, 'black'),
+        size: mapSize(cmd.size, 'm'),
+        font: mapFont(cmd.font, 'sans'),
+        textAlign: mapAlign(cmd.align, 'start'),
         autoSize: true,
       },
     }]);
@@ -719,6 +763,9 @@ function runCommand(editor: Editor, cmd: Record<string, unknown>): CommandResult
         richText: toRichText(String(cmd.text ?? '')),
         color: mapColor(cmd.color, 'blue'),
         fill: mapFill(cmd.fill),
+        size: mapSize(cmd.size, 'm'),
+        font: mapFont(cmd.font, 'sans'),
+        align: mapAlign(cmd.align, 'middle'),
         // Always set scale explicitly — tldraw v4.4+ validates that scale is a
         // number and throws a ValidationError if the prop is missing or non-numeric.
         scale: 1,
