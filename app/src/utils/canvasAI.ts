@@ -839,6 +839,23 @@ function runCommand(editor: Editor, cmd: Record<string, unknown>): CommandResult
     return bgId;
   }
 
+  // ── Helper: reliably place a background shape behind all frame content ─────
+  // sendToBack alone can fail silently for shapes inside a tldraw frame because
+  // the z-order is frame-local and some tldraw versions apply it page-globally.
+  // Double-fix: send bg to back AND bringToFront on every other frame child,
+  // so the result is correct regardless of which side works.
+  function _sendBgToBack(bgId: string, frameId: TLShapeId) {
+    try { editor.sendToBack([bgId as TLShapeId]); } catch { /* older tldraw */ }
+    // bringToFront on all siblings guarantees content is above the background
+    // even if sendToBack had no effect within the frame context.
+    const siblings = editor.getCurrentPageShapes().filter(
+      (s) => s.parentId === frameId && s.id !== bgId,
+    );
+    if (siblings.length > 0) {
+      try { editor.bringToFront(siblings.map((s) => s.id as TLShapeId)); } catch { /* older tldraw */ }
+    }
+  }
+
   // ── add_image ─────────────────────────────────────────────────
   // Place an image inside a slide (or free page) via canvas_op.
   // Example: {"op":"add_image","url":"https://…","x":0,"y":0,"w":1280,"h":720,"slide":"frameId","to_back":true}
@@ -851,7 +868,9 @@ function runCommand(editor: Editor, cmd: Record<string, unknown>): CommandResult
     const imgY = safeCoord(cmd.y, 0);
     const imgName = url.split('/').pop()?.split('?')[0] ?? 'image';
     const imgId = _createImageShape(url, imgName, imgX, imgY, imgW, imgH, parentFrameId);
-    if (cmd.to_back) {
+    if (cmd.to_back && parentFrameId) {
+      _sendBgToBack(imgId, parentFrameId);
+    } else if (cmd.to_back) {
       try { editor.sendToBack([imgId as TLShapeId]); } catch { /* older tldraw */ }
     }
     return { count: 1, shapeId: imgId };
@@ -884,7 +903,7 @@ function runCommand(editor: Editor, cmd: Record<string, unknown>): CommandResult
     } else {
       bgId = _createColorBgShape(mapColor(colorRaw, 'grey'), fw, fh, frame.id as TLShapeId);
     }
-    try { editor.sendToBack([bgId as TLShapeId]); } catch { /* older tldraw */ }
+    _sendBgToBack(bgId, frame.id as TLShapeId);
     return { count: 1, shapeId: bgId };
   }
 
@@ -935,7 +954,7 @@ function runCommand(editor: Editor, cmd: Record<string, unknown>): CommandResult
           newId = _createColorBgShape(mapColor(gp.color, 'grey'), tw, th, toFrame.id as TLShapeId);
         }
         if (!newId) continue;
-        try { editor.sendToBack([newId as TLShapeId]); } catch { /* older tldraw */ }
+        _sendBgToBack(newId, toFrame.id as TLShapeId);
         lastId = newId;
         total++;
       }
@@ -992,7 +1011,7 @@ function runCommand(editor: Editor, cmd: Record<string, unknown>): CommandResult
         } else {
           bgId = _createColorBgShape(mapColor(bgColor, 'grey'), fw, fh, frame.id as TLShapeId);
         }
-        try { editor.sendToBack([bgId as TLShapeId]); } catch { /* older tldraw */ }
+        _sendBgToBack(bgId, frame.id as TLShapeId);
         lastBgId = bgId;
         total++;
       }
@@ -1178,6 +1197,14 @@ function runCommand(editor: Editor, cmd: Record<string, unknown>): CommandResult
     for (const bg of bgChildren) { try { copyChild(bg); } catch { /* skip */ } }
     // Then content shapes on top
     for (const content of contentChildren) { try { copyChild(content); } catch { /* skip */ } }
+
+    // Final z-order fix: ensure ALL bg shapes in the new frame are behind content.
+    // This corrects any z-order issues from the per-shape sendToBack calls above
+    // (which can be unreliable within a frame in tldraw v4).
+    const newBgs = editor.getCurrentPageShapes().filter(
+      (s) => s.parentId === newFrameId && isBgShape(s, fw, fh),
+    );
+    for (const bg of newBgs) { _sendBgToBack(bg.id, newFrameId); }
 
     return { count: 1 + copied, shapeId: newFrameId };
   }
