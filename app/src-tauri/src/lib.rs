@@ -430,23 +430,39 @@ mod git_native {
     }
 
     pub fn git_clone(url: String, path: String, token: Option<String>, branch: Option<String>) -> Result<String, String> {
+        eprintln!("[git_clone] url_in={url:?} path={path:?} branch={branch:?} has_token={}", token.is_some());
+        if let Some(ref tok) = token {
+            let preview = if tok.len() >= 8 { &tok[..8] } else { tok.as_str() };
+            eprintln!("[git_clone] token_prefix={preview}... len={}", tok.len());
+        }
         // Idempotent: if the destination is already a valid git repo, skip the clone.
         if std::path::Path::new(&path).join(".git").exists() {
+            eprintln!("[git_clone] already_cloned — .git exists");
             return Ok("already_cloned".into());
         }
         // If the directory exists but has NO .git, remove it so libgit2 can clone fresh.
         if std::path::Path::new(&path).exists() {
+            eprintln!("[git_clone] removing stale dir before clone");
             std::fs::remove_dir_all(&path).map_err(|e| format!("pre-clone cleanup failed: {}", e))?;
         }
         // Normalize SSH → HTTPS, embed token in URL, and also supply a credential
         // callback — in case libgit2 1.7.x strips the embedded credentials and then
         // invokes the callback as a fallback (documented security behaviour).
-        let url = normalize_url(&url);
-        let url = if let Some(ref tok) = token {
-            inject_token(&url, tok)
+        let normalized = normalize_url(&url);
+        eprintln!("[git_clone] normalized_url={normalized:?}");
+        let auth_url = if let Some(ref tok) = token {
+            inject_token(&normalized, tok)
         } else {
-            url
+            normalized.clone()
         };
+        // Log auth URL with token redacted
+        let redacted = if token.is_some() {
+            auth_url.replacen(|c: char| c != '/' && c != ':' && c != '@' && c != '.', "*", 0) // keep shape
+                .split(':').next().unwrap_or(&auth_url).to_string() + ":***@..."
+        } else {
+            auth_url.clone()
+        };
+        eprintln!("[git_clone] auth_url_scheme={redacted}");
         let callbacks = if let Some(tok) = token {
             token_callbacks(tok)
         } else {
@@ -463,12 +479,32 @@ mod git_native {
                 builder.branch(b);
             }
         }
-        builder.clone(&url, std::path::Path::new(&path)).map_err(|e| e.to_string())?;
-        Ok("cloned".into())
+        eprintln!("[git_clone] starting libgit2 clone...");
+        match builder.clone(&auth_url, std::path::Path::new(&path)) {
+            Ok(_) => {
+                eprintln!("[git_clone] SUCCESS");
+                Ok("cloned".into())
+            }
+            Err(e) => {
+                eprintln!("[git_clone] FAILED code={:?} class={:?} msg={}", e.code(), e.class(), e.message());
+                Err(e.to_string())
+            }
+        }
     }
 
     pub fn git_pull(path: String, token: Option<String>) -> Result<String, String> {
-        let repo = Repository::open(&path).map_err(|e| e.to_string())?;
+        eprintln!("[git_pull] path={path:?} has_token={}", token.is_some());
+        if let Some(ref tok) = token {
+            let preview = if tok.len() >= 8 { &tok[..8] } else { tok.as_str() };
+            eprintln!("[git_pull] token_prefix={preview}... len={}", tok.len());
+        }
+        let repo = match Repository::open(&path) {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("[git_pull] FAILED open repo: {}", e);
+                return Err(format!("Repositório não encontrado: {}", e));
+            }
+        };
 
         // Normalize SSH → HTTPS so PAT auth works; updates .git/config permanently
         ensure_https_remote(&repo);
@@ -476,12 +512,16 @@ mod git_native {
         // Guard: detached HEAD or unborn branch (empty repo) — nothing to pull
         let head = match repo.head() {
             Ok(h) => h,
-            Err(_) => return Ok("up_to_date".into()), // empty / unborn branch
+            Err(e) => {
+                eprintln!("[git_pull] no HEAD (empty/unborn): {}", e);
+                return Ok("up_to_date".into());
+            }
         };
-        if head.is_branch() == false {
+        if !head.is_branch() {
             return Err("HEAD is detached — resolve on desktop".into());
         }
         let branch_name = head.shorthand().unwrap_or("main").to_string();
+        eprintln!("[git_pull] branch={branch_name}");
 
         // Get origin URL, normalize SSH→HTTPS, inject token into URL, and also
         // provide a credential callback fallback (for libgit2 1.7.x which may strip
@@ -493,10 +533,13 @@ mod git_native {
             .ok()
             .and_then(|r| r.url().map(String::from))
             .unwrap_or_default();
+        eprintln!("[git_pull] origin_url_raw={origin_url:?}");
         let clean_url = normalize_url(&origin_url);
+        eprintln!("[git_pull] clean_url={clean_url:?}");
         let auth_url = if let Some(ref tok) = token {
             inject_token(&clean_url, tok)
         } else {
+            eprintln!("[git_pull] WARNING: no token provided — fetch will likely fail for private repos");
             clean_url.clone()
         };
         let _ = repo.remote_set_url("origin", &auth_url);
@@ -510,10 +553,15 @@ mod git_native {
         };
         let mut fetch_opts = git2::FetchOptions::new();
         fetch_opts.remote_callbacks(callbacks);
+        eprintln!("[git_pull] starting fetch branch={branch_name}...");
         let fetch_result = remote.fetch(&[branch_name.as_str()], Some(&mut fetch_opts), None);
         drop(remote);
         // Always restore the clean URL (no token in .git/config)
         let _ = repo.remote_set_url("origin", &clean_url);
+        match &fetch_result {
+            Ok(_) => eprintln!("[git_pull] fetch OK"),
+            Err(e) => eprintln!("[git_pull] fetch FAILED code={:?} class={:?} msg={}", e.code(), e.class(), e.message()),
+        }
         fetch_result.map_err(|e| e.to_string())?;
 
         let remote_ref = format!("refs/remotes/origin/{branch_name}");
