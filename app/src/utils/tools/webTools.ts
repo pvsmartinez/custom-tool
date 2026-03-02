@@ -83,7 +83,8 @@ export const WEB_TOOL_DEFS: ToolDefinition[] = [
       description:
         'Run a shell (bash) command in the workspace directory. Use this to create folders, run npm/node/git commands, install packages, scaffold projects, execute scripts, and perform any other terminal operations. ' +
         'Returns stdout, stderr, and the exit code. Commands run with the workspace root as the working directory unless cwd is specified. ' +
-        'NEVER use this tool to write, create, or overwrite .tldr.json canvas files — direct writes produce schema mismatches that crash tldraw on load. Use canvas_op to modify canvas content instead.',
+        'NEVER use this tool to write, create, or overwrite .tldr.json canvas files — direct writes produce schema mismatches that crash tldraw on load. Use canvas_op to modify canvas content instead. ' +
+        'NEVER use this tool to run vercel CLI commands (e.g. vercel deploy, vercel --prod) — for Vercel deployments use the publish_vercel tool instead, which uses the REST API and requires no git commit.',
       parameters: {
         type: 'object',
         properties: {
@@ -106,6 +107,9 @@ export const WEB_TOOL_DEFS: ToolDefinition[] = [
       name: 'publish_vercel',
       description:
         'Deploy a folder from this workspace to Vercel and optionally assign a custom domain. ' +
+        'IMPORTANT: This tool uses the Vercel REST API directly — no Vercel CLI is needed and no git commit is required. ' +
+        'When the user asks to publish or deploy to Vercel, ALWAYS use this tool with action="deploy". ' +
+        'NEVER use run_command to call the vercel CLI — the CLI requires committed git history and will fail on uncommitted changes. ' +
         'The Vercel API token is read from localStorage key "cafezin-vercel-token" (global) or the token argument. ' +
         'Use action="deploy" to create or update a deployment. ' +
         'Use action="assign_domain" to link a custom domain (e.g. santacruz.pmatz.com) to an existing project — ' +
@@ -341,6 +345,15 @@ export const executeWebTools: DomainExecutor = async (name, args, ctx) => {
             'Call list_canvas_shapes to get current shape IDs and frame IDs.'
           );
         }
+      }
+      // Guard: block Vercel CLI invocations — use publish_vercel tool instead.
+      // The CLI requires committed git history; the publish_vercel REST API does not.
+      if (/\bvercel\b/.test(command) && !/vercel\.json/.test(command)) {
+        return (
+          'Error: do not run the Vercel CLI via run_command. ' +
+          'Use the publish_vercel tool with action="deploy" instead — it calls the Vercel REST API directly and does not require a git commit.\n\n' +
+          'Example: publish_vercel({ action: "deploy", projectName: "<project>", sourceDir: "<folder>" })'
+        );
       }
       const relCwd = String(args.cwd ?? '').trim();
       const absCwd = relCwd ? `${workspacePath}/${relCwd}` : workspacePath;
