@@ -208,31 +208,37 @@ mod git_native {
     use git2::{build::CheckoutBuilder, IndexAddOption, PushOptions,
                RemoteCallbacks, Repository, RepositoryInitOptions, Signature};
 
-    /// Inject an OAuth token into an HTTPS URL.
-    /// Correct GitHub OAuth format: `https://oauth2:TOKEN@github.com/...`
-    /// NOT `TOKEN:x-oauth-basic` — that format is for classic PATs only and
-    /// does NOT work with OAuth Device Flow tokens (ghu_ prefix).
-    fn inject_token(url: &str, token: &str) -> String {
+    /// Strip any embedded credentials from an HTTPS URL, returning a clean URL.
+    /// The token is supplied ONLY via the RemoteCallbacks credential callback,
+    /// never embedded in the URL. Reason: when credentials are embedded in the
+    /// URL, libgit2 uses them directly. If GitHub returns 403 (auth attempted
+    /// but denied), libgit2 stops — it does NOT fall back to the credential
+    /// callback. But when the URL is clean, GitHub returns 401, libgit2 invokes
+    /// the callback, we provide the correct credentials, and the retry succeeds.
+    fn clean_url(url: &str) -> String {
         if let Some(rest) = url.strip_prefix("https://") {
-            // Strip any pre-existing credentials
             let host_path = if let Some(at_pos) = rest.find('@') {
                 &rest[at_pos + 1..]
             } else {
                 rest
             };
-            return format!("https://oauth2:{}@{}", token, host_path);
+            return format!("https://{}", host_path);
         }
         url.to_string()
     }
 
-    /// Build a RemoteCallbacks that provides OAuth token credentials.
-    /// GitHub Device Flow tokens (ghu_ prefix) require:
-    ///   username = "oauth2", password = TOKEN
+    /// Keep inject_token as an alias for clean_url — the token is intentionally
+    /// NOT embedded in the URL (see clean_url doc). Only the callback carries it.
+    fn inject_token(url: &str, _token: &str) -> String {
+        Self::clean_url(url)
+    }
+
+    /// Build RemoteCallbacks that supply the OAuth token when libgit2 asks for
+    /// credentials (called after the server returns 401 on a clean-URL request).
     ///
-    /// The `tried_userpass` guard fires only after we supply USER_PASS credentials,
-    /// NOT on DEFAULT/Kerberos rounds (which always return Cred::default()). Without
-    /// this, libgit2 consumes the retry budget on the DEFAULT round and the
-    /// USER_PASS round never runs, producing a 403.
+    /// GitHub accepts: username = anything non-empty, password = token.
+    /// We use "x-oauth-basic" as the username — the conventional value for
+    /// GitHub OAuth token auth over HTTPS. The token goes in the password.
     fn token_callbacks(token: String) -> RemoteCallbacks<'static> {
         let mut cb = RemoteCallbacks::new();
         let tok = token.clone();
@@ -245,8 +251,9 @@ mod git_native {
                     return Err(git2::Error::from_str("auth failed after retry"));
                 }
                 tried_userpass = true;
-                eprintln!("[git2 cred] providing oauth2:TOKEN credentials");
-                return git2::Cred::userpass_plaintext("oauth2", &tok);
+                // username=x-oauth-basic, password=token — standard GitHub OAuth HTTPS auth
+                eprintln!("[git2 cred] providing x-oauth-basic:TOKEN credentials");
+                return git2::Cred::userpass_plaintext("x-oauth-basic", &tok);
             }
             // For DEFAULT (Kerberos/GSSAPI) — do not consume tried_userpass
             git2::Cred::default()
