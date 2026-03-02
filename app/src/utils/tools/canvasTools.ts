@@ -155,8 +155,10 @@ export const executeCanvasTools: DomainExecutor = async (name, args, ctx) => {
         if (activeFile) unlockFile(activeFile);
       }
       if (count === 0) {
-        const errDetail = errors.length ? ` Errors: ${errors.join('; ')}` : '';
-        return `No commands were executed. Check the command syntax.${errDetail}`;
+        if (errors.length > 0) {
+          return `Canvas operation failed — all changes rolled back. ${errors.length} error(s): ${errors.join('; ')}`;
+        }
+        return `No commands were executed. Check the command syntax.`;
       }
       onCanvasModified?.(shapeIds);
       return `Executed ${count} canvas operation(s) successfully.`;

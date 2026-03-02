@@ -30,15 +30,18 @@ import type { TLNoteShape, TLGeoShape, TLTextShape, TLGeoShapeGeoStyle, TLArrowS
 // AI-generated or externally-produced canvas files.
 let _tlSerializedSchema: Record<string, number> | null = null;
 function getTLSequences(): Record<string, number> {
-  if (!_tlSerializedSchema) {
-    try {
-      const s = createTLSchema().serialize() as { schemaVersion: number; sequences: Record<string, number> };
-      _tlSerializedSchema = s.sequences ?? {};
-    } catch {
-      _tlSerializedSchema = {};
-    }
+  // Only cache on success — if createTLSchema() throws, return {} without
+  // caching so the next call retries. Caching {} would make sanitizeSnapshot
+  // treat EVERY sequence in a valid file as "unknown" and delete them,
+  // silently corrupting the file.
+  if (_tlSerializedSchema !== null) return _tlSerializedSchema;
+  try {
+    const s = createTLSchema().serialize() as { schemaVersion: number; sequences: Record<string, number> };
+    _tlSerializedSchema = s.sequences ?? {};
+    return _tlSerializedSchema;
+  } catch {
+    return {}; // don't cache — retry on next call
   }
-  return _tlSerializedSchema;
 }
 
 // ── Slide layout constants — keep in sync with CanvasEditor.tsx ─────────────
@@ -175,20 +178,27 @@ export function sanitizeSnapshot(raw: unknown): TLEditorSnapshot {
       if (doc.schema && typeof doc.schema === 'object')
         schemaBlocks.push(doc.schema as Record<string, unknown>);
     }
-    for (const schemaObj of schemaBlocks) {
-      const seqs = schemaObj['sequences'];
-      if (!seqs || typeof seqs !== 'object') continue;
-      for (const key of Object.keys(seqs)) {
-        const storedVer = (seqs as Record<string, number>)[key];
-        const knownVer  = currentSeqs[key];
-        if (knownVer == null) {
-          // Unknown sequence type (AI hallucination) — remove it.
-          delete (seqs as Record<string, unknown>)[key];
-          patchCount++;
-        } else if (typeof storedVer === 'number' && storedVer > knownVer) {
-          // Sequence version too new — clamp to current so no TargetVersionTooNew error.
-          (seqs as Record<string, number>)[key] = knownVer;
-          patchCount++;
+    // Guard: if currentSeqs is empty (schema init failed), skip entirely.
+    // Proceeding with an empty map would delete every valid sequence from the file.
+    if (Object.keys(currentSeqs).length === 0) {
+      // eslint-disable-next-line no-console
+      console.warn('[canvasAI] sanitizeSnapshot: schema sequences unavailable — skipping version clamp');
+    } else {
+      for (const schemaObj of schemaBlocks) {
+        const seqs = schemaObj['sequences'];
+        if (!seqs || typeof seqs !== 'object') continue;
+        for (const key of Object.keys(seqs)) {
+          const storedVer = (seqs as Record<string, number>)[key];
+          const knownVer  = currentSeqs[key];
+          if (knownVer == null) {
+            // Unknown sequence type (AI hallucination) — remove it.
+            delete (seqs as Record<string, unknown>)[key];
+            patchCount++;
+          } else if (typeof storedVer === 'number' && storedVer > knownVer) {
+            // Sequence version too new — clamp to current so no TargetVersionTooNew error.
+            (seqs as Record<string, number>)[key] = knownVer;
+            patchCount++;
+          }
         }
       }
     }
