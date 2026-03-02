@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
-import { Coffee, Folders, Eye, Robot, Microphone, ArrowDown, ArrowClockwise, SignOut, ArrowRight, GithubLogo, Copy, CheckCircle, Warning } from '@phosphor-icons/react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { Coffee, Folders, Eye, Robot, Microphone, ArrowDown, ArrowClockwise, ArrowsClockwise, House, FolderSimple, SignOut, ArrowRight, GithubLogo, Copy, CheckCircle, Warning } from '@phosphor-icons/react';
 import { readTextFile, remapToCurrentDocDir } from './services/fs';
 import { loadWorkspace } from './services/workspace';
 import { useAuthSession } from './hooks/useAuthSession';
@@ -71,6 +71,29 @@ export default function MobileApp() {
   const [passwordInput, setPasswordInput] = useState('');
 
   const { toasts, toast, dismiss } = useToast();
+
+  // Shell topbar scroll-hide (Safari-style)
+  const screenRef = useRef<HTMLDivElement>(null);
+  const [headerHidden, setHeaderHidden] = useState(false);
+  const lastScrollY = useRef(0);
+  useEffect(() => {
+    const el = screenRef.current;
+    if (!el) return;
+    const handler = (e: Event) => {
+      const target = e.target as HTMLElement;
+      const y = target.scrollTop ?? 0;
+      const delta = y - lastScrollY.current;
+      if (delta > 6) {
+        setHeaderHidden(true);
+        lastScrollY.current = y;
+      } else if (delta < -6) {
+        setHeaderHidden(false);
+        lastScrollY.current = y;
+      }
+    };
+    el.addEventListener('scroll', handler, true);
+    return () => el.removeEventListener('scroll', handler, true);
+  }, []);
 
   const {
     isLoggedIn,
@@ -695,14 +718,9 @@ export default function MobileApp() {
       case 'files':
         return (
           <MobileFileBrowser
-            workspaceName={workspace!.name}
             fileTree={workspace!.fileTree}
             selectedPath={openFile ?? undefined}
             onFileSelect={handleFileSelect}
-            onRefresh={refreshWorkspace}
-            hasGit={workspace!.hasGit}
-            onSync={handleSync}
-            isSyncing={isSyncing}
             onBack={() => { setWorkspace(null); setWsGitUrl(null); }}
           />
         );
@@ -744,7 +762,51 @@ export default function MobileApp() {
   return (
     <div className="mb-shell">
       <ToastList toasts={toasts} onDismiss={dismiss} />
-      <div className="mb-screen">
+
+      {/* Shell-level workspace topbar — overlay (Safari-style), always on top */}
+      {workspace && (
+        <div className={`mb-topbar${headerHidden ? ' mb-topbar--hidden' : ''}`}>
+          <button
+            className="mb-icon-btn"
+            onClick={() => { setWorkspace(null); setWsGitUrl(null); }}
+            title="Trocar workspace"
+            style={{ marginRight: 2 }}
+          >
+            <House weight="thin" size={18} />
+          </button>
+          <span style={{ display: 'flex', color: 'var(--text-muted)' }}>
+            <FolderSimple weight="thin" size={20} />
+          </span>
+          <span className="mb-header-title">{workspace.name}</span>
+          {workspace.hasGit && (
+            <button
+              className="mb-icon-btn"
+              onClick={() => void handleSync()}
+              disabled={isSyncing}
+              title="Sincronizar (pull + push)"
+              style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13, padding: '4px 10px', borderRadius: 6 }}
+            >
+              {isSyncing
+                ? <><div className="mb-spinner" style={{ width: 12, height: 12, borderWidth: 2 }} /> Sincronizando…</>
+                : <><ArrowsClockwise weight="thin" size={16} /> Sync</>
+              }
+            </button>
+          )}
+          <button
+            className="mb-icon-btn"
+            onClick={refreshWorkspace}
+            title="Atualizar"
+            disabled={isSyncing}
+          >
+            <ArrowClockwise weight="thin" size={18} />
+          </button>
+        </div>
+      )}
+
+      <div
+        className={`mb-screen${workspace ? ' has-topbar' : ''}`}
+        ref={screenRef}
+      >
         {renderTab()}
       </div>
 

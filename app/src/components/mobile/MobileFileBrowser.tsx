@@ -1,8 +1,7 @@
 import { useState } from 'react';
 import {
   FolderSimple, GlobeSimple, FileText, PaintBrush, FilePdf,
-  Image, FilmStrip, SpeakerSimpleHigh, FileCode, Paperclip,
-  ArrowClockwise, ArrowsClockwise, House,
+  Image, FilmStrip, SpeakerSimpleHigh, FileCode, Paperclip, House,
 } from '@phosphor-icons/react';
 import type { FileTreeNode } from '../../types';
 import { getFileTypeInfo } from '../../utils/fileType';
@@ -101,90 +100,37 @@ function TreeNode({ node, depth, selectedPath, onSelect }: TreeNodeProps) {
 }
 
 interface MobileFileBrowserProps {
-  workspaceName: string;
   fileTree: FileTreeNode[];
   selectedPath?: string;
   onFileSelect: (path: string) => void;
-  onRefresh: () => void;
-  /** Called when the user taps the Sync button. Only shown when hasGit is true. */
-  onSync?: () => void;
-  /** True while a sync operation is in progress. */
-  isSyncing?: boolean;
-  /** Whether the workspace has a git remote. Hides the sync button when false. */
-  hasGit?: boolean;
-  /** Called when the user taps the back / home button to return to the workspace picker. */
+  /** Called when the user taps the back / home button in the empty state. */
   onBack?: () => void;
 }
 
 export default function MobileFileBrowser({
-  workspaceName,
   fileTree,
   selectedPath,
   onFileSelect,
-  onRefresh,
-  onSync,
-  isSyncing,
-  hasGit,
   onBack,
 }: MobileFileBrowserProps) {
   return (
     <>
-      <div className="mb-header">
-        {onBack && (
-          <button
-            className="mb-icon-btn"
-            onClick={onBack}
-            title="Voltar ao seletor de workspaces"
-            style={{ marginRight: 2 }}
-          >
-            <House weight="thin" size={18} />
-          </button>
-        )}
-        <span className="mb-filenode-icon" style={{ display: 'flex', color: 'var(--text-muted)' }}>
-          <FolderSimple weight="thin" size={20} />
-        </span>
-        <span className="mb-header-title">{workspaceName}</span>
-        {hasGit && onSync && (
-          <button
-            className="mb-icon-btn"
-            onClick={onSync}
-            disabled={isSyncing}
-            title="Sincronizar (pull + push)"
-            style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13, padding: '4px 10px', borderRadius: 6 }}
-          >
-            {isSyncing
-              ? <><div className="mb-spinner" style={{ width: 12, height: 12, borderWidth: 2 }} /> Sincronizando…</>
-              : <><ArrowsClockwise weight="thin" size={16} /> Sync</>
-            }
-          </button>
-        )}
-        <button className="mb-icon-btn" onClick={onRefresh} title="Refresh" disabled={isSyncing}>
-          <ArrowClockwise weight="thin" size={18} />
-        </button>
-      </div>
-
       <div className="mb-filebrowser">
         <div className="mb-filebrowser-scroll">
           {fileTree.length === 0 ? (
             <div className="mb-empty" style={{ padding: '48px 24px' }}>
               <div className="mb-empty-icon"><FolderSimple weight="thin" size={48} /></div>
-              {hasGit ? (
-                <div className="mb-empty-desc">Nenhum arquivo neste workspace.</div>
-              ) : (
-                <>
-                  <div className="mb-empty-desc">
-                    Nenhum arquivo encontrado. O repositório pode não estar sincronizado neste dispositivo.
-                  </div>
-                  {onBack && (
-                    <button
-                      className="mb-btn mb-btn-secondary"
-                      style={{ marginTop: 8, fontSize: 14, display: 'flex', alignItems: 'center', gap: 8 }}
-                      onClick={onBack}
-                    >
-                      <House weight="thin" size={16} /> Voltar e sincronizar
-                    </button>
-                  )}
-                </>
+              <div className="mb-empty-desc">
+                Nenhum arquivo encontrado. O repositório pode não estar sincronizado neste dispositivo.
+              </div>
+              {onBack && (
+                <button
+                  className="mb-btn mb-btn-secondary"
+                  style={{ marginTop: 8, fontSize: 14, display: 'flex', alignItems: 'center', gap: 8 }}
+                  onClick={onBack}
+                >
+                  <House weight="thin" size={16} /> Voltar e sincronizar
+                </button>
               )}
             </div>
           ) : (

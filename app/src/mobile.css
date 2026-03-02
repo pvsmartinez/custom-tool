@@ -2,7 +2,8 @@
    Cores, tipografia e escala vem de tokens.css (compartilhado com desktop).
    So variaveis de layout exclusivas do mobile ficam aqui. */
 :root {
-  --mb-tab-h:  56px;
+  --mb-tab-h:    56px;
+  --mb-topbar-h: 44px;   /* content height of the shell topbar, excl. safe-area */
   --mb-safe-b: env(safe-area-inset-bottom, 0px);
   --mb-safe-t: env(safe-area-inset-top, 0px);
 }
@@ -36,6 +37,38 @@ html, body, #root {
   display: flex;
   flex-direction: column;
   padding-top: var(--mb-safe-t);
+}
+
+/* When the shell-level topbar is present the screen must push content below it */
+.mb-screen.has-topbar {
+  padding-top: calc(var(--mb-safe-t) + var(--mb-topbar-h));
+}
+
+/* ── Shell topbar (workspace header — absolute overlay, Safari-style) ──────── */
+.mb-topbar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px 10px;
+  padding-top: calc(var(--mb-safe-t) + 12px);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  /* Frosted-glass effect */
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  /* Safari-style hide/show transition */
+  transform: translateY(0);
+  transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: transform;
+}
+
+.mb-topbar--hidden {
+  transform: translateY(-110%);
 }
 
 /* ── Bottom tab bar ───────────────────────────────────────────────────────── */
@@ -97,10 +130,10 @@ html, body, #root {
   flex-shrink: 0;
 }
 
-/* When the header is the first element inside mb-screen it must "absorb" the
-   safe-area padding that mb-screen adds, so the header background visually
-   fills the status-bar area instead of leaving a transparent gap. */
-.mb-screen > .mb-header:first-child {
+/* When the header is the first element inside mb-screen (on tabs without the
+   shell-level topbar) it must "absorb" the safe-area padding so the header
+   background visually fills the status-bar area. */
+.mb-screen:not(.has-topbar) > .mb-header:first-child {
   margin-top: calc(-1 * var(--mb-safe-t));
   padding-top: calc(var(--mb-safe-t) + 12px);
 }
