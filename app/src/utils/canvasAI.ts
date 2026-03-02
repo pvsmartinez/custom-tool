@@ -300,6 +300,25 @@ function describeShape(
   return `[${shortId}] ${shape.type} at (${x},${y})` + (text ? ` text:"${text}"` : '') + attrStr;
 }
 
+/**
+ * Returns true when a shape is a full-frame background (image or solid-fill geo rectangle).
+ * Uses `meta.isBg` marker first (set by our ops), then falls back to size heuristic so
+ * older canvas files created before the marker was introduced still work.
+ */
+export function isBgShape(
+  shape: ReturnType<Editor['getCurrentPageShapes']>[number],
+  fw: number,
+  fh: number,
+): boolean {
+  if ((shape.meta as Record<string, unknown>)?.isBg === true) return true;
+  const p = shape.props as { w?: number; h?: number; fill?: string; geo?: string };
+  const isFullFrame = (p.w ?? 0) >= fw * 0.8 && (p.h ?? 0) >= fh * 0.8;
+  if (!isFullFrame) return false;
+  if (shape.type === 'image') return true;
+  if (shape.type === 'geo') return p.geo === 'rectangle' && (p.fill === 'solid' || p.fill === 'semi' || p.fill === 'pattern');
+  return false;
+}
+
 /** Compute the axis-aligned bounding box for a set of shapes (parent-relative coords). */
 function shapeBounds(ss: ReturnType<Editor['getCurrentPageShapes']>): { x1: number; y1: number; x2: number; y2: number } | null {
   if (ss.length === 0) return null;
@@ -355,11 +374,7 @@ export function summarizeCanvas(editor: Editor): string {
         lines.push(`      (empty slide — free to fill entire ${f.props.w}\u00d7${f.props.h} area)`);
       } else {
         // Non-background shapes (used to calculate free space, hiding BG from bounding-box calc)
-        const nonBgChildren = children.filter((s) => {
-          if (s.type !== 'image') return true;
-          const p = s.props as { w?: number; h?: number };
-          return !((p.w ?? 0) >= f.props.w * 0.8 && (p.h ?? 0) >= f.props.h * 0.8);
-        });
+        const nonBgChildren = children.filter((s) => !isBgShape(s, f.props.w, f.props.h));
         // Show per-slide bounding box so the AI knows where free space is
         const bb = shapeBounds(nonBgChildren.length > 0 ? nonBgChildren : children);
         if (bb) {
@@ -739,7 +754,9 @@ function runCommand(editor: Editor, cmd: Record<string, unknown>): CommandResult
   }
 
   // ── Helper: create an image asset + shape ─────────────────────
-  // Shared by add_image, set_slide_background, copy_slide_background.
+  // Shared by add_image, set_slide_background, copy_slide_background, apply_theme.
+  // Pass isBg=true to mark the shape with meta.isBg so background detection is reliable
+  // regardless of size (avoids false-positives for large content images).
   function _createImageShape(
     url: string,
     name: string,
@@ -748,6 +765,7 @@ function runCommand(editor: Editor, cmd: Record<string, unknown>): CommandResult
     sw: number,
     sh: number,
     parentId?: TLShapeId,
+    isBg = false,
   ): string {
     const assetId = `asset:${crypto.randomUUID()}` as unknown as ReturnType<typeof createShapeId>;
     editor.createAssets([{
@@ -775,6 +793,7 @@ function runCommand(editor: Editor, cmd: Record<string, unknown>): CommandResult
       x: sx,
       y: sy,
       ...(parentId ? { parentId } : {}),
+      meta: isBg ? { isBg: true } : {},
       props: {
         assetId,
         w: sw,
@@ -788,6 +807,36 @@ function runCommand(editor: Editor, cmd: Record<string, unknown>): CommandResult
       } as any,
     }]);
     return imgId;
+  }
+
+  // ── Helper: create a solid-color full-frame background rectangle ──────────
+  // Creates a geo rectangle tagged with meta.isBg so it's reliably identified
+  // as a background by isBgShape() — not confused with content rectangles.
+  function _createColorBgShape(
+    color: TLColor,
+    fw: number,
+    fh: number,
+    parentId?: TLShapeId,
+  ): string {
+    const bgId = createShapeId();
+    editor.createShapes<TLGeoShape>([{
+      id: bgId,
+      type: 'geo',
+      x: 0,
+      y: 0,
+      meta: { isBg: true },
+      ...(parentId ? { parentId } : {}),
+      props: {
+        geo: 'rectangle',
+        w: fw,
+        h: fh,
+        richText: toRichText(''),
+        color,
+        fill: 'solid',
+        scale: 1,
+      },
+    }]);
+    return bgId;
   }
 
   // ── add_image ─────────────────────────────────────────────────
@@ -809,34 +858,39 @@ function runCommand(editor: Editor, cmd: Record<string, unknown>): CommandResult
   }
 
   // ── set_slide_background ──────────────────────────────────────
-  // Fill an entire slide (frame) with a background image, sent to back.
-  // Removes any existing full-frame image shapes first so they don't stack.
-  // Example: {"op":"set_slide_background","url":"https://…","slide":"frameId"}
+  // Fill an entire slide with a background image OR solid color, sent to back.
+  // Removes all existing bg shapes (image or color rect) before placing the new one.
+  // Examples:
+  //   {"op":"set_slide_background","url":"https://…","slide":"frameId"}        ← image bg
+  //   {"op":"set_slide_background","color":"blue","slide":"frameId"}            ← solid color bg
   if (op === 'set_slide_background') {
     const url = String(cmd.url ?? '').trim();
-    if (!url) throw new Error('set_slide_background requires a "url" field.');
+    const colorRaw = cmd.color ? String(cmd.color).trim() : '';
+    if (!url && !colorRaw) throw new Error('set_slide_background requires either a "url" or a "color" field.');
     const slideId = String(cmd.slide ?? '').trim();
     if (!slideId) throw new Error('set_slide_background requires a "slide" field (last-10-char frame ID).');
     const frame = existing.find((s) => s.type === 'frame' && s.id.endsWith(slideId)) as TLFrameShape | undefined;
     if (!frame) throw new Error(`Slide not found: "${slideId}". Call list_canvas_shapes to get valid frame IDs.`);
     const fw = (frame.props as { w: number }).w ?? SLIDE_W;
     const fh = (frame.props as { h: number }).h ?? SLIDE_H;
-    // Remove existing full-frame background images (covers >80% of frame area)
-    const children = existing.filter((s) => s.parentId === frame.id && s.type === 'image');
-    const bgThreshold = 0.8;
-    const toRemove = children.filter((s) => {
-      const p = s.props as { w?: number; h?: number };
-      return (p.w ?? 0) >= fw * bgThreshold && (p.h ?? 0) >= fh * bgThreshold;
-    });
+    // Remove ALL existing background shapes (image or solid-geo) using the shared helper
+    const children = existing.filter((s) => s.parentId === frame.id);
+    const toRemove = children.filter((s) => isBgShape(s, fw, fh));
     if (toRemove.length > 0) editor.deleteShapes(toRemove.map((s) => s.id as TLShapeId));
-    const imgName = url.split('/').pop()?.split('?')[0] ?? 'bg';
-    const imgId = _createImageShape(url, imgName, 0, 0, fw, fh, frame.id as TLShapeId);
-    try { editor.sendToBack([imgId as TLShapeId]); } catch { /* older tldraw */ }
-    return { count: 1, shapeId: imgId };
+    let bgId: string;
+    if (url) {
+      const imgName = url.split('/').pop()?.split('?')[0] ?? 'bg';
+      bgId = _createImageShape(url, imgName, 0, 0, fw, fh, frame.id as TLShapeId, true);
+    } else {
+      bgId = _createColorBgShape(mapColor(colorRaw, 'grey'), fw, fh, frame.id as TLShapeId);
+    }
+    try { editor.sendToBack([bgId as TLShapeId]); } catch { /* older tldraw */ }
+    return { count: 1, shapeId: bgId };
   }
 
   // ── copy_slide_background ─────────────────────────────────────
-  // Copy background image(s) from one slide to one or more other slides.
+  // Copy background (image OR solid color) from one slide to one or more others.
+  // Handles both image backgrounds and color-rect backgrounds created by set_slide_background.
   // Example: {"op":"copy_slide_background","from_slide":"abc1234567","to_slides":["def1234567","ghi1234567"]}
   if (op === 'copy_slide_background') {
     const fromId = String(cmd.from_slide ?? '').trim();
@@ -847,14 +901,9 @@ function runCommand(editor: Editor, cmd: Record<string, unknown>): CommandResult
     if (!fromFrame) throw new Error(`Source slide not found: "${fromId}"`);
     const fw = (fromFrame.props as { w: number }).w ?? SLIDE_W;
     const fh = (fromFrame.props as { h: number }).h ?? SLIDE_H;
-    // Find background images in source slide (images covering >80% frame area)
-    const bgThreshold = 0.8;
-    const srcBgs = existing.filter((s) =>
-      s.parentId === fromFrame.id && s.type === 'image' &&
-      (s.props as { w?: number; h?: number }).w! >= fw * bgThreshold &&
-      (s.props as { w?: number; h?: number }).h! >= fh * bgThreshold,
-    );
-    if (srcBgs.length === 0) throw new Error(`No background images found in source slide "${fromId}". A background image must cover ≥80% of the frame.`);
+    // Find ALL background shapes in source (image OR solid-color geo rect)
+    const srcBgs = existing.filter((s) => s.parentId === fromFrame.id && isBgShape(s, fw, fh));
+    if (srcBgs.length === 0) throw new Error(`No background found in source slide "${fromId}". Set a background with set_slide_background first.`);
 
     let total = 0;
     let lastId: string | null = null;
@@ -864,33 +913,148 @@ function runCommand(editor: Editor, cmd: Record<string, unknown>): CommandResult
       const tw = (toFrame.props as { w: number }).w ?? SLIDE_W;
       const th = (toFrame.props as { h: number }).h ?? SLIDE_H;
       // Remove existing backgrounds in target
-      const tgtBgs = existing.filter((s) =>
-        s.parentId === toFrame.id && s.type === 'image' &&
-        (s.props as { w?: number; h?: number }).w! >= tw * bgThreshold &&
-        (s.props as { w?: number; h?: number }).h! >= th * bgThreshold,
-      );
+      const tgtBgs = existing.filter((s) => s.parentId === toFrame.id && isBgShape(s, tw, th));
       if (tgtBgs.length > 0) editor.deleteShapes(tgtBgs.map((s) => s.id as TLShapeId));
-      // Reproduce all source background shapes in the target frame
+      // Reproduce all source backgrounds in the target frame
       for (const bg of srcBgs) {
-        const srcProps = bg.props as { assetId?: string; w?: number; h?: number };
-        // Resolve the original URL from the asset store
-        let srcUrl = '';
-        if (srcProps.assetId) {
-          try {
-            const asset = editor.getAsset(srcProps.assetId as any) as { props?: { src?: string } } | undefined;
-            srcUrl = asset?.props?.src ?? '';
-          } catch { /* ignore */ }
+        let newId: string | null = null;
+        if (bg.type === 'image') {
+          const srcProps = bg.props as { assetId?: string };
+          let srcUrl = '';
+          if (srcProps.assetId) {
+            try {
+              const asset = editor.getAsset(srcProps.assetId as any) as { props?: { src?: string } } | undefined;
+              srcUrl = asset?.props?.src ?? '';
+            } catch { /* ignore */ }
+          }
+          if (!srcUrl) continue;
+          const imgName = srcUrl.split('/').pop()?.split('?')[0] ?? 'bg';
+          newId = _createImageShape(srcUrl, imgName, 0, 0, tw, th, toFrame.id as TLShapeId, true);
+        } else if (bg.type === 'geo') {
+          const gp = bg.props as { color?: string };
+          newId = _createColorBgShape(mapColor(gp.color, 'grey'), tw, th, toFrame.id as TLShapeId);
         }
-        if (!srcUrl) continue; // can't reproduce without a URL
-        const imgName = srcUrl.split('/').pop()?.split('?')[0] ?? 'bg';
-        const imgId = _createImageShape(srcUrl, imgName, 0, 0, tw, th, toFrame.id as TLShapeId);
-        try { editor.sendToBack([imgId as TLShapeId]); } catch { /* older tldraw */ }
-        lastId = imgId;
+        if (!newId) continue;
+        try { editor.sendToBack([newId as TLShapeId]); } catch { /* older tldraw */ }
+        lastId = newId;
         total++;
       }
     }
-    if (total === 0) throw new Error('No backgrounds were copied. Check that the source slide has full-frame images and the target slide IDs are correct.');
+    if (total === 0) throw new Error('No backgrounds were copied. Check that the source slide has a background and the target IDs are correct.');
     return { count: total, shapeId: lastId };
+  }
+
+  // ── apply_theme ────────────────────────────────────────────────────────────
+  // Batch-apply a background (image or color) and/or text color to ALL slides
+  // (or a specified subset) in a single call. Never touches shape positions or content.
+  // Examples:
+  //   {"op":"apply_theme","bg_color":"black","text_color":"white","to_slides":"all"}
+  //   {"op":"apply_theme","bg_url":"https://…","to_slides":["abc1234567","def1234567"]}
+  //   {"op":"apply_theme","bg_color":"violet","to_slides":"all"}  ← bg only, keep text colors
+  if (op === 'apply_theme') {
+    const bgUrl = String(cmd.bg_url ?? '').trim();
+    const bgColor = cmd.bg_color ? String(cmd.bg_color).trim() : '';
+    const textColorRaw = cmd.text_color ? String(cmd.text_color).trim() : '';
+    if (!bgUrl && !bgColor && !textColorRaw)
+      throw new Error('apply_theme requires at least one of: bg_url, bg_color, text_color.');
+
+    const allFrames = existing.filter((s) => s.type === 'frame') as TLFrameShape[];
+    if (allFrames.length === 0) throw new Error('No slides found. Create slides with add_slide first.');
+
+    // Resolve target frames: "all" or array of last-10-char IDs
+    const rawTarget = cmd.to_slides;
+    let targetFrames: TLFrameShape[];
+    if (!rawTarget || rawTarget === 'all' || (Array.isArray(rawTarget) && (rawTarget as string[]).includes('all'))) {
+      targetFrames = allFrames;
+    } else {
+      const ids = (Array.isArray(rawTarget) ? rawTarget : [rawTarget]).map(String);
+      targetFrames = allFrames.filter((f) => ids.some((id) => f.id.endsWith(id)));
+      if (targetFrames.length === 0)
+        throw new Error('No slides matched the given IDs. Call list_canvas_shapes to get valid frame IDs.');
+    }
+
+    let total = 0;
+    let lastBgId: string | null = null;
+
+    for (const frame of targetFrames) {
+      const fw = (frame.props as { w: number }).w ?? SLIDE_W;
+      const fh = (frame.props as { h: number }).h ?? SLIDE_H;
+      const children = existing.filter((s) => s.parentId === frame.id);
+
+      // Apply background (replaces any existing bg)
+      if (bgUrl || bgColor) {
+        const toRemove = children.filter((s) => isBgShape(s, fw, fh));
+        if (toRemove.length > 0) editor.deleteShapes(toRemove.map((s) => s.id as TLShapeId));
+        let bgId: string;
+        if (bgUrl) {
+          const imgName = bgUrl.split('/').pop()?.split('?')[0] ?? 'bg';
+          bgId = _createImageShape(bgUrl, imgName, 0, 0, fw, fh, frame.id as TLShapeId, true);
+        } else {
+          bgId = _createColorBgShape(mapColor(bgColor, 'grey'), fw, fh, frame.id as TLShapeId);
+        }
+        try { editor.sendToBack([bgId as TLShapeId]); } catch { /* older tldraw */ }
+        lastBgId = bgId;
+        total++;
+      }
+
+      // Recolor all content (text, note, geo, arrow) — never touches images or backgrounds
+      if (textColorRaw) {
+        const mappedColor = mapColor(textColorRaw, 'black');
+        const contentShapes = children.filter((s) =>
+          !isBgShape(s, fw, fh) && ['note', 'text', 'geo', 'arrow'].includes(s.type),
+        );
+        for (const s of contentShapes) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          editor.updateShapes([{ id: s.id, type: s.type, props: { color: mappedColor } } as any]);
+          total++;
+        }
+      }
+    }
+
+    return { count: total, shapeId: lastBgId };
+  }
+
+  // ── recolor_slide ──────────────────────────────────────────────────────────
+  // Recolor all text/note and/or geo shapes in a slide to match a theme.
+  // Does NOT touch backgrounds, images, or shape positions.
+  // Examples:
+  //   {"op":"recolor_slide","slide":"abc1234567","text_color":"white"}
+  //   {"op":"recolor_slide","slide":"abc1234567","text_color":"white","geo_color":"light-blue"}
+  if (op === 'recolor_slide') {
+    const slideId = String(cmd.slide ?? '').trim();
+    if (!slideId) throw new Error('recolor_slide requires a "slide" field (last-10-char frame ID).');
+    const frame = existing.find((s) => s.type === 'frame' && s.id.endsWith(slideId)) as TLFrameShape | undefined;
+    if (!frame) throw new Error(`Slide not found: "${slideId}". Call list_canvas_shapes to get valid frame IDs.`);
+    const fw = (frame.props as { w: number }).w ?? SLIDE_W;
+    const fh = (frame.props as { h: number }).h ?? SLIDE_H;
+
+    const textColorRaw = cmd.text_color ? String(cmd.text_color).trim() : '';
+    // geo_color defaults to text_color if not specified
+    const geoColorRaw = cmd.geo_color ? String(cmd.geo_color).trim() : textColorRaw;
+    if (!textColorRaw && !geoColorRaw)
+      throw new Error('recolor_slide requires at least "text_color" or "geo_color".');
+
+    const children = existing.filter((s) => s.parentId === frame.id && !isBgShape(s, fw, fh));
+    let total = 0;
+
+    if (textColorRaw) {
+      const cls = mapColor(textColorRaw, 'black');
+      for (const s of children.filter((cs) => ['note', 'text', 'arrow'].includes(cs.type))) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        editor.updateShapes([{ id: s.id, type: s.type, props: { color: cls } } as any]);
+        total++;
+      }
+    }
+    if (geoColorRaw) {
+      const gc = mapColor(geoColorRaw, 'blue');
+      for (const s of children.filter((cs) => cs.type === 'geo')) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        editor.updateShapes([{ id: s.id, type: s.type, props: { color: gc } } as any]);
+        total++;
+      }
+    }
+
+    return { count: total, shapeId: null };
   }
 
   // ── duplicate_slide ───────────────────────────────────────────────────────
@@ -925,13 +1089,8 @@ function runCommand(editor: Editor, cmd: Record<string, unknown>): CommandResult
     // Copy all direct children of the source frame.
     // Order: backgrounds first (sendToBack), then content on top — matches z-order intent.
     const children = existing.filter((s) => s.parentId === srcFrame.id);
-    const bgThreshold = 0.8;
-    const bgChildren = children.filter((s) => {
-      if (s.type !== 'image') return false;
-      const p = s.props as { w?: number; h?: number };
-      return (p.w ?? 0) >= fw * bgThreshold && (p.h ?? 0) >= fh * bgThreshold;
-    });
-    const contentChildren = children.filter((s) => !bgChildren.includes(s));
+    const bgChildren = children.filter((s) => isBgShape(s, fw, fh));
+    const contentChildren = children.filter((s) => !isBgShape(s, fw, fh));
 
     let copied = 0;
 
@@ -961,8 +1120,11 @@ function runCommand(editor: Editor, cmd: Record<string, unknown>): CommandResult
         }]);
         copied++;
       } else if (child.type === 'geo') {
+        const childIsBg = isBgShape(child, fw, fh);
+        const geoId = createShapeId();
         editor.createShapes<TLGeoShape>([{
-          id: createShapeId(), type: 'geo',
+          id: geoId, type: 'geo',
+          meta: childIsBg ? { isBg: true } : {},
           parentId: newFrameId, x: child.x, y: child.y,
           props: {
             geo: (cp.geo as TLGeoShapeGeoStyle) ?? 'rectangle',
@@ -973,6 +1135,7 @@ function runCommand(editor: Editor, cmd: Record<string, unknown>): CommandResult
             scale: 1,
           },
         }]);
+        if (childIsBg) { try { editor.sendToBack([geoId as TLShapeId]); } catch { /* older tldraw */ } }
         copied++;
       } else if (child.type === 'arrow') {
         const ap = cp as { start?: { x: number; y: number }; end?: { x: number; y: number }; richText?: TLRichText; color?: string; arrowheadEnd?: string; arrowheadStart?: string };
@@ -1001,11 +1164,10 @@ function runCommand(editor: Editor, cmd: Record<string, unknown>): CommandResult
         if (srcUrl) {
           const imgW = safeCoord(imgP.w, fw);
           const imgH = safeCoord(imgP.h, fh);
+          const childIsBg = isBgShape(child, fw, fh);
           const imgName = srcUrl.split('/').pop()?.split('?')[0] ?? 'image';
-          const imgId = _createImageShape(srcUrl, imgName, child.x, child.y, imgW, imgH, newFrameId);
-          // Preserve background z-order: full-frame images go to back
-          const isBg2 = imgW >= fw * bgThreshold && imgH >= fh * bgThreshold;
-          if (isBg2) { try { editor.sendToBack([imgId as TLShapeId]); } catch { /* older tldraw */ } }
+          const imgId = _createImageShape(srcUrl, imgName, child.x, child.y, imgW, imgH, newFrameId, childIsBg);
+          if (childIsBg) { try { editor.sendToBack([imgId as TLShapeId]); } catch { /* older tldraw */ } }
           copied++;
         }
       }
