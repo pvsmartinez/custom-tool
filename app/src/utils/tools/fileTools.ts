@@ -35,7 +35,8 @@ export const FILE_TOOL_DEFS: ToolDefinition[] = [
       name: 'read_workspace_file',
       description:
         'Read the content of a file. Returns the full text or a specific line range. ' +
-        'For files larger than 40 KB the response is truncated — call again with start_line/end_line to page through the rest.',
+        'For files larger than 40 KB the response is truncated — call again with start_line/end_line to page through the rest. ' +
+        'NOTE: .tldr.json canvas files are BLOCKED — they contain base64 images and will overflow the context. Use list_canvas_shapes to inspect a canvas (it includes shape positions, asset IDs, and text).',
       parameters: {
         type: 'object',
         properties: {
@@ -247,6 +248,13 @@ export const executeFileTools: DomainExecutor = async (name, args, ctx) => {
     case 'read_workspace_file': {
       const relPath = String(args.path ?? '');
       if (!relPath) return 'Error: path is required.';
+      // Canvas files contain base64-encoded images — reading them raw floods the
+      // context window and causes API 400 errors. Use list_canvas_shapes instead.
+      if (relPath.endsWith('.tldr.json')) {
+        return 'Error: .tldr.json canvas files cannot be read with read_workspace_file — ' +
+          'their raw content contains base64 images that overflow the context. ' +
+          'Use list_canvas_shapes to inspect the open canvas (it shows shape positions, text, colors, and assetIds for images).';
+      }
       let abs: string;
       try { abs = safeResolvePath(workspacePath, relPath); }
       catch (e) { return String(e); }

@@ -255,6 +255,13 @@ function describeShape(editor: Editor, shape: ReturnType<Editor['getCurrentPageS
     const h = props.h ? Math.round(props.h) : '?';
     return `[${shortId}] ${props.geo ?? 'geo'} at (${x},${y}) size ${w}×${h}` + (text ? ` text:"${text}"` : '') + attrStr;
   }
+  if (shape.type === 'image') {
+    const imgProps = shape.props as { assetId?: string; w?: number; h?: number };
+    const w = imgProps.w ? Math.round(imgProps.w) : '?';
+    const h = imgProps.h ? Math.round(imgProps.h) : '?';
+    const assetPart = imgProps.assetId ? ` assetId:"${imgProps.assetId}"` : '';
+    return `[${shortId}] image at (${x},${y}) size ${w}×${h}${assetPart}`;
+  }
   return `[${shortId}] ${shape.type} at (${x},${y})` + (text ? ` text:"${text}"` : '') + attrStr;
 }
 
