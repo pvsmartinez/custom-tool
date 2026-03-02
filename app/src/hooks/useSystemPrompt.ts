@@ -89,6 +89,7 @@ export function useSystemPrompt({
       // ── Canvas / visual editing ───────────────────────────────
       `Canvas files (.tldr.json) are tldraw v4 whiteboards. Rules:
 • NEVER write raw JSON to a canvas file — use canvas_op exclusively.
+• NEVER use run_command (Python, bash, shell redirect, or any script) to create or overwrite a .tldr.json file. The internal tldraw format has strict schema version requirements — even a JSON-valid file written by hand will crash the canvas on load. run_command will block the attempt and return an error.
 • list_canvas_shapes returns each shape's ID, position, size, and — critically — the "Occupied area" and "Next free row" so you know exactly where existing content ends and where to safely add new content.
 • Always read the occupied area before adding shapes to avoid overlaps.
 • The canvas_op "commands" string is one JSON object per line (no commas between lines).

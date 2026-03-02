@@ -81,7 +81,8 @@ export const WEB_TOOL_DEFS: ToolDefinition[] = [
       name: 'run_command',
       description:
         'Run a shell (bash) command in the workspace directory. Use this to create folders, run npm/node/git commands, install packages, scaffold projects, execute scripts, and perform any other terminal operations. ' +
-        'Returns stdout, stderr, and the exit code. Commands run with the workspace root as the working directory unless cwd is specified.',
+        'Returns stdout, stderr, and the exit code. Commands run with the workspace root as the working directory unless cwd is specified. ' +
+        'NEVER use this tool to write, create, or overwrite .tldr.json canvas files — direct writes produce schema mismatches that crash tldraw on load. Use canvas_op to modify canvas content instead.',
       parameters: {
         type: 'object',
         properties: {
@@ -269,6 +270,28 @@ export const executeWebTools: DomainExecutor = async (name, args, ctx) => {
       }
       const command = String(args.command ?? '').trim();
       if (!command) return 'Error: command is required.';
+      // Guard: block any command that writes to canvas (.tldr.json) files.
+      // Direct writes produce invalid tldraw schema (wrong shape keys, bad sequence
+      // versions, missing required fields) that crash the canvas on load.
+      // Canvas content must only be mutated via the canvas_op tool.
+      if (command.includes('.tldr.json')) {
+        const isShellWrite  = />{1,2}\s*[\w."'/-]*\.tldr\.json/.test(command);
+        const isPythonWrite = /json\s*\.\s*dump/.test(command) ||
+                              /open\s*\([^)]*\.tldr\.json[^)]*["']\s*w/.test(command) ||
+                              /\.write\s*\(/.test(command);
+        if (isShellWrite || isPythonWrite) {
+          return (
+            'Error: .tldr.json canvas files must NOT be written via run_command. ' +
+            'Direct writes produce schema mismatches that crash tldraw on load — even a JSON-valid file will fail if keys, version numbers, or record types deviate from the tldraw internal format.\n\n' +
+            'To modify canvas content use canvas_op instead:\n' +
+            '  {"op":"add_slide","name":"Slide title"}\n' +
+            '  {"op":"add_text","text":"Hello","x":100,"y":100,"slide":"<frameId>"}\n' +
+            '  {"op":"add_geo","geo":"rectangle","x":100,"y":100,"w":400,"h":200,"slide":"<frameId>"}\n' +
+            '  {"op":"update","id":"<shapeId>","text":"New text"}\n' +
+            'Call list_canvas_shapes to get current shape IDs and frame IDs.'
+          );
+        }
+      }
       const relCwd = String(args.cwd ?? '').trim();
       const absCwd = relCwd ? `${workspacePath}/${relCwd}` : workspacePath;
       try {
