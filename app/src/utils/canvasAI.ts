@@ -22,8 +22,24 @@
  */
 
 import type { Editor, TLRichText, TLShapeId, TLEditorSnapshot } from 'tldraw';
-import { createShapeId, renderPlaintextFromRichText, toRichText } from 'tldraw';
+import { createShapeId, renderPlaintextFromRichText, toRichText, createTLSchema } from 'tldraw';
 import type { TLNoteShape, TLGeoShape, TLTextShape, TLGeoShapeGeoStyle, TLArrowShape, TLFrameShape } from '@tldraw/tlschema';
+
+// ── Lazy-cached current tldraw schema (sequences + versions) ────────────────
+// Used by sanitizeSnapshot to clamp out-of-range sequence versions in
+// AI-generated or externally-produced canvas files.
+let _tlSerializedSchema: Record<string, number> | null = null;
+function getTLSequences(): Record<string, number> {
+  if (!_tlSerializedSchema) {
+    try {
+      const s = createTLSchema().serialize() as { schemaVersion: number; sequences: Record<string, number> };
+      _tlSerializedSchema = s.sequences ?? {};
+    } catch {
+      _tlSerializedSchema = {};
+    }
+  }
+  return _tlSerializedSchema;
+}
 
 // ── Slide layout constants — keep in sync with CanvasEditor.tsx ─────────────
 const SLIDE_W = 1280;
@@ -141,6 +157,44 @@ export function sanitizeSnapshot(raw: unknown): TLEditorSnapshot {
         patchCount++;
       }
     }
+  }
+
+  // ── Schema sequence version clamp ────────────────────────────────────────
+  // If any sequence version in the snapshot is NEWER than what the running
+  // tldraw build knows, migrateStoreSnapshot throws "migration-error".
+  // Clamp each sequence down to the installed tldraw version so it can load
+  // cleanly. Under-versioned sequences are left alone so forward migrations
+  // still run. Unknown sequences are removed entirely (AI hallucinated types).
+  try {
+    const currentSeqs = getTLSequences();
+    const schemaBlocks: Record<string, unknown>[] = [];
+    if (snap.schema && typeof snap.schema === 'object')
+      schemaBlocks.push(snap.schema as Record<string, unknown>);
+    if (snap.document && typeof snap.document === 'object') {
+      const doc = snap.document as Record<string, unknown>;
+      if (doc.schema && typeof doc.schema === 'object')
+        schemaBlocks.push(doc.schema as Record<string, unknown>);
+    }
+    for (const schemaObj of schemaBlocks) {
+      const seqs = schemaObj['sequences'];
+      if (!seqs || typeof seqs !== 'object') continue;
+      for (const key of Object.keys(seqs)) {
+        const storedVer = (seqs as Record<string, number>)[key];
+        const knownVer  = currentSeqs[key];
+        if (knownVer == null) {
+          // Unknown sequence type (AI hallucination) — remove it.
+          delete (seqs as Record<string, unknown>)[key];
+          patchCount++;
+        } else if (typeof storedVer === 'number' && storedVer > knownVer) {
+          // Sequence version too new — clamp to current so no TargetVersionTooNew error.
+          (seqs as Record<string, number>)[key] = knownVer;
+          patchCount++;
+        }
+      }
+    }
+  } catch (schemaErr) {
+    // eslint-disable-next-line no-console
+    console.warn('[canvasAI] sanitizeSnapshot: schema normalization failed (non-fatal):', schemaErr);
   }
 
   if (patchCount > 0) {

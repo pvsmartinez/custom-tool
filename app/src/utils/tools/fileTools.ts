@@ -205,7 +205,8 @@ export const FILE_TOOL_DEFS: ToolDefinition[] = [
         'Create a folder structure and stub files in one atomic operation. ' +
         'Use when the user asks to set up a project layout, create a chapter structure, ' +
         'scaffold a course, or initialise any multi-file structure. ' +
-        'Each entry can be a folder (path ending with /) or a file (with optional stub content).',
+        'Each entry can be a folder (path ending with /) or a file (with optional stub content). ' +
+        'IMPORTANT: canvas files (.tldr.json) are ALWAYS created empty regardless of any content supplied — do NOT put tldraw JSON in the content field. Use canvas_op AFTER opening the file instead.',
       parameters: {
         type: 'object',
         properties: {
@@ -568,10 +569,13 @@ export const executeFileTools: DomainExecutor = async (name, args, ctx) => {
           } else {
             const dir = abs.split('/').slice(0, -1).join('/');
             if (!(await exists(dir))) await mkdir(dir, { recursive: true });
-            const stubContent = typeof entry.content === 'string' ? entry.content : '';
+            // Canvas files (.tldr.json) must always be created empty — writing raw
+            // tldraw JSON here would produce a broken schema and a migration-error.
+            const isCanvas = entryPath.endsWith('.tldr.json');
+            const stubContent = isCanvas ? '' : (typeof entry.content === 'string' ? entry.content : '');
             await writeTextFile(abs, stubContent);
             onFileWritten?.(entryPath);
-            created.push(entryPath);
+            created.push(isCanvas ? `${entryPath} (canvas — created empty, use canvas_op to populate)` : entryPath);
           }
         } catch (e) {
           errors.push(`Failed to create ${entryPath}: ${e}`);
