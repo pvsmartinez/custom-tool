@@ -208,6 +208,53 @@ mod git_native {
     use git2::{build::CheckoutBuilder, IndexAddOption, PushOptions,
                RemoteCallbacks, Repository, RepositoryInitOptions, Signature};
 
+    /// Inject an OAuth token into an HTTPS URL.
+    /// Correct GitHub OAuth format: `https://oauth2:TOKEN@github.com/...`
+    /// NOT `TOKEN:x-oauth-basic` — that format is for classic PATs only and
+    /// does NOT work with OAuth Device Flow tokens (ghu_ prefix).
+    fn inject_token(url: &str, token: &str) -> String {
+        if let Some(rest) = url.strip_prefix("https://") {
+            // Strip any pre-existing credentials
+            let host_path = if let Some(at_pos) = rest.find('@') {
+                &rest[at_pos + 1..]
+            } else {
+                rest
+            };
+            return format!("https://oauth2:{}@{}", token, host_path);
+        }
+        url.to_string()
+    }
+
+    /// Build a RemoteCallbacks that provides OAuth token credentials.
+    /// GitHub Device Flow tokens (ghu_ prefix) require:
+    ///   username = "oauth2", password = TOKEN
+    ///
+    /// The `tried_userpass` guard fires only after we supply USER_PASS credentials,
+    /// NOT on DEFAULT/Kerberos rounds (which always return Cred::default()). Without
+    /// this, libgit2 consumes the retry budget on the DEFAULT round and the
+    /// USER_PASS round never runs, producing a 403.
+    fn token_callbacks(token: String) -> RemoteCallbacks<'static> {
+        let mut cb = RemoteCallbacks::new();
+        let tok = token.clone();
+        let mut tried_userpass = false;
+        cb.credentials(move |url, username, allowed| {
+            eprintln!("[git2 cred] url={url} username={username:?} allowed={allowed:?}");
+            if allowed.contains(git2::CredentialType::USER_PASS_PLAINTEXT) {
+                if tried_userpass {
+                    eprintln!("[git2 cred] USER_PASS already tried, bailing");
+                    return Err(git2::Error::from_str("auth failed after retry"));
+                }
+                tried_userpass = true;
+                eprintln!("[git2 cred] providing oauth2:TOKEN credentials");
+                return git2::Cred::userpass_plaintext("oauth2", &tok);
+            }
+            // For DEFAULT (Kerberos/GSSAPI) — do not consume tried_userpass
+            git2::Cred::default()
+        });
+        cb.certificate_check(|_cert, _valid| Ok(git2::CertificateCheckStatus::CertificateOk));
+        cb
+    }
+
     /// Convert SSH remote URL to HTTPS so PAT auth works on iOS (no SSH agent).
     /// git@github.com:user/repo.git  →  https://github.com/user/repo.git
     fn normalize_url(url: &str) -> String {
@@ -327,44 +374,40 @@ mod git_native {
         repo.commit(Some("HEAD"), &sig, &sig, &message, &tree, &parents)
             .map_err(|e| e.to_string())?;
 
-        // Push with token (HTTPS) when available, otherwise best-effort
-        if let Ok(mut remote) = repo.find_remote("origin") {
-            let mut callbacks = RemoteCallbacks::new();
-            if let Some(tok) = token {
-                let mut tried = false;
-                callbacks.credentials(move |_url, _username, allowed| {
-                    if tried { return Err(git2::Error::from_str("authentication failed")); }
-                    tried = true;
-                    if allowed.contains(git2::CredentialType::USER_PASS_PLAINTEXT) {
-                        git2::Cred::userpass_plaintext("oauth2", &tok)
-                    } else {
-                        git2::Cred::default()
-                    }
-                });
-            } else {
-                let mut tried = false;
-                callbacks.credentials(move |_url, username, allowed| {
-                    if tried { return Err(git2::Error::from_str("authentication failed")); }
-                    tried = true;
-                    if allowed.contains(git2::CredentialType::SSH_KEY) {
-                        git2::Cred::ssh_key_from_agent(username.unwrap_or("git"))
-                    } else {
-                        git2::Cred::default()
-                    }
-                });
+        // Push: inject token into URL + provide credential callback fallback.
+        if let Ok(origin_remote) = repo.find_remote("origin") {
+            let origin_url = origin_remote.url().unwrap_or("").to_string();
+            drop(origin_remote);
+            let push_url = {
+                let normed = normalize_url(&origin_url);
+                if let Some(ref tok) = token { inject_token(&normed, tok) } else { normed }
+            };
+            let _ = repo.remote_set_url("origin", &push_url);
+            if let Ok(mut remote) = repo.find_remote("origin") {
+                let callbacks = if let Some(tok) = token {
+                    token_callbacks(tok)
+                } else {
+                    let mut cb = RemoteCallbacks::new();
+                    cb.certificate_check(|_cert, _valid| Ok(git2::CertificateCheckStatus::CertificateOk));
+                    cb
+                };
+                let mut push_opts = PushOptions::new();
+                push_opts.remote_callbacks(callbacks);
+                let branch = repo
+                    .head()
+                    .ok()
+                    .and_then(|h| h.shorthand().map(|s| s.to_string()))
+                    .unwrap_or_else(|| "main".to_string());
+                let refspec = format!("refs/heads/{branch}:refs/heads/{branch}");
+                drop(remote);
+                // Re-open remote to avoid borrow conflict after set_url
+                if let Ok(mut r2) = repo.find_remote("origin") {
+                    let _ = r2.push(&[&refspec], Some(&mut push_opts)); // best-effort
+                }
             }
-            callbacks.certificate_check(|_cert, _valid| {
-                Ok(git2::CertificateCheckStatus::CertificateOk)
-            });
-            let mut push_opts = PushOptions::new();
-            push_opts.remote_callbacks(callbacks);
-            let branch = repo
-                .head()
-                .ok()
-                .and_then(|h| h.shorthand().map(|s| s.to_string()))
-                .unwrap_or_else(|| "main".to_string());
-            let refspec = format!("refs/heads/{branch}:refs/heads/{branch}");
-            let _ = remote.push(&[&refspec], Some(&mut push_opts)); // best-effort
+            // Restore clean URL after push
+            let clean = normalize_url(&origin_url);
+            let _ = repo.remote_set_url("origin", &clean);
         }
 
         Ok("synced".into())
@@ -395,37 +438,22 @@ mod git_native {
         if std::path::Path::new(&path).exists() {
             std::fs::remove_dir_all(&path).map_err(|e| format!("pre-clone cleanup failed: {}", e))?;
         }
-        // Normalize SSH → HTTPS so PAT token auth works on iOS
+        // Normalize SSH → HTTPS, embed token in URL, and also supply a credential
+        // callback — in case libgit2 1.7.x strips the embedded credentials and then
+        // invokes the callback as a fallback (documented security behaviour).
         let url = normalize_url(&url);
-        let mut callbacks = RemoteCallbacks::new();
-        // `tried` prevents the libgit2 credential loop: if called more than once
-        // it means the first attempt failed — bail immediately instead of looping.
-        if let Some(tok) = token {
-            let mut tried = false;
-            callbacks.credentials(move |_url, _username, allowed| {
-                if tried { return Err(git2::Error::from_str("authentication failed")); }
-                tried = true;
-                if allowed.contains(git2::CredentialType::USER_PASS_PLAINTEXT) {
-                    git2::Cred::userpass_plaintext("oauth2", &tok)
-                } else {
-                    git2::Cred::default()
-                }
-            });
+        let url = if let Some(ref tok) = token {
+            inject_token(&url, tok)
         } else {
-            let mut tried = false;
-            callbacks.credentials(move |_url, username, allowed| {
-                if tried { return Err(git2::Error::from_str("authentication failed")); }
-                tried = true;
-                if allowed.contains(git2::CredentialType::SSH_KEY) {
-                    git2::Cred::ssh_key_from_agent(username.unwrap_or("git"))
-                } else {
-                    git2::Cred::default()
-                }
-            });
-        }
-        callbacks.certificate_check(|_cert, _valid| {
-            Ok(git2::CertificateCheckStatus::CertificateOk)
-        });
+            url
+        };
+        let callbacks = if let Some(tok) = token {
+            token_callbacks(tok)
+        } else {
+            let mut cb = RemoteCallbacks::new();
+            cb.certificate_check(|_cert, _valid| Ok(git2::CertificateCheckStatus::CertificateOk));
+            cb
+        };
         let mut fetch_opts = git2::FetchOptions::new();
         fetch_opts.remote_callbacks(callbacks);
         let mut builder = git2::build::RepoBuilder::new();
@@ -455,38 +483,38 @@ mod git_native {
         }
         let branch_name = head.shorthand().unwrap_or("main").to_string();
 
-        let mut remote = repo.find_remote("origin").map_err(|e| e.to_string())?;
-        let mut callbacks = RemoteCallbacks::new();
-        if let Some(tok) = token {
-            let mut tried = false;
-            callbacks.credentials(move |_url, _username, allowed| {
-                if tried { return Err(git2::Error::from_str("authentication failed")); }
-                tried = true;
-                if allowed.contains(git2::CredentialType::USER_PASS_PLAINTEXT) {
-                    git2::Cred::userpass_plaintext("oauth2", &tok)
-                } else {
-                    git2::Cred::default()
-                }
-            });
+        // Get origin URL, normalize SSH→HTTPS, inject token into URL, and also
+        // provide a credential callback fallback (for libgit2 1.7.x which may strip
+        // embedded credentials and invoke the callback instead).
+        // Temporarily set the token URL so refs/remotes/origin/* get updated; restore
+        // the clean URL afterwards so no token leaks into .git/config.
+        let origin_url = repo
+            .find_remote("origin")
+            .ok()
+            .and_then(|r| r.url().map(String::from))
+            .unwrap_or_default();
+        let clean_url = normalize_url(&origin_url);
+        let auth_url = if let Some(ref tok) = token {
+            inject_token(&clean_url, tok)
         } else {
-            let mut tried = false;
-            callbacks.credentials(move |_url, username, allowed| {
-                if tried { return Err(git2::Error::from_str("authentication failed")); }
-                tried = true;
-                if allowed.contains(git2::CredentialType::SSH_KEY) {
-                    git2::Cred::ssh_key_from_agent(username.unwrap_or("git"))
-                } else {
-                    git2::Cred::default()
-                }
-            });
-        }
-        callbacks.certificate_check(|_cert, _valid| {
-            Ok(git2::CertificateCheckStatus::CertificateOk)
-        });
+            clean_url.clone()
+        };
+        let _ = repo.remote_set_url("origin", &auth_url);
+        let mut remote = repo.find_remote("origin").map_err(|e| e.to_string())?;
+        let callbacks = if let Some(tok) = token {
+            token_callbacks(tok)
+        } else {
+            let mut cb = RemoteCallbacks::new();
+            cb.certificate_check(|_cert, _valid| Ok(git2::CertificateCheckStatus::CertificateOk));
+            cb
+        };
         let mut fetch_opts = git2::FetchOptions::new();
         fetch_opts.remote_callbacks(callbacks);
-        remote.fetch(&[branch_name.as_str()], Some(&mut fetch_opts), None)
-            .map_err(|e| e.to_string())?;
+        let fetch_result = remote.fetch(&[branch_name.as_str()], Some(&mut fetch_opts), None);
+        drop(remote);
+        // Always restore the clean URL (no token in .git/config)
+        let _ = repo.remote_set_url("origin", &clean_url);
+        fetch_result.map_err(|e| e.to_string())?;
 
         let remote_ref = format!("refs/remotes/origin/{branch_name}");
         let remote_oid = repo.find_reference(&remote_ref)
@@ -522,36 +550,35 @@ mod git_native {
     pub fn git_checkout_branch(path: String, branch: String, token: Option<String>) -> Result<String, String> {
         let repo = Repository::open(&path).map_err(|e| e.to_string())?;
 
-        // Normalize SSH → HTTPS so PAT auth works
+        // Normalize SSH → HTTPS, inject token (temp URL + restore) + callback fallback.
         ensure_https_remote(&repo);
-
-        // Fetch the branch from origin first
-        let mut remote = repo.find_remote("origin").map_err(|e| e.to_string())?;
-        let mut callbacks = RemoteCallbacks::new();
-        if let Some(tok) = token {
-            let mut tried = false;
-            callbacks.credentials(move |_url, _username, allowed| {
-                if tried { return Err(git2::Error::from_str("authentication failed")); }
-                tried = true;
-                if allowed.contains(git2::CredentialType::USER_PASS_PLAINTEXT) {
-                    git2::Cred::userpass_plaintext("oauth2", &tok)
-                } else { git2::Cred::default() }
-            });
+        let origin_url = repo
+            .find_remote("origin")
+            .ok()
+            .and_then(|r| r.url().map(String::from))
+            .unwrap_or_default();
+        let clean_url = normalize_url(&origin_url);
+        let auth_url = if let Some(ref tok) = token {
+            inject_token(&clean_url, tok)
         } else {
-            let mut tried = false;
-            callbacks.credentials(move |_url, username, allowed| {
-                if tried { return Err(git2::Error::from_str("authentication failed")); }
-                tried = true;
-                if allowed.contains(git2::CredentialType::SSH_KEY) {
-                    git2::Cred::ssh_key_from_agent(username.unwrap_or("git"))
-                } else { git2::Cred::default() }
-            });
-        }
-        callbacks.certificate_check(|_cert, _valid| Ok(git2::CertificateCheckStatus::CertificateOk));
+            clean_url.clone()
+        };
+        let _ = repo.remote_set_url("origin", &auth_url);
+        let mut remote = repo.find_remote("origin").map_err(|e| e.to_string())?;
+        let callbacks = if let Some(tok) = token {
+            token_callbacks(tok)
+        } else {
+            let mut cb = RemoteCallbacks::new();
+            cb.certificate_check(|_cert, _valid| Ok(git2::CertificateCheckStatus::CertificateOk));
+            cb
+        };
         let mut fetch_opts = git2::FetchOptions::new();
         fetch_opts.remote_callbacks(callbacks);
         // best-effort fetch — branch may already be present
-        let _ = remote.fetch(&[branch.as_str()], Some(&mut fetch_opts), None);
+        let fetch_result = remote.fetch(&[branch.as_str()], Some(&mut fetch_opts), None);
+        drop(remote);
+        let _ = repo.remote_set_url("origin", &clean_url);
+        let _ = fetch_result; // best-effort
 
         // Find the remote tracking commit
         let remote_ref = format!("refs/remotes/origin/{branch}");

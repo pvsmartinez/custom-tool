@@ -72,13 +72,13 @@ export function useCanvasDrop({
       if (!(await exists(imagesDir))) await mkdir(imagesDir, { recursive: true });
       const baseSlug = slugFile(file.name);
       // Avoid silent overwrites: if the slug is already taken, append -1, -2, …
-      const ext = baseSlug.includes('.') ? `.${baseSlug.split('.').pop()}` : '';
-      const stem = ext ? baseSlug.slice(0, baseSlug.length - ext.length) : baseSlug;
+      const fileExt = baseSlug.includes('.') ? `.${baseSlug.split('.').pop()}` : '';
+      const stem = fileExt ? baseSlug.slice(0, baseSlug.length - fileExt.length) : baseSlug;
       let filename = baseSlug;
       let counter = 0;
       while (await exists(`${imagesDir}/${filename}`)) {
         counter++;
-        filename = `${stem}-${counter}${ext}`;
+        filename = `${stem}-${counter}${fileExt}`;
       }
       const absPath = `${imagesDir}/${filename}`;
       const buf = await file.arrayBuffer();
