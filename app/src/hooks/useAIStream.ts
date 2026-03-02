@@ -10,7 +10,7 @@ import {
 import { appendLogEntry } from '../services/copilotLog';
 import { WORKSPACE_TOOLS, buildToolExecutor } from '../utils/workspaceTools';
 import { canvasToDataUrl, compressDataUrl } from '../utils/canvasAI';
-import { unlockAll } from '../services/copilotLock';
+import { unlockAllByAgent } from '../services/copilotLock';
 import type {
   ChatMessage,
   ContentPart,
@@ -58,6 +58,8 @@ export interface UseAIStreamParams {
   getActiveHtml?: () => { html: string; absPath: string } | null;
   onStreamingChange?: (v: boolean) => void;
   setMemoryContent: (v: string) => void;
+  /** Identifier for this agent instance — used to release only this agent's file locks. */
+  agentId?: string;
 }
 
 // ── useAIStream ───────────────────────────────────────────────────────────────
@@ -85,6 +87,7 @@ export function useAIStream({
   onStreamingChange,
   setMemoryContent,
   onNotAuthenticated,
+  agentId = 'agent-1',
 }: UseAIStreamParams) {
   const [isStreaming, setIsStreamingState] = useState(false);
   const [agentExhausted, setAgentExhausted] = useState(false);
@@ -149,7 +152,7 @@ export function useAIStream({
     abortRef.current?.abort();
     setLiveItems([]);
     setIsStreaming(false);
-    unlockAll();
+    unlockAllByAgent(agentId);
     setAskUserState(null);
     askUserResolveRef.current?.('');
     askUserResolveRef.current = null;
@@ -272,7 +275,7 @@ export function useAIStream({
       ]);
       setLiveItems([]);
       setIsStreaming(false);
-      unlockAll();
+      unlockAllByAgent(agentId);
       setQuotaInfo(getLastRateLimit());
       if (workspacePath) {
         void appendLogEntry(workspacePath, {
@@ -309,7 +312,7 @@ export function useAIStream({
       }
       setLiveItems([]);
       setIsStreaming(false);
-      unlockAll();
+      unlockAllByAgent(agentId);
       setAskUserState(null);
       askUserResolveRef.current?.('');
       askUserResolveRef.current = null;
@@ -356,6 +359,7 @@ export function useAIStream({
         getActiveHtml,
         workspaceConfig,
         onWorkspaceConfigChange,
+        agentId,
       );
 
       const CANVAS_TOOL_NAMES = new Set(['list_canvas_shapes', 'canvas_op', 'canvas_screenshot', 'add_canvas_image']);

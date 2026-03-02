@@ -14,6 +14,7 @@ import {
   loadThemeFromDoc, applyThemeToSlides, applyTextPreset,
   applySlideLayout,
 } from '../canvasTheme';
+import { sanitizeSnapshot } from '../../../utils/canvasAI';
 
 interface UseCanvasFrameOpsOptions {
   editorRef: React.MutableRefObject<Editor | null>;
@@ -95,7 +96,7 @@ export function useCanvasFrameOps({
     const editor = editorRef.current;
     if (!editor) return;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    try { onChangeRef.current(JSON.stringify(editor.getSnapshot())); }
+    try { onChangeRef.current(JSON.stringify(sanitizeSnapshot(editor.getSnapshot()))); }
     catch (err) { console.warn('[CanvasEditor] forceSave serialization failed:', err); }
   }
   if (forceSaveRef) forceSaveRef.current = forceSave;

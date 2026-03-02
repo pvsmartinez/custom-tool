@@ -1609,3 +1609,87 @@
   background: rgba(var(--yellow-rgb, 218,178,110), 0.22);
   border-color: rgba(var(--yellow-rgb, 218,178,110), 0.6);
 }
+
+
+/* ── Agent tabs ──────────────────────────────────────────────────────────── */
+.ai-tab-bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 8px 0;
+  background: var(--surface2);
+  border-bottom: 1px solid var(--border2);
+  flex-shrink: 0;
+  overflow-x: auto;
+}
+
+.ai-tab {
+  display: flex;
+  align-items: center;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-bottom: none;
+}
+
+.ai-tab--active {
+  background: var(--surface);
+  border-color: var(--border2);
+}
+
+.ai-tab-label {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  padding: 4px 8px;
+  white-space: nowrap;
+}
+
+.ai-tab--active .ai-tab-label {
+  color: var(--text);
+}
+
+.ai-tab-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 2px 4px;
+  line-height: 1;
+  border-radius: var(--radius-sm);
+}
+
+.ai-tab-close:hover {
+  color: var(--text);
+  background: var(--border2);
+}
+
+.ai-tab-add {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: var(--font-size-md);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  margin-left: 2px;
+  flex-shrink: 0;
+}
+
+.ai-tab-add:hover {
+  color: var(--text);
+  background: var(--border2);
+}
+
+.ai-agent-session {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}

@@ -330,7 +330,7 @@ export const executeFileTools: DomainExecutor = async (name, args, ctx) => {
         replacementCount = 1;
       }
 
-      lockFile(relPath);
+      lockFile(relPath, ctx.agentId);
       await new Promise<void>((r) => setTimeout(r, 0));
       try {
         await writeTextFile(abs, newText);
@@ -364,7 +364,7 @@ export const executeFileTools: DomainExecutor = async (name, args, ctx) => {
       try { abs = safeResolvePath(workspacePath, relPath); }
       catch (e) { return String(e); }
       const dir = abs.split('/').slice(0, -1).join('/');
-      lockFile(relPath);
+      lockFile(relPath, ctx.agentId);
       await new Promise<void>((r) => setTimeout(r, 0));
       try {
         if (!(await exists(dir))) {

@@ -44,6 +44,7 @@ export function buildToolExecutor(
   getActiveHtml?: () => { html: string; absPath: string } | null,
   workspaceConfig?: WorkspaceConfig,
   onWorkspaceConfigChange?: (patch: Partial<WorkspaceConfig>) => void,
+  agentId?: string,
 ) {
   const ctx = {
     workspacePath,
@@ -60,6 +61,7 @@ export function buildToolExecutor(
     onWorkspaceConfigChange,
     onAskUser,
     getActiveHtml,
+    agentId,
   };
 
   const domains = [executeFileTools, executeCanvasTools, executeWebTools, executeConfigTools];

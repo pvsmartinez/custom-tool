@@ -21,7 +21,7 @@
  * CanvasEditor store listener automatically applies the current theme to it.
  */
 
-import type { Editor, TLRichText, TLShapeId } from 'tldraw';
+import type { Editor, TLRichText, TLShapeId, TLEditorSnapshot } from 'tldraw';
 import { createShapeId, renderPlaintextFromRichText, toRichText } from 'tldraw';
 import type { TLNoteShape, TLGeoShape, TLTextShape, TLGeoShapeGeoStyle, TLArrowShape, TLFrameShape } from '@tldraw/tlschema';
 
@@ -55,6 +55,50 @@ export function mapFill(raw: unknown): TLFill {
 
 export function mapColor(raw: unknown, fallback: TLColor = 'yellow'): TLColor {
   return COLOR_MAP[String(raw ?? '').toLowerCase()] ?? fallback;
+}
+
+// ── Snapshot sanitizer ───────────────────────────────────────────────────────
+/**
+ * Repairs known schema violations in a raw tldraw snapshot so tldraw v4.4+
+ * doesn't throw ValidationErrors when loading older or AI-corrupted canvas files.
+ *
+ * Currently fixed:
+ *  - geo shapes missing `scale` or with non-numeric `scale` → coerced to 1
+ *  - note shapes missing `scale` → coerced to 1 (tldraw v4.4 added scale to notes too)
+ *
+ * Returns the same object (mutates inline for performance — the caller already
+ * owns the freshly-parsed value).
+ */
+export function sanitizeSnapshot(raw: unknown): TLEditorSnapshot {
+  if (!raw || typeof raw !== 'object') return raw as TLEditorSnapshot;
+  const snap = raw as Record<string, unknown>;
+  const store = snap.store;
+  if (!store || typeof store !== 'object') return raw as TLEditorSnapshot;
+
+  let patchCount = 0;
+  for (const record of Object.values(store as Record<string, unknown>)) {
+    if (!record || typeof record !== 'object') continue;
+    const r = record as Record<string, unknown>;
+    if (r.typeName !== 'shape') continue;
+
+    const props = r.props;
+    if (!props || typeof props !== 'object') continue;
+    const p = props as Record<string, unknown>;
+
+    // geo and note shapes have a `scale` prop in tldraw v4.4+ that must be a number.
+    if (r.type === 'geo' || r.type === 'note') {
+      if (typeof p.scale !== 'number' || !Number.isFinite(p.scale as number)) {
+        p.scale = 1;
+        patchCount++;
+      }
+    }
+  }
+
+  if (patchCount > 0) {
+    // eslint-disable-next-line no-console
+    console.warn(`[canvasAI] sanitizeSnapshot: repaired ${patchCount} shape(s) with invalid props`);
+  }
+  return raw as TLEditorSnapshot;
 }
 
 /** Render a single non-frame shape as a one-line description string. */
@@ -498,6 +542,9 @@ function runCommand(editor: Editor, cmd: Record<string, unknown>): CommandResult
         richText: toRichText(String(cmd.text ?? '')),
         color: mapColor(cmd.color, 'blue'),
         fill: mapFill(cmd.fill),
+        // Always set scale explicitly — tldraw v4.4+ validates that scale is a
+        // number and throws a ValidationError if the prop is missing or non-numeric.
+        scale: 1,
       },
     }]);
     return { count: 1, shapeId: geoId };

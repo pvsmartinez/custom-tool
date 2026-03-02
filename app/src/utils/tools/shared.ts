@@ -55,6 +55,8 @@ export interface ToolContext {
   onWorkspaceConfigChange?: (patch: Partial<WorkspaceConfig>) => void;
   onAskUser?: (question: string, options?: string[]) => Promise<string>;
   getActiveHtml?: () => { html: string; absPath: string } | null;
+  /** Agent that owns locks created by this executor call. */
+  agentId?: string;
 }
 
 // ── Shared utilities ─────────────────────────────────────────────────────────

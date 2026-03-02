@@ -144,7 +144,7 @@ export const executeCanvasTools: DomainExecutor = async (name, args, ctx) => {
         .replace(/^```canvas\r?\n/, '')
         .replace(/\n```\s*$/, '');
       const fenced = '```canvas\n' + stripped + '\n```';
-      if (activeFile) lockFile(activeFile);
+      if (activeFile) lockFile(activeFile, ctx.agentId);
       await new Promise<void>((r) => setTimeout(r, 0));
       let count = 0;
       let shapeIds: string[] = [];

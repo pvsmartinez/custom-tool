@@ -9,6 +9,7 @@ import { readFile } from '../services/fs';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import type { AIEditMark } from '../types';
 import { generateSlidePreviews } from '../utils/slidePreviews';
+import { sanitizeSnapshot } from '../utils/canvasAI';
 import 'tldraw/tldraw.css';
 import './CanvasEditor.css';
 
@@ -281,7 +282,7 @@ export default function CanvasEditor({
     if (!content.trim()) {
       snapshotRef.current = undefined;
     } else {
-      try { snapshotRef.current = JSON.parse(content) as TLEditorSnapshot; }
+      try { snapshotRef.current = sanitizeSnapshot(JSON.parse(content)); }
       catch (parseErr) {
         // IMPORTANT: do NOT fall back to `undefined` (empty canvas) here.
         // Throwing causes CanvasErrorBoundary to offer "restore from git" / "start fresh"
@@ -404,7 +405,12 @@ export default function CanvasEditor({
       () => {
         if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
         saveTimerRef.current = setTimeout(() => {
-          try { onChangeRef.current(JSON.stringify(editor.getSnapshot())); }
+          try {
+            // Sanitize before serializing — catches any props that slipped past
+            // tldraw's own validation (e.g. scale missing for geo/note shapes).
+            const snap = sanitizeSnapshot(editor.getSnapshot());
+            onChangeRef.current(JSON.stringify(snap));
+          }
           catch (err) { console.warn('[CanvasEditor] save serialization failed:', err); }
         }, 500);
 
