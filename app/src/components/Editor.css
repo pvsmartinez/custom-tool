@@ -78,8 +78,10 @@ body.theme-light .editor-md-toolbar-btn:hover {
 
 /* @uiw/react-codemirror creates an unstyled wrapper div between .editor-wrapper
    and .cm-editor. Without flex:1 here the div stays height:auto (= content
-   height), which makes .cm-scroller unbounded and mouse-wheel events do nothing. */
-.editor-wrapper > div {
+   height), which makes .cm-scroller unbounded and mouse-wheel events do nothing.
+   NOTE: this must NOT apply to .editor-md-toolbar (also a direct div child) —
+   that's why we exclude it explicitly below. */
+.editor-wrapper > div:not(.editor-md-toolbar) {
   flex: 1;
   min-height: 0;
   display: flex;
