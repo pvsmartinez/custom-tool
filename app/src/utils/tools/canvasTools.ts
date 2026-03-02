@@ -47,6 +47,7 @@ export const CANVAS_TOOL_DEFS: ToolDefinition[] = [
             description: [
               'Newline-separated JSON command objects. Supported ops:',
               '  {"op":"add_slide","name":"Slide title"}  ← create a new 16:9 frame/slide (appended after the last existing one)',
+              '  {"op":"duplicate_slide","slide":"abc1234567","name":"Slide 2"}  ← SHORTHAND: copy a slide + ALL its content (bg, text, shapes) as a new slide — much faster than recreating manually',
               '  {"op":"add_note","text":"…","x":100,"y":100,"color":"yellow","slide":"abc1234567"}  ← slide = last-10-char frame ID; makes shape a child of that frame (ALWAYS include when targeting a slide)',
               '  {"op":"add_text","text":"…","x":100,"y":200,"color":"black","slide":"abc1234567"}',
               '  {"op":"add_geo","geo":"rectangle","text":"Label","x":100,"y":100,"w":200,"h":120,"color":"blue","fill":"solid","slide":"abc1234567"}',
@@ -55,15 +56,16 @@ export const CANVAS_TOOL_DEFS: ToolDefinition[] = [
               '  {"op":"set_slide_background","url":"https://…","slide":"abc1234567"}  ← SHORTHAND: fills the entire slide (1280×720) with the image, removes existing bg, sends to back. USE THIS to set slide backgrounds.',
               '  {"op":"copy_slide_background","from_slide":"abc1234567","to_slides":["def1234567","ghi1234567"]}  ← copy full-frame background image(s) from one slide to others. Removes existing bg in targets.',
               '  {"op":"move","id":"abc1234567","x":300,"y":400}       ← reposition a shape',
-              '  {"op":"update","id":"abc1234567","text":"New text","color":"red","fill":"solid"}   ← text/color/fill are each optional; id from list_canvas_shapes',
+              '  {"op":"update","id":"abc1234567","text":"New text","color":"red","fill":"solid"}   ← text/color/fill are each optional; also works on frames (updates slide name). id from list_canvas_shapes',
               '  {"op":"delete","id":"abc1234567"}',
               '  {"op":"clear","confirm":"yes"}  ← DANGER: removes ALL shapes. confirm:"yes" is required. Only use when the user explicitly asks to wipe the canvas.',
               'IMPORTANT: always include "slide":"<frameId>" on add_* commands to parent shapes inside a frame. Without it shapes float on the page and are NOT grouped with the slide.',
               'When "slide" is set, x/y are PARENT-RELATIVE (0,0 = frame top-left, not page origin). Frame size is 1280×720.',
+              'READING THE SUMMARY: image shapes tagged [BG] are full-frame backgrounds — their src:"filename" shows the image. Non-[BG] images are regular content shapes.',
               'Valid colors: yellow, blue, green, red, orange, violet, grey, black, white, light-blue, light-violet',
               'Valid geo shapes: rectangle, ellipse, triangle, diamond, hexagon, cloud, star, arrow-right',
               'Spacing tip: use 240px column gaps, 160px row gaps to avoid overlaps.',
-              'IMAGE TIP: to set the same background on multiple slides, use set_slide_background on slide 1, then copy_slide_background from slide 1 to the rest. This avoids redundant downloads and keeps assets consistent.',
+              'WORKFLOW TIPS: (1) Same bg on all slides → set_slide_background slide 1, then copy_slide_background to rest. (2) Template slide → duplicate_slide is 1 call instead of N add_* calls. (3) Rename slide → update with id=frameId and text="New name".',
             ].join('\n'),
           },
         },
@@ -101,8 +103,9 @@ export const CANVAS_TOOL_DEFS: ToolDefinition[] = [
     function: {
       name: 'add_canvas_image',
       description:
-        'Fetch an image from a URL and place it on the currently open canvas as an image shape. ' +
-        'Use this when the user wants to add a picture, logo, diagram, or photo to their canvas. ' +
+        'Fetch an image from a URL and place it as a free-floating image shape on the canvas PAGE (not inside any slide). ' +
+        'Use this only when the user wants an image outside all slides. ' +
+        'IMPORTANT: if you want to place an image INSIDE a slide (with a slide: field), use canvas_op with add_image or set_slide_background instead. ' +
         'Optionally specify x/y position (page coordinates). Defaults to the current viewport center.',
       parameters: {
         type: 'object',

@@ -217,8 +217,17 @@ export function sanitizeSnapshot(raw: unknown): TLEditorSnapshot {
   return raw as TLEditorSnapshot;
 }
 
-/** Render a single non-frame shape as a one-line description string. */
-function describeShape(editor: Editor, shape: ReturnType<Editor['getCurrentPageShapes']>[number]): string {
+/**
+ * Render a single non-frame shape as a one-line description string.
+ * Pass `frameW`/`frameH` when the shape is a child of a frame so image shapes
+ * can be tagged `[BG]` when they cover ≥80% of the frame area.
+ */
+function describeShape(
+  editor: Editor,
+  shape: ReturnType<Editor['getCurrentPageShapes']>[number],
+  frameW?: number,
+  frameH?: number,
+): string {
   const props = shape.props as {
     richText?: TLRichText;
     color?: string;
@@ -260,10 +269,33 @@ function describeShape(editor: Editor, shape: ReturnType<Editor['getCurrentPageS
   }
   if (shape.type === 'image') {
     const imgProps = shape.props as { assetId?: string; w?: number; h?: number };
-    const w = imgProps.w ? Math.round(imgProps.w) : '?';
-    const h = imgProps.h ? Math.round(imgProps.h) : '?';
-    const assetPart = imgProps.assetId ? ` assetId:"${imgProps.assetId}"` : '';
-    return `[${shortId}] image at (${x},${y}) size ${w}×${h}${assetPart}`;
+    const iw = typeof imgProps.w === 'number' ? imgProps.w : 0;
+    const ih = typeof imgProps.h === 'number' ? imgProps.h : 0;
+    const w = iw ? Math.round(iw) : '?';
+    const h = ih ? Math.round(ih) : '?';
+    // Tag as [BG] when this image covers ≥80% of its parent frame — helps the
+    // AI identify background images without trial-and-error deletes.
+    const isBg =
+      frameW !== undefined && frameH !== undefined &&
+      iw >= frameW * 0.8 && ih >= frameH * 0.8;
+    const bgTag = isBg ? ' [BG]' : '';
+    // Resolve the source URL from the asset store so the AI can identify the image.
+    // Falls back to empty string if the asset can't be found (blob URLs, offline, etc.).
+    let srcPart = '';
+    if (imgProps.assetId) {
+      try {
+        const asset = editor.getAsset(imgProps.assetId as Parameters<Editor['getAsset']>[0]) as { props?: { src?: string } } | undefined;
+        const src = asset?.props?.src ?? '';
+        if (src && !src.startsWith('data:')) {
+          // Show only the filename (last URL segment) to keep the summary concise.
+          const filename = src.split('/').pop()?.split('?')[0] ?? '';
+          if (filename) srcPart = ` src:"${filename.slice(0, 40)}"`;
+        } else if (src.startsWith('data:')) {
+          srcPart = ' src:"<data-url>"`';
+        }
+      } catch { /* asset store unavailable — skip */ }
+    }
+    return `[${shortId}] image${bgTag} at (${x},${y}) size ${w}×${h}${srcPart}`;
   }
   return `[${shortId}] ${shape.type} at (${x},${y})` + (text ? ` text:"${text}"` : '') + attrStr;
 }
@@ -322,14 +354,21 @@ export function summarizeCanvas(editor: Editor): string {
       if (children.length === 0) {
         lines.push(`      (empty slide — free to fill entire ${f.props.w}\u00d7${f.props.h} area)`);
       } else {
+        // Non-background shapes (used to calculate free space, hiding BG from bounding-box calc)
+        const nonBgChildren = children.filter((s) => {
+          if (s.type !== 'image') return true;
+          const p = s.props as { w?: number; h?: number };
+          return !((p.w ?? 0) >= f.props.w * 0.8 && (p.h ?? 0) >= f.props.h * 0.8);
+        });
         // Show per-slide bounding box so the AI knows where free space is
-        const bb = shapeBounds(children);
+        const bb = shapeBounds(nonBgChildren.length > 0 ? nonBgChildren : children);
         if (bb) {
           const freeY = bb.y2 + 20;
           lines.push(`      Occupied area: (${bb.x1},${bb.y1})\u2192(${bb.x2},${bb.y2}). Next free row starts at y\u2248${freeY}`);
         }
         for (const s of children) {
-          lines.push('      ' + describeShape(editor, s));
+          // Pass frame dimensions so describeShape can tag background images as [BG]
+          lines.push('      ' + describeShape(editor, s, f.props.w, f.props.h));
         }
       }
     });
@@ -852,6 +891,133 @@ function runCommand(editor: Editor, cmd: Record<string, unknown>): CommandResult
     }
     if (total === 0) throw new Error('No backgrounds were copied. Check that the source slide has full-frame images and the target slide IDs are correct.');
     return { count: total, shapeId: lastId };
+  }
+
+  // ── duplicate_slide ───────────────────────────────────────────────────────
+  // Deep-copy a slide (frame + all its content: notes, text, geo, arrows, images).
+  // The new slide is appended after the rightmost existing frame.
+  // Example: {"op":"duplicate_slide","slide":"abc1234567","name":"Slide 3"}
+  if (op === 'duplicate_slide') {
+    const srcSuffix = String(cmd.slide ?? '').trim();
+    if (!srcSuffix) throw new Error('duplicate_slide requires a "slide" field (last-10-char frame ID). Call list_canvas_shapes to get the ID.');
+    const srcFrame = existing.find((s) => s.type === 'frame' && s.id.endsWith(srcSuffix)) as TLFrameShape | undefined;
+    if (!srcFrame) throw new Error(`Slide not found: "${srcSuffix}". Call list_canvas_shapes to get valid frame IDs.`);
+
+    const frames = existing
+      .filter((s) => s.type === 'frame')
+      .sort((a, b) => (a as TLFrameShape).x - (b as TLFrameShape).x) as TLFrameShape[];
+    const last = frames[frames.length - 1];
+    const newX = last.x + (last.props.w ?? SLIDE_W) + SLIDE_GAP;
+    const newY = Math.min(...frames.map((f) => f.y));
+
+    const fw = (srcFrame.props as { w: number }).w ?? SLIDE_W;
+    const fh = (srcFrame.props as { h: number }).h ?? SLIDE_H;
+    const newName = String(cmd.name ?? srcFrame.props.name ?? `Slide ${frames.length + 1}`);
+    const newFrameId = createShapeId();
+    editor.createShapes<TLFrameShape>([{
+      id: newFrameId,
+      type: 'frame',
+      x: newX,
+      y: newY,
+      props: { w: fw, h: fh, name: newName },
+    }]);
+
+    // Copy all direct children of the source frame.
+    // Order: backgrounds first (sendToBack), then content on top — matches z-order intent.
+    const children = existing.filter((s) => s.parentId === srcFrame.id);
+    const bgThreshold = 0.8;
+    const bgChildren = children.filter((s) => {
+      if (s.type !== 'image') return false;
+      const p = s.props as { w?: number; h?: number };
+      return (p.w ?? 0) >= fw * bgThreshold && (p.h ?? 0) >= fh * bgThreshold;
+    });
+    const contentChildren = children.filter((s) => !bgChildren.includes(s));
+
+    let copied = 0;
+
+    const copyChild = (child: typeof children[0]) => {
+      const cp = child.props as Record<string, unknown>;
+      if (child.type === 'note') {
+        editor.createShapes<TLNoteShape>([{
+          id: createShapeId(), type: 'note',
+          parentId: newFrameId, x: child.x, y: child.y,
+          props: {
+            richText: cp.richText as TLRichText ?? toRichText(''),
+            color: (cp.color as TLColor) ?? 'yellow',
+          },
+        }]);
+        copied++;
+      } else if (child.type === 'text') {
+        editor.createShapes<TLTextShape>([{
+          id: createShapeId(), type: 'text',
+          parentId: newFrameId, x: child.x, y: child.y,
+          props: {
+            richText: cp.richText as TLRichText ?? toRichText(''),
+            color: (cp.color as TLColor) ?? 'black',
+            autoSize: (cp.autoSize as boolean) ?? true,
+            w: safeCoord(cp.w, 200),
+            scale: safeCoord(cp.scale, 1),
+          },
+        }]);
+        copied++;
+      } else if (child.type === 'geo') {
+        editor.createShapes<TLGeoShape>([{
+          id: createShapeId(), type: 'geo',
+          parentId: newFrameId, x: child.x, y: child.y,
+          props: {
+            geo: (cp.geo as TLGeoShapeGeoStyle) ?? 'rectangle',
+            w: safeCoord(cp.w, 200), h: safeCoord(cp.h, 120),
+            richText: cp.richText as TLRichText ?? toRichText(''),
+            color: (cp.color as TLColor) ?? 'blue',
+            fill: mapFill(cp.fill),
+            scale: 1,
+          },
+        }]);
+        copied++;
+      } else if (child.type === 'arrow') {
+        const ap = cp as { start?: { x: number; y: number }; end?: { x: number; y: number }; richText?: TLRichText; color?: string; arrowheadEnd?: string; arrowheadStart?: string };
+        editor.createShapes<TLArrowShape>([{
+          id: createShapeId(), type: 'arrow',
+          parentId: newFrameId, x: child.x, y: child.y,
+          props: {
+            start: ap.start ?? { x: 0, y: 0 },
+            end: ap.end ?? { x: 200, y: 0 },
+            richText: ap.richText ?? toRichText(''),
+            color: mapColor(ap.color, 'grey'),
+            arrowheadEnd: (ap.arrowheadEnd as TLArrowShape['props']['arrowheadEnd']) ?? 'arrow',
+            arrowheadStart: (ap.arrowheadStart as TLArrowShape['props']['arrowheadStart']) ?? 'none',
+          } as TLArrowShape['props'],
+        }]);
+        copied++;
+      } else if (child.type === 'image') {
+        const imgP = cp as { assetId?: string; w?: number; h?: number };
+        let srcUrl = '';
+        if (imgP.assetId) {
+          try {
+            const asset = editor.getAsset(imgP.assetId as Parameters<Editor['getAsset']>[0]) as { props?: { src?: string } } | undefined;
+            srcUrl = asset?.props?.src ?? '';
+          } catch { /* ignore */ }
+        }
+        if (srcUrl) {
+          const imgW = safeCoord(imgP.w, fw);
+          const imgH = safeCoord(imgP.h, fh);
+          const imgName = srcUrl.split('/').pop()?.split('?')[0] ?? 'image';
+          const imgId = _createImageShape(srcUrl, imgName, child.x, child.y, imgW, imgH, newFrameId);
+          // Preserve background z-order: full-frame images go to back
+          const isBg2 = imgW >= fw * bgThreshold && imgH >= fh * bgThreshold;
+          if (isBg2) { try { editor.sendToBack([imgId as TLShapeId]); } catch { /* older tldraw */ } }
+          copied++;
+        }
+      }
+      // Nested frames and other unknown shape types are skipped
+    };
+
+    // Backgrounds first (they end up behind content via sendToBack)
+    for (const bg of bgChildren) { try { copyChild(bg); } catch { /* skip */ } }
+    // Then content shapes on top
+    for (const content of contentChildren) { try { copyChild(content); } catch { /* skip */ } }
+
+    return { count: 1 + copied, shapeId: newFrameId };
   }
 
   return { count: 0, shapeId: null };
