@@ -607,6 +607,34 @@ button:focus-visible,
 }
 /* Re-use .copilot-lock-label for the text inside */
 
+/* ── Copilot tab-switch overlay (full-window, fixed) ── */
+.copilot-tab-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  pointer-events: all;
+  backdrop-filter: blur(4px) brightness(0.78) saturate(0.85);
+  -webkit-backdrop-filter: blur(4px) brightness(0.78) saturate(0.85);
+  background: rgba(14, 11, 8, 0.55);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  animation: copilot-lock-fade 2.4s ease-in-out infinite;
+}
+.copilot-tab-overlay::before {
+  content: '∿';
+  font-size: 20px;
+  color: rgba(255,255,255,0.45);
+  line-height: 1;
+}
+.copilot-tab-overlay::after {
+  content: '☕';
+  font-size: 32px;
+  line-height: 1;
+}
+
 /* ── Suppress pointer-events on embedded content during any resize drag ── */
 body.is-resizing iframe,
 body.is-resizing canvas,

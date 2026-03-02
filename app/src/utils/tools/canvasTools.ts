@@ -14,6 +14,7 @@ import {
 import { renderHtmlOffscreen } from '../htmlPreview';
 import { lockFile, unlockFile } from '../../services/copilotLock';
 import { getMimeType } from '../mime';
+import { getCanvasEditor, ensureCanvasTabOpen, setCopilotOverlay } from '../canvasRegistry';
 import type { ToolDefinition, DomainExecutor } from './shared';
 
 // ── Tool definitions ─────────────────────────────────────────────────────────
@@ -33,10 +34,14 @@ export const CANVAS_TOOL_DEFS: ToolDefinition[] = [
     function: {
       name: 'canvas_op',
       description:
-        'Create, update, move, or delete shapes on the currently open canvas (.tldr.json file). Only operates on the file that is currently open in the editor tab — if you need to edit a different file, tell the user to open it first. Only call this when the user is looking at a canvas. Call list_canvas_shapes first if the user wants to modify existing shapes — you need the IDs.',
+        'Create, update, move, or delete shapes on a canvas (.tldr.json file). You MUST pass expected_file with the relative path of the canvas you intend to edit (e.g. "aulas/Aula-02.tldr.json") — the tool will automatically switch to that tab if needed. Call list_canvas_shapes first if the user wants to modify existing shapes — you need the IDs.',
       parameters: {
         type: 'object',
         properties: {
+          expected_file: {
+            type: 'string',
+            description: 'Relative workspace path of the canvas file you intend to edit, e.g. "aulas/Aula-02.tldr.json". Must match the currently open tab — the tool will return an error if it does not, so the user knows to switch files before proceeding.',
+          },
           commands: {
             type: 'string',
             description: [
@@ -58,7 +63,7 @@ export const CANVAS_TOOL_DEFS: ToolDefinition[] = [
             ].join('\n'),
           },
         },
-        required: ['commands'],
+        required: ['expected_file', 'commands'],
       },
     },
   },
@@ -130,7 +135,8 @@ export const executeCanvasTools: DomainExecutor = async (name, args, ctx) => {
 
     // ── list_canvas_shapes ──────────────────────────────────────────────
     case 'list_canvas_shapes': {
-      const editor = canvasEditor.current;
+      const regEditor = activeFile ? getCanvasEditor(activeFile) : undefined;
+      const editor = regEditor ?? canvasEditor.current;
       if (!editor) return 'No canvas is currently open. Ask the user to open a .tldr.json canvas file first.';
       // Always prefix with the open file so the AI can verify it is editing the right file.
       const fileHeader = activeFile ? `Canvas file: ${activeFile}` : '';
@@ -140,14 +146,29 @@ export const executeCanvasTools: DomainExecutor = async (name, args, ctx) => {
 
     // ── canvas_op ───────────────────────────────────────────────────────
     case 'canvas_op': {
-      const editor = canvasEditor.current;
-      if (!editor) return 'No canvas is currently open. Ask the user to open a .tldr.json canvas file first.';
+      // Show overlay and auto-switch to the target canvas tab if needed
+      const expectedFile = String(args.expected_file ?? '').trim();
+      setCopilotOverlay(true);
+      try {
+        if (expectedFile) await ensureCanvasTabOpen(expectedFile);
+      } catch (e) {
+        setCopilotOverlay(false);
+        return `Error opening canvas tab "${expectedFile}": ${e instanceof Error ? e.message : String(e)}`;
+      }
+      // Resolve editor: prefer registry lookup for the target file
+      const targetFile = expectedFile || (activeFile ?? '');
+      const editor = (targetFile ? getCanvasEditor(targetFile) : undefined) ?? canvasEditor.current;
+      if (!editor) {
+        setCopilotOverlay(false);
+        return 'No canvas is currently open. Ask the user to open a .tldr.json canvas file first.';
+      }
+
       const rawCommands = String(args.commands ?? '');
       const stripped = rawCommands
         .replace(/^```canvas\r?\n/, '')
         .replace(/\n```\s*$/, '');
       const fenced = '```canvas\n' + stripped + '\n```';
-      if (activeFile) lockFile(activeFile, ctx.agentId);
+      if (targetFile) lockFile(targetFile, ctx.agentId);
       await new Promise<void>((r) => setTimeout(r, 0));
       let count = 0;
       let shapeIds: string[] = [];
@@ -155,7 +176,8 @@ export const executeCanvasTools: DomainExecutor = async (name, args, ctx) => {
       try {
         ({ count, shapeIds, errors } = executeCanvasCommands(editor, fenced));
       } finally {
-        if (activeFile) unlockFile(activeFile);
+        if (targetFile) unlockFile(targetFile);
+        setCopilotOverlay(false);
       }
       if (count === 0) {
         if (errors.length > 0) {
@@ -164,7 +186,7 @@ export const executeCanvasTools: DomainExecutor = async (name, args, ctx) => {
         return `No commands were executed. Check the command syntax.`;
       }
       onCanvasModified?.(shapeIds);
-      const fileTag = activeFile ? ` on ${activeFile.split('/').pop()}` : '';
+      const fileTag = targetFile ? ` on ${targetFile.split('/').pop()}` : '';
       return `Executed ${count} canvas operation(s) successfully${fileTag}.`;
     }
 

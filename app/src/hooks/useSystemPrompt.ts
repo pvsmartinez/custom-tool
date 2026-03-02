@@ -90,7 +90,8 @@ export function useSystemPrompt({
       `Canvas files (.tldr.json) are tldraw v4 whiteboards. Rules:
 • NEVER write raw JSON to a canvas file — use canvas_op exclusively.
 • NEVER use read_workspace_file on a .tldr.json file — it is blocked and will return an error. Canvas files contain base64 images that overflow the context. Use list_canvas_shapes to inspect the open canvas. Image shapes in the summary include their assetId so you can reuse backgrounds and images without reading the raw file.
-• canvas_op and list_canvas_shapes ONLY operate on the currently open canvas tab. If the user asks you to edit a different canvas file than the one currently open, you MUST tell the user: "Abre o arquivo X primeiro" and wait — do NOT attempt to use run_command or any other workaround to switch files or write to a different file.
+• canvas_op requires an expected_file parameter (the relative path of the canvas you intend to edit, e.g. "aulas/Aula-02.tldr.json"). The tool will automatically switch to that tab and show a "Copilot a trabalhar…" overlay — you do NOT need to ask the user to open the file. Never omit expected_file.
+• list_canvas_shapes only operates on the currently open canvas tab — always check the "Canvas file:" line it returns to confirm you are on the right file before calling canvas_op.
 • NEVER use run_command (Python, bash, shell redirect, or any script) to create or overwrite a .tldr.json file. The internal tldraw format has strict schema version requirements — even a JSON-valid file written by hand will crash the canvas on load. run_command will block the attempt and return an error. (Deleting or renaming/moving a canvas file with rm/mv is fine.)
 • list_canvas_shapes returns each shape's ID, position, size, and — critically — the "Occupied area" and "Next free row" so you know exactly where existing content ends and where to safely add new content.
 • Always read the occupied area before adding shapes to avoid overlaps.

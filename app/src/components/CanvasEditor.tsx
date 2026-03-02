@@ -26,6 +26,7 @@ import {
   SLIDE_LAYOUT_OPTIONS, applySlideLayout,
 } from './canvas/canvasTheme';
 import { tauriAssetsStore, clearAssetBlobCache } from './canvas/canvasAssets';
+import { registerCanvasEditor, unregisterCanvasEditor } from '../utils/canvasRegistry';
 import { loadFontOverrides, applyFontOverridesToContainer } from './canvas/canvasFontOverrides';
 import { CanvasOverlays } from './canvas/CanvasOverlays';
 
@@ -188,7 +189,10 @@ export default function CanvasEditor({
 
   // ── Clear blob URL cache when this canvas instance unmounts ─────────────────
   useEffect(() => {
-    return () => { clearAssetBlobCache(); };
+    return () => {
+      clearAssetBlobCache();
+      if (canvasRelPath) unregisterCanvasEditor(canvasRelPath);
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -308,6 +312,8 @@ export default function CanvasEditor({
   function handleMount(editor: Editor) {
     editorRef.current = editor;
     onEditorReady?.(editor);
+    // Register in the global registry so canvas_op can find this editor by file path.
+    if (canvasRelPath) registerCanvasEditor(canvasRelPath, editor);
 
     try {
       editor.user.updateUserPreferences({ colorScheme: darkMode ? 'dark' : 'light', isSnapMode: true });

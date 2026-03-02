@@ -39,6 +39,7 @@ import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import type { TLShapeId } from 'tldraw';
 const CanvasEditor = lazy(() => import('./components/CanvasEditor'));
 import { canvasAIContext, executeCanvasCommands } from './utils/canvasAI';
+import { registerCanvasTabControls, getCanvasEditor } from './utils/canvasRegistry';
 import { exportMarkdownToPDF } from './utils/exportPDF';
 import {
   readFile,
@@ -191,6 +192,30 @@ export default function App() {
     canvasResetKey, setCanvasResetKey,
     canvasSlideCount, setCanvasSlideCount,
   } = useCanvasState();
+  // ── Copilot tab-switch overlay ───────────────────────────────────────────
+  const [copilotOverlayActive, setCopilotOverlayActive] = useState(false);
+  const copilotTabSwitchRef = useRef<(relPath: string) => Promise<void>>(async () => {});
+  copilotTabSwitchRef.current = async (relPath: string) => {
+    if (getCanvasEditor(relPath)) return; // already mounted — nothing to do
+    await handleOpenFile(relPath);
+    await new Promise<void>((resolve, reject) => {
+      const start = Date.now();
+      const check = () => {
+        if (!mountedRef.current) { reject(new Error('Component unmounted')); return; }
+        if (getCanvasEditor(relPath)) { resolve(); return; }
+        if (Date.now() - start > 10_000) { reject(new Error('Canvas editor did not mount in time')); return; }
+        setTimeout(check, 80);
+      };
+      check();
+    });
+  };
+  useEffect(() => {
+    registerCanvasTabControls(
+      (r) => copilotTabSwitchRef.current(r),
+      setCopilotOverlayActive,
+    );
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   // ── Panel resize (sidebar ↔ editor ↔ AI panel) ───────────────────────────
   const { sidebarWidth, aiPanelWidth, startSidebarDrag, startAiDrag } = useDragResize();
   const { autosaveDelayRef, scheduleAutosave, cancelAutosave } = useAutosave({
@@ -1653,6 +1678,11 @@ export default function App() {
         />
       )}
 
+      {copilotOverlayActive && (
+        <div className="copilot-tab-overlay" aria-live="polite">
+          <span className="copilot-lock-label">Copilot a trabalhar…</span>
+        </div>
+      )}
 
     </div>
   );
